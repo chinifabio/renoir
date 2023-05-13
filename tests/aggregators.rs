@@ -87,3 +87,20 @@ fn group_by_count() {
         }
     });
 }
+
+#[test]
+fn max(){
+    TestHelper::local_remote_env(|mut env| {
+        let source = IteratorSource::new(vec![
+            1,2,0,5,9,3,7,6,4,8
+        ]
+        .into_iter());
+        let res = env.stream(source).max(|&n| n).collect_vec();
+        env.execute();
+
+
+        if let Some(res) = res.get() {
+            assert_eq!(res[0], 9u8);
+        }
+    });
+}

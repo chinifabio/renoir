@@ -80,6 +80,7 @@ pub mod source;
 pub(crate) mod start;
 pub mod window;
 pub(crate) mod zip;
+pub mod max;
 
 /// Marker trait that all the types inside a stream should implement.
 pub trait Data: Clone + Send + 'static {}
