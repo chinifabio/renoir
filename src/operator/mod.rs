@@ -69,8 +69,10 @@ pub mod join;
 pub(crate) mod key_by;
 pub(crate) mod keyed_fold;
 pub(crate) mod map;
+pub mod max;
 pub(crate) mod max_parallelism;
 pub(crate) mod merge;
+pub mod min;
 pub(crate) mod reorder;
 pub(crate) mod rich_map;
 pub(crate) mod rich_map_custom;
@@ -80,7 +82,6 @@ pub mod source;
 pub(crate) mod start;
 pub mod window;
 pub(crate) mod zip;
-pub mod max;
 
 /// Marker trait that all the types inside a stream should implement.
 pub trait Data: Clone + Send + 'static {}
