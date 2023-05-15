@@ -102,10 +102,36 @@ fn max() {
 }
 
 #[test]
+fn max_assoc() {
+    TestHelper::local_remote_env(|mut env| {
+        let source = IteratorSource::new(vec![1, 2, 0, 5, 9, 3, 7, 6, 4, 8].into_iter());
+        let res = env.stream(source).max_assoc(|&n| n).collect_vec();
+        env.execute();
+
+        if let Some(res) = res.get() {
+            assert_eq!(res, [9u8]);
+        }
+    });
+}
+
+#[test]
 fn min() {
     TestHelper::local_remote_env(|mut env| {
         let source = IteratorSource::new(vec![1, 2, 0, 5, 9, 3, 7, 6, 4, 8].into_iter());
         let res = env.stream(source).min(|&n| n).collect_vec();
+        env.execute();
+
+        if let Some(res) = res.get() {
+            assert_eq!(res, [0u8]);
+        }
+    });
+}
+
+#[test]
+fn min_assoc() {
+    TestHelper::local_remote_env(|mut env| {
+        let source = IteratorSource::new(vec![1, 2, 0, 5, 9, 3, 7, 6, 4, 8].into_iter());
+        let res = env.stream(source).min_assoc(|&n| n).collect_vec();
         env.execute();
 
         if let Some(res) = res.get() {
