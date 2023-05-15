@@ -139,3 +139,16 @@ fn min_assoc() {
         }
     });
 }
+
+#[test]
+fn mean() {
+    TestHelper::local_remote_env(|mut env| {
+        let source = IteratorSource::new(0..10);
+        let res = env.stream(source).mean(|&n| n as f64).collect_vec();
+        env.execute();
+
+        if let Some(res) = res.get() {
+            assert_eq!(res, [4.5]);
+        }
+    });
+}

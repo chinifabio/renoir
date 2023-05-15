@@ -71,6 +71,7 @@ pub(crate) mod keyed_fold;
 pub(crate) mod map;
 pub mod max;
 pub(crate) mod max_parallelism;
+pub mod mean;
 pub(crate) mod merge;
 pub mod min;
 pub(crate) mod reorder;
