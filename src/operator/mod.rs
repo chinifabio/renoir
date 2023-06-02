@@ -72,6 +72,7 @@ pub(crate) mod map;
 pub mod max;
 pub(crate) mod max_parallelism;
 pub mod mean;
+pub mod median_exact;
 pub(crate) mod merge;
 pub mod min;
 pub(crate) mod reorder;
