@@ -9,15 +9,14 @@ use crate::operator::{ExchangeData, Operator, StreamElement};
 use crate::scheduler::ExecutionMetadata;
 use crate::Stream;
 
-use super::{Data, Timestamp};
+use super::Timestamp;
 
 #[derive(Debug)]
-pub struct MedianExact<Out, PreviousOperators, NewOut, F>
+pub struct MedianExact<Out: ExchangeData, PreviousOperators, NewOut, F>
 where
-    Out: ExchangeData,
-    NewOut: ExchangeData + Ord + Add<Output = NewOut> + Div<i32, Output = NewOut>,
+    NewOut: ExchangeData + Ord + Add<Output = NewOut> + Div<f32, Output = NewOut>,
     PreviousOperators: Operator<Out>,
-    F: Fn(&Out) -> NewOut + Clone + Send + Copy + 'static,
+    F: Fn(Out) -> NewOut + Clone + Send + Copy + 'static,
 {
     prev: PreviousOperators,
     max_heap: BinaryHeap<NewOut>,
@@ -34,9 +33,9 @@ where
 impl<Out, PreviousOperators, NewOut, F> MedianExact<Out, PreviousOperators, NewOut, F>
 where
     Out: ExchangeData,
-    NewOut: ExchangeData + Ord + Add<Output = NewOut> + Div<i32, Output = NewOut>,
+    NewOut: ExchangeData + Ord + Add<Output = NewOut> + Div<f32, Output = NewOut>,
     PreviousOperators: Operator<Out>,
-    F: Fn(&Out) -> NewOut + Clone + Send + Copy + 'static,
+    F: Fn(Out) -> NewOut + Clone + Send + Copy + 'static,
 {
     pub(crate) fn new(prev: PreviousOperators, get_value: F) -> Self {
         Self {
@@ -58,9 +57,9 @@ impl<Out: ExchangeData, PreviousOperators, NewOut, F> Display
     for MedianExact<Out, PreviousOperators, NewOut, F>
 where
     Out: ExchangeData,
-    NewOut: ExchangeData + Ord + Add<Output = NewOut> + Div<i32, Output = NewOut>,
+    NewOut: ExchangeData + Ord + Add<Output = NewOut> + Div<f32, Output = NewOut>,
     PreviousOperators: Operator<Out>,
-    F: Fn(&Out) -> NewOut + Clone + Send + Copy + 'static,
+    F: Fn(Out) -> NewOut + Clone + Send + Copy + 'static,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} -> CollectVecSink", self.prev)
@@ -71,9 +70,9 @@ impl<Out, PreviousOperators, NewOut, F> Operator<NewOut>
     for MedianExact<Out, PreviousOperators, NewOut, F>
 where
     Out: ExchangeData,
-    NewOut: ExchangeData + Ord + Add<Output = NewOut> + Div<i32, Output = NewOut>,
+    NewOut: ExchangeData + Ord + Add<Output = NewOut> + Div<f32, Output = NewOut>,
     PreviousOperators: Operator<Out>,
-    F: Fn(&Out) -> NewOut + Clone + Send + Copy + 'static,
+    F: Fn(Out) -> NewOut + Clone + Send + Copy + 'static,
 {
     fn setup(&mut self, metadata: &mut ExecutionMetadata) {
         self.prev.setup(metadata);
@@ -83,7 +82,7 @@ where
         while !self.received_end {
             match self.prev.next() {
                 StreamElement::Item(t) => {
-                    let v = (self.get_value)(&t);
+                    let v = (self.get_value)(t);
                     if !self.min_heap.is_empty() && v < self.min_heap.peek().unwrap().clone().0 {
                         self.max_heap.push(v);
                         if self.max_heap.len() > self.min_heap.len() + 1 {
@@ -98,7 +97,7 @@ where
                 }
                 StreamElement::Timestamped(t, ts) => {
                     self.timestamp = Some(self.timestamp.unwrap_or(ts).max(ts));
-                    let v = (self.get_value)(&t);
+                    let v = (self.get_value)(t);
                     if !self.min_heap.is_empty() && v < self.min_heap.peek().unwrap().clone().0 {
                         self.max_heap.push(v);
                         if self.max_heap.len() > self.min_heap.len() + 1 {
@@ -126,7 +125,7 @@ where
                             self.result = Some(
                                 (self.max_heap.peek().cloned().unwrap()
                                     + self.min_heap.peek().cloned().unwrap().0)
-                                    / 2,
+                                    / 2.0,
                             );
                         }
                     }
@@ -171,24 +170,25 @@ impl<Out: ExchangeData, PreviousOperators, NewOut, F> Clone
     for MedianExact<Out, PreviousOperators, NewOut, F>
 where
     Out: ExchangeData,
-    NewOut: ExchangeData + Ord + Add<Output = NewOut> + Div<i32, Output = NewOut>,
+    NewOut: ExchangeData + Ord + Add<Output = NewOut> + Div<f32, Output = NewOut>,
     PreviousOperators: Operator<Out>,
-    F: Fn(&Out) -> NewOut + Clone + Send + Copy + 'static,
+    F: Fn(Out) -> NewOut + Clone + Send + Copy + 'static,
 {
     fn clone(&self) -> Self {
         panic!("MedianExact cannot be cloned, max_parallelism should be 1");
     }
 }
 
-impl<I, Op> Stream<I, Op>
+impl<D, Op> Stream<D, Op>
 where
-    I: Data,
-    Op: Operator<I> + 'static,
+    D: ExchangeData,
+    Op: Operator<D> + 'static,
 {
-    pub fn median_exact<F>(self, get_value: F) -> Stream<I, impl Operator<I>>
+    pub fn median_exact<F, I>(self, get_value: F) -> Stream<I, impl Operator<I>>
     where
-        I: ExchangeData + Ord + Add<Output = I> + Div<i32, Output = I>,
-        F: Fn(&I) -> I + Clone + Send + Copy + 'static,
+        D: ExchangeData,
+        I: ExchangeData + Ord + Add<Output = I> + Div<f32, Output = I>,
+        F: Fn(D) -> I + Clone + Send + Copy + 'static,
     {
         self.max_parallelism(1)
             .add_operator(|prev| MedianExact::new(prev, get_value))
@@ -198,16 +198,19 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        operator::{median_exact::MedianExact, Operator, StreamElement},
+        data_type::NoirType,
+        operator::Operator,
+        operator::{median_exact::MedianExact, StreamElement},
         test::FakeOperator,
     };
 
     #[test]
     fn median_exact() {
-        let fake_operator = FakeOperator::new(0..10);
-        let mut median = MedianExact::new(fake_operator, |&v| v);
+        let fake_operator =
+            FakeOperator::new([NoirType::Float32(1.0), NoirType::Float32(2.0)].into_iter());
+        let mut median = MedianExact::new(fake_operator, |v| v);
 
-        assert_eq!(median.next(), StreamElement::Item(4));
+        assert_eq!(median.next(), StreamElement::Item(NoirType::Float32(1.5)));
         assert_eq!(median.next(), StreamElement::Terminate);
     }
 }
