@@ -1,12 +1,32 @@
-use std::ops::{Add, Div, Mul};
-
 use serde::{Deserialize, Serialize};
+use std::cmp::Eq;
+use std::f32;
+use std::ops::{Add, Div, Mul};
 
 #[derive(Clone, Deserialize, Serialize, Debug, PartialEq)]
 pub enum NoirType {
     Int32(i32),
     Float32(f32),
-    Row(Row),
+    NaN(),
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct Row {
+    pub columns: Vec<NoirType>,
+}
+
+impl Row {
+    pub fn new(columns: Vec<NoirType>) -> Row {
+        Row { columns }
+    }
+
+    pub fn new_empty() -> Row {
+        Row { columns: vec![] }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.columns.is_empty()
+    }
 }
 
 #[allow(dead_code)]
@@ -15,12 +35,33 @@ impl NoirType {
         match self {
             NoirType::Int32(a) => NoirType::Float32((a as f32).sqrt()),
             NoirType::Float32(a) => NoirType::Float32(a.sqrt()),
-            NoirType::Row(mut a) => {
-                for i in 0..a.columns.len() {
-                    a.columns[i] = a.columns[i].to_owned().sqrt();
-                }
-                NoirType::Row(a)
+            NoirType::NaN() => panic!("Found NaN!"),
+        }
+    }
+
+    pub fn is_nan(&self) -> bool {
+        matches!(self, NoirType::NaN())
+    }
+}
+
+macro_rules! impl_from {
+    ($t:ty, $v:ident) => {
+        impl From<$t> for NoirType {
+            fn from(item: $t) -> Self {
+                NoirType::$v(item)
             }
+        }
+    };
+}
+
+impl_from!(i32, Int32);
+
+impl From<f32> for NoirType {
+    fn from(item: f32) -> Self {
+        if item.is_finite() {
+            NoirType::Float32(item)
+        } else {
+            NoirType::NaN()
         }
     }
 }
@@ -32,12 +73,6 @@ impl Mul for NoirType {
         match (self, rhs) {
             (NoirType::Int32(a), NoirType::Int32(b)) => NoirType::Int32(a * b),
             (NoirType::Float32(a), NoirType::Float32(b)) => NoirType::Float32(a * b),
-            (NoirType::Row(mut a), NoirType::Row(b)) => {
-                for i in 0..a.columns.len() {
-                    a.columns[i] = a.columns[i].to_owned() * b.columns[i].to_owned();
-                }
-                NoirType::Row(a)
-            }
             (_, _) => panic!("Type mismatch!"),
         }
     }
@@ -50,12 +85,7 @@ impl Mul<f32> for NoirType {
         match self {
             NoirType::Int32(a) => NoirType::Float32((a as f32) * rhs),
             NoirType::Float32(a) => NoirType::Float32(a * rhs),
-            NoirType::Row(mut a) => {
-                for i in 0..a.columns.len() {
-                    a.columns[i] = a.columns[i].to_owned() * rhs;
-                }
-                NoirType::Row(a)
-            }
+            NoirType::NaN() => panic!("Found NaN!"),
         }
     }
 }
@@ -67,12 +97,6 @@ impl Div<Self> for NoirType {
         match (self, rhs) {
             (NoirType::Int32(a), NoirType::Int32(b)) => NoirType::Float32(a as f32 / b as f32),
             (NoirType::Float32(a), NoirType::Float32(b)) => NoirType::Float32(a / b),
-            (NoirType::Row(mut a), NoirType::Row(b)) => {
-                for i in 0..a.columns.len() {
-                    a.columns[i] = a.columns[i].to_owned() / b.columns[i].to_owned();
-                }
-                NoirType::Row(a)
-            }
             (_, _) => panic!("Type mismatch!"),
         }
     }
@@ -85,12 +109,7 @@ impl Div<f32> for NoirType {
         match self {
             NoirType::Int32(a) => NoirType::Float32((a as f32) / rhs),
             NoirType::Float32(a) => NoirType::Float32(a / rhs),
-            NoirType::Row(mut a) => {
-                for i in 0..a.columns.len() {
-                    a.columns[i] = a.columns[i].to_owned() / rhs;
-                }
-                NoirType::Row(a)
-            }
+            NoirType::NaN() => panic!("Found NaN!"),
         }
     }
 }
@@ -102,12 +121,6 @@ impl Add for NoirType {
         match (self, rhs) {
             (NoirType::Int32(a), NoirType::Int32(b)) => NoirType::Int32(a + b),
             (NoirType::Float32(a), NoirType::Float32(b)) => NoirType::Float32(a + b),
-            (NoirType::Row(mut a), NoirType::Row(b)) => {
-                for i in 0..a.columns.len() {
-                    a.columns[i] = a.columns[i].to_owned() + b.columns[i].to_owned();
-                }
-                NoirType::Row(a)
-            }
             (_, _) => panic!("Type mismatch!"),
         }
     }
@@ -118,7 +131,6 @@ impl PartialOrd for NoirType {
         match (self, other) {
             (NoirType::Int32(a), NoirType::Int32(b)) => a.partial_cmp(b),
             (NoirType::Float32(a), NoirType::Float32(b)) => a.partial_cmp(b),
-            (NoirType::Row(_), NoirType::Row(_)) => todo!(),
             (_, _) => panic!("Type mismatch!"),
         }
     }
@@ -131,24 +143,17 @@ impl Ord for NoirType {
             (NoirType::Float32(a), NoirType::Float32(b)) => {
                 a.partial_cmp(b).unwrap_or_else(|| panic!("Found NaN!"))
             }
-            (NoirType::Row(_), NoirType::Row(_)) => todo!(),
             (_, _) => panic!("Type mismatch!"),
         }
     }
 }
 
 impl Eq for NoirType {}
-
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, PartialOrd)]
-pub struct Row {
-    columns: Vec<NoirType>,
-}
+impl Eq for Row {}
 
 #[cfg(test)]
 mod tests {
     use std::cmp::Ordering;
-
-    use crate::data_type::Row;
 
     use super::NoirType;
 
@@ -182,19 +187,6 @@ mod tests {
         let i_b = NoirType::Int32(3);
 
         assert_eq!(i_a + i_b, NoirType::Int32(5));
-
-        let r_a = NoirType::Row(Row {
-            columns: vec![NoirType::Float32(3.0), NoirType::Float32(1.0)],
-        });
-        let r_b = NoirType::Row(Row {
-            columns: vec![NoirType::Float32(4.0), NoirType::Float32(2.0)],
-        });
-        assert_eq!(
-            r_a + r_b,
-            NoirType::Row(Row {
-                columns: vec![NoirType::Float32(7.0), NoirType::Float32(3.0)]
-            })
-        );
     }
 
     #[test]
@@ -210,19 +202,6 @@ mod tests {
 
         assert_eq!(i_a.clone() / i_b, NoirType::Float32(2.0));
         assert_eq!(i_a / 3.0, NoirType::Float32(2.0));
-
-        let r_a = NoirType::Row(Row {
-            columns: vec![NoirType::Float32(8.0), NoirType::Float32(1.0)],
-        });
-        let r_b = NoirType::Row(Row {
-            columns: vec![NoirType::Float32(4.0), NoirType::Float32(2.0)],
-        });
-        assert_eq!(
-            r_a / r_b,
-            NoirType::Row(Row {
-                columns: vec![NoirType::Float32(2.0), NoirType::Float32(0.5)]
-            })
-        );
     }
 
     #[test]
@@ -238,19 +217,6 @@ mod tests {
 
         assert_eq!(i_a.clone() * i_b, NoirType::Int32(18));
         assert_eq!(i_a * 3.0, NoirType::Float32(18.0));
-
-        let r_a = NoirType::Row(Row {
-            columns: vec![NoirType::Float32(2.0), NoirType::Float32(1.0)],
-        });
-        let r_b = NoirType::Row(Row {
-            columns: vec![NoirType::Float32(4.0), NoirType::Float32(2.0)],
-        });
-        assert_eq!(
-            r_a * r_b,
-            NoirType::Row(Row {
-                columns: vec![NoirType::Float32(8.0), NoirType::Float32(2.0)]
-            })
-        );
     }
 
     #[test]
@@ -262,15 +228,5 @@ mod tests {
         let i_a = NoirType::Int32(9);
 
         assert_eq!(i_a.sqrt(), NoirType::Float32(3.0));
-
-        let r_a = NoirType::Row(Row {
-            columns: vec![NoirType::Float32(9.0), NoirType::Float32(1.0)],
-        });
-        assert_eq!(
-            r_a.sqrt(),
-            NoirType::Row(Row {
-                columns: vec![NoirType::Float32(3.0), NoirType::Float32(1.0)]
-            })
-        );
     }
 }
