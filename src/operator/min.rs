@@ -1,5 +1,5 @@
 use super::{fold::Fold, Data, ExchangeData, Operator};
-use crate::Stream;
+use crate::{Replication, Stream};
 
 impl<I, Op> Stream<I, Op>
 where
@@ -32,7 +32,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..5)));
     /// let res = s.min(|&n| n).collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), vec![0]);
     /// ```
@@ -42,7 +42,7 @@ where
         F: Fn(&I) -> O + Clone + Send + 'static,
         I: ExchangeData,
     {
-        self.max_parallelism(1)
+        self.replication(Replication::One)
             .add_operator(|prev| {
                 Fold::new(prev, None, move |acc: &mut Option<I>, b: I| {
                     *acc = Some(if let Some(a) = acc.take() {
@@ -82,7 +82,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..5)));
     /// let res = s.min_assoc(|&n| n).collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), vec![0]);
     /// ```
@@ -106,7 +106,7 @@ where
             })
         })
         .map(|value| value.unwrap())
-        .max_parallelism(1)
+        .replication(Replication::One)
         .add_operator(|prev| {
             Fold::new(prev, None, move |acc, b| {
                 *acc = Some(if let Some(a) = acc.take() {

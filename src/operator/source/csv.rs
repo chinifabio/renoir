@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use csv::{Reader, ReaderBuilder, Terminator, Trim};
 use serde::Deserialize;
 
-use crate::block::{BlockStructure, OperatorKind, OperatorStructure};
+use crate::block::{BlockStructure, OperatorKind, OperatorStructure, Replication};
 use crate::operator::source::Source;
 use crate::operator::{Data, Operator, StreamElement};
 use crate::scheduler::ExecutionMetadata;
@@ -259,8 +259,8 @@ impl<Out: Data + for<'a> Deserialize<'a>> CsvSource<Out> {
 }
 
 impl<Out: Data + for<'a> Deserialize<'a>> Source<Out> for CsvSource<Out> {
-    fn max_parallelism(&self) -> Option<usize> {
-        None
+    fn replication(&self) -> Replication {
+        Replication::Unlimited
     }
 }
 
@@ -447,7 +447,7 @@ mod tests {
                 let mut env = StreamEnvironment::new(EnvironmentConfig::local(4));
                 let source = CsvSource::<(i32, i32)>::new(file.path()).has_headers(false);
                 let res = env.stream(source).shuffle().collect_vec();
-                env.execute();
+                env.execute_blocking();
 
                 let mut res = res.get().unwrap();
                 res.sort_unstable();
@@ -475,7 +475,7 @@ mod tests {
                 let mut env = StreamEnvironment::new(EnvironmentConfig::local(4));
                 let source = CsvSource::<T>::new(file.path());
                 let res = env.stream(source).shuffle().collect_vec();
-                env.execute();
+                env.execute_blocking();
 
                 let res = res
                     .get()

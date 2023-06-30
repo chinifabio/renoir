@@ -1,7 +1,7 @@
 use std::fmt::Display;
 use std::ops::Range;
 
-use crate::block::{BlockStructure, OperatorKind, OperatorStructure};
+use crate::block::{BlockStructure, OperatorKind, OperatorStructure, Replication};
 use crate::operator::source::Source;
 use crate::operator::{Data, Operator, StreamElement};
 use crate::scheduler::ExecutionMetadata;
@@ -36,7 +36,9 @@ impl IntoParallelSource for Range<u64> {
         let n = self.end - self.start;
         let chunk_size = (n.saturating_add(peers - 1)) / peers;
         let start = self.start.saturating_add(index * chunk_size);
-        let end = (start.saturating_add(chunk_size)).min(self.end - 1);
+        let end = (start.saturating_add(chunk_size))
+            .min(self.end)
+            .max(self.start);
 
         start..end
     }
@@ -55,7 +57,9 @@ macro_rules! impl_into_parallel_source {
                 let n = self.end as i64 - self.start as i64;
                 let chunk_size = (n.saturating_add(peers - 1)) / peers;
                 let start = (self.start as i64).saturating_add(index * chunk_size);
-                let end = (start.saturating_add(chunk_size)).min(self.end as i64 - 1);
+                let end = (start.saturating_add(chunk_size))
+                    .min(self.end as i64)
+                    .max(self.start as i64);
 
                 let (start, end) = (start.try_into().unwrap(), end.try_into().unwrap());
                 start..end
@@ -198,8 +202,8 @@ where
     S::Item: Data,
     S::Iter: Send,
 {
-    fn max_parallelism(&self) -> Option<usize> {
-        None
+    fn replication(&self) -> Replication {
+        Replication::Unlimited
     }
 }
 
@@ -278,7 +282,7 @@ impl crate::StreamEnvironment {
     ///     })
     ///    .for_each(|q| println!("b: {q}"));
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     /// ```
     pub fn stream_par_iter<Source>(
         &mut self,

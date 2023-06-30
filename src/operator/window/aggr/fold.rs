@@ -90,7 +90,7 @@ where
 
 impl<Key, Out, WindowDescr, OperatorChain> WindowedStream<Key, Out, OperatorChain, Out, WindowDescr>
 where
-    WindowDescr: WindowBuilder<Out>,
+    WindowDescr: WindowDescription<Out>,
     OperatorChain: Operator<(Key, Out)> + 'static,
     Key: DataKey,
     Out: Data,
@@ -117,7 +117,7 @@ where
     ///     .fold(1, |acc, n| *acc *= n)
     ///     .collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// res.sort_unstable();

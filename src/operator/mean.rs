@@ -1,7 +1,7 @@
 use std::ops::{AddAssign, Div};
 
 use super::{fold::Fold, Data, ExchangeData, Operator};
-use crate::Stream;
+use crate::{Replication, Stream};
 
 impl<I, Op> Stream<I, Op>
 where
@@ -27,7 +27,7 @@ where
     ///     .mean(|&n| n as f64)
     ///     .collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), vec![4.5]);
     /// ```
@@ -45,7 +45,7 @@ where
                 }
             })
         })
-        .max_parallelism(1)
+        .replication(Replication::One)
         .add_operator(|prev| {
             Fold::new(
                 prev,

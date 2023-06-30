@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use crate::block::{
     Block, BlockStructure, Connection, NextStrategy, OperatorReceiver, OperatorStructure,
+    Replication,
 };
 use crate::channel::RecvError::Disconnected;
 use crate::channel::SelectResult;
@@ -352,7 +353,7 @@ where
     /// );
     /// let state = state.collect_vec();
     /// let items = items.collect_vec();
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(state.get().unwrap(), vec![10 + 11 + 12 + 20 + 21 + 22 + 30 + 31 + 32]);
     /// assert_eq!(items.get().unwrap(), vec![30, 31, 32]);
@@ -384,7 +385,7 @@ where
         // this is required because if the iteration block is not present on all the hosts, the ones
         // without it won't receive the state updates.
         assert!(
-            self.block.scheduler_requirements.max_parallelism.is_none(),
+            self.block.scheduler_requirements.replication.is_unlimited(),
             "Cannot have an iteration block with limited parallelism"
         );
 
@@ -551,7 +552,7 @@ where
 }
 
 impl<Out: ExchangeData, State: ExchangeData + Sync> Source<Out> for Iterate<Out, State> {
-    fn max_parallelism(&self) -> Option<usize> {
-        None
+    fn replication(&self) -> Replication {
+        Replication::Unlimited
     }
 }

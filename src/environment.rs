@@ -1,4 +1,3 @@
-use micrometer::Span;
 use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use std::any::TypeId;
@@ -47,8 +46,6 @@ pub(crate) struct StreamEnvironmentInner {
 pub struct StreamEnvironment {
     /// Reference to the actual content of the environment.
     inner: Arc<Mutex<StreamEnvironmentInner>>,
-    /// Measure the time for building the graph.
-    build_time: Span<'static>,
 }
 
 impl Default for StreamEnvironment {
@@ -66,10 +63,8 @@ impl StreamEnvironment {
         if !config.skip_single_remote_check {
             Self::single_remote_environment_check(&config);
         }
-        micrometer::span!(noir_build_time);
         StreamEnvironment {
             inner: Arc::new(Mutex::new(StreamEnvironmentInner::new(config))),
-            build_time: noir_build_time,
         }
     }
 
@@ -115,23 +110,25 @@ impl StreamEnvironment {
     /// Start the computation. Await on the returned future to actually start the computation.
     #[cfg(feature = "async-tokio")]
     pub async fn execute(self) {
-        drop(self.build_time);
-        let _stopwatch = Stopwatch::new("execution");
         let mut env = self.inner.lock();
         info!("starting execution ({} blocks)", env.block_count);
         let scheduler = env.scheduler.take().unwrap();
-        scheduler.start(env.block_count).await;
+        let block_count = env.block_count;
+        drop(env);
+        scheduler.start(block_count).await;
+        info!("finished execution");
     }
 
-    /// Start the computation. Await on the returned future to actually start the computation.
-    #[cfg(not(feature = "async-tokio"))]
-    pub fn execute(self) {
-        drop(self.build_time);
-        micrometer::span!("noir_execution");
+    /// Start the computation. Blocks until the computation is complete.
+    ///
+    /// Execute on a thread or use the async version [`execute`]
+    /// for non-blocking alternatives
+    pub fn execute_blocking(self) {
         let mut env = self.inner.lock();
         info!("starting execution ({} blocks)", env.block_count);
         let scheduler = env.scheduler.take().unwrap();
-        scheduler.start(env.block_count);
+        scheduler.start_blocking(env.block_count);
+        info!("finished execution");
     }
 
     /// Get the total number of processing cores in the cluster.
@@ -185,14 +182,10 @@ impl StreamEnvironmentInner {
             }
         }
 
-        let source_max_parallelism = source.max_parallelism();
+        let source_replication = source.replication();
         let mut block = env.new_block(source, Default::default(), Default::default());
 
-        if let Some(p) = source_max_parallelism {
-            block
-                .scheduler_requirements
-                .max_parallelism(p.try_into().expect("Parallelism level > max id"));
-        }
+        block.scheduler_requirements.replication(source_replication);
         drop(env);
         Stream { block, env: env_rc }
     }
@@ -204,8 +197,8 @@ impl StreamEnvironmentInner {
         iteration_ctx: Vec<Arc<IterationStateLock>>,
     ) -> Block<Out, S> {
         let new_id = self.new_block_id();
-        let parallelism = source.max_parallelism();
-        info!("new block (b{new_id:02}), max_parallelism {parallelism:?}",);
+        let parallelism = source.replication();
+        info!("new block (b{new_id:02}), replication {parallelism:?}",);
         Block::new(new_id, source, batch_mode, iteration_ctx)
     }
 

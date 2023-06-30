@@ -4,7 +4,7 @@ use super::{fold::Fold, Data, ExchangeData, Operator, StreamElement, Timestamp};
 use crate::{
     block::{BlockStructure, OperatorStructure},
     data_type::{NoirType, Row},
-    ExecutionMetadata, Stream,
+    ExecutionMetadata, Replication, Stream,
 };
 
 impl<I, Op> Stream<I, Op>
@@ -38,7 +38,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..5)));
     /// let res = s.max(|&n| n).collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), vec![4]);
     /// ```
@@ -48,7 +48,7 @@ where
         I: ExchangeData,
         D: Ord,
     {
-        self.max_parallelism(1)
+        self.replication(Replication::One)
             .add_operator(|prev| {
                 Fold::new(prev, None, move |acc, b| {
                     *acc = Some(if let Some(a) = acc.take() {
@@ -88,7 +88,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..5)));
     /// let res = s.max_assoc(|&n| n).collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), vec![4]);
     /// ```
@@ -112,7 +112,7 @@ where
             })
         })
         .map(|value| value.unwrap())
-        .max_parallelism(1)
+        .replication(Replication::One)
         .add_operator(|prev| {
             Fold::new(prev, None, move |acc, b| {
                 *acc = Some(if let Some(a) = acc.take() {
@@ -151,7 +151,7 @@ where
     ///
     /// **Note**: this operator will split the current block.
     pub fn max_noir(self, skip_nan: bool) -> Stream<NoirType, impl Operator<NoirType>> {
-        self.max_parallelism(1)
+        self.replication(Replication::One)
             .add_operator(|prev| Max::new(prev, skip_nan))
     }
 
@@ -170,8 +170,19 @@ where
     /// **Note**: this operator will split the current block.
     pub fn max_noir_assoc(self, skip_nan: bool) -> Stream<NoirType, impl Operator<NoirType>> {
         self.add_operator(|prev| Max::new(prev, skip_nan))
-            .max_parallelism(1)
+            .replication(Replication::One)
             .add_operator(|prev| Max::new(prev, skip_nan))
+    }
+}
+
+impl<Op> Stream<Row, Op>
+where
+    Op: Operator<Row> + 'static,
+{
+    pub fn max_row(self, skip_nan: bool) -> Stream<Row, impl Operator<Row>> {
+        self.add_operator(|prev| MaxRow::new(prev, skip_nan))
+            .replication(Replication::One)
+            .add_operator(|prev| MaxRow::new(prev, skip_nan))
     }
 }
 

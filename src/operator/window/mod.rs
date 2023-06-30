@@ -8,27 +8,38 @@ pub use descr::*;
 // pub use aggregator::*;
 // pub use description::*;
 
-use crate::block::{GroupHasherBuilder, OperatorStructure};
+use crate::block::{GroupHasherBuilder, OperatorStructure, Replication};
 use crate::operator::{Data, DataKey, ExchangeData, Operator, StreamElement, Timestamp};
 use crate::stream::{KeyedStream, Stream, WindowedStream};
 
 mod aggr;
 mod descr;
 
+/// Trait for a window description that can be used to instantiate windows.
+/// The struct implementing this trait specifies the kind of [`WindowManager`] that will be instantiated by
+/// it and provides a method through which the
 /// Convention: WindowAccumulator expects output to be called after at least one element has been processed.
 /// Violating this convention may result in panics.
-pub trait WindowBuilder<T> {
+pub trait WindowDescription<T> {
+    /// WindowManager corresponding to the WindowDescription
     type Manager<A: WindowAccumulator<In = T>>: WindowManager<In = T, Out = A::Out> + 'static;
-
+    /// Build a window manager that dispatches elements of each window to a clone of the
+    /// accumulator passed as parameter
     fn build<A: WindowAccumulator<In = T>>(&self, accumulator: A) -> Self::Manager<A>;
 }
 
+/// Trait for operations that can be performed on windows. Operations must be incremental
+/// processing on element at a time. If the operation requires accessing elements in random
+/// order, they should first be collected then the operation can be finizalized on the collection
+///
 /// Convention: output will always be called after at least one element has been processed
 pub trait WindowAccumulator: Clone + Send + 'static {
     type In: Data;
     type Out: Data;
 
+    /// Process a single input element updating the state of the accumulator
     fn process(&mut self, el: Self::In);
+    /// Finalize the accumulator and produce a result
     fn output(self) -> Self::Out;
 }
 
@@ -40,9 +51,22 @@ pub(crate) struct KeyedWindowManager<Key, In, Out, W: WindowManager> {
     _out: PhantomData<Out>,
 }
 
+/// Window Managers handle the windowing logic for a single partition (group) of the stream.
+///
+/// Elements passing on the stream partition will be fed to the manager through the `process`
+/// method, the manager should then instantiate any new window if needed depending on its
+/// logic and on the element passed as input. The input elements should be forwarded to any
+/// relevant active window and the outputs for any window that has been closed after the
+/// input event should be output as return value of the `process` function.
 pub trait WindowManager: Clone + Send {
+    /// Type of the input elements
     type In: Data;
+    /// Type of the output produced by each window
     type Out: Data;
+    /// Type of the output of a call to `process`, it may be
+    /// a single [`WindowResult`] or an iterable collection, depending
+    /// on the windowing logic. (A single input may trigger the simultanous closure of
+    /// multiple windows)
     type Output: IntoIterator<Item = WindowResult<Self::Out>>;
     /// Process an input element updating any interest window.
     /// Output the results that have become ready after processing this element.
@@ -221,7 +245,7 @@ where
 
 impl<Key, Out, WindowDescr, OperatorChain> WindowedStream<Key, Out, OperatorChain, Out, WindowDescr>
 where
-    WindowDescr: WindowBuilder<Out>,
+    WindowDescr: WindowDescription<Out>,
     OperatorChain: Operator<(Key, Out)> + 'static,
     Key: DataKey,
     Out: Data,
@@ -260,7 +284,7 @@ where
 {
     /// Apply a window to the stream.
     ///
-    /// Returns a [`KeyedWindowedStream`], with windows created following the behavior specified
+    /// Returns a [`WindowedStream`], with windows created following the behavior specified
     /// by the passed [`WindowDescription`].
     ///
     /// ## Example
@@ -276,13 +300,13 @@ where
     ///     .sum()
     ///     .collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// res.sort_unstable();
     /// assert_eq!(res, vec![(0, 0 + 2 + 4), (0, 4 + 6 + 8), (1, 1 + 3 + 5)]);
     /// ```
-    pub fn window<WinOut: Data, WinDescr: WindowBuilder<Out>>(
+    pub fn window<WinOut: Data, WinDescr: WindowDescription<Out>>(
         self,
         descr: WinDescr,
     ) -> WindowedStream<Key, Out, impl Operator<(Key, Out)>, WinOut, WinDescr> {
@@ -300,7 +324,7 @@ where
 {
     /// Send all elements to a single node and apply a window to the stream.
     ///
-    /// Returns a [`KeyedWindowedStream`], with key `()` with windows created following the behavior specified
+    /// Returns a [`WindowedStream`], with key `()` with windows created following the behavior specified
     /// by the passed [`WindowDescription`].
     ///
     /// **Note**: this operator cannot be parallelized, so all the stream elements are sent to a
@@ -319,17 +343,19 @@ where
     ///     .drop_key()
     ///     .collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// assert_eq!(res, vec![0 + 1, 2 + 3]);
     /// ```
-    pub fn window_all<WinOut: Data, WinDescr: WindowBuilder<Out>>(
+    pub fn window_all<WinOut: Data, WinDescr: WindowDescription<Out>>(
         self,
         descr: WinDescr,
     ) -> WindowedStream<(), Out, impl Operator<((), Out)>, WinOut, WinDescr> {
-        // max_parallelism and key_by are used instead of group_by so that there is exactly one
+        // replication and key_by are used instead of group_by so that there is exactly one
         // replica, since window_all cannot be parallelized
-        self.max_parallelism(1).key_by(|_| ()).window(descr)
+        self.replication(Replication::new_one())
+            .key_by(|_| ())
+            .window(descr)
     }
 }

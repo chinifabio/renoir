@@ -2,7 +2,7 @@
 //!
 //! The actual operator list can be found from the implemented methods of [`Stream`](crate::Stream),
 //! [`KeyedStream`](crate::KeyedStream), [`WindowedStream`](crate::WindowedStream) and
-//! [`KeyedWindowedStream`](crate::KeyedWindowedStream).
+//! [`WindowedStream`](crate::WindowedStream).
 
 use std::fmt::Display;
 use std::hash::Hash;
@@ -12,16 +12,21 @@ use std::ops::{AddAssign, Div};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 #[cfg(not(feature = "crossbeam"))]
 use flume::{unbounded, Receiver};
+#[cfg(feature = "async-tokio")]
+use futures::Future;
 use serde::{Deserialize, Serialize};
 
 pub(crate) use start::*;
 
 pub use rich_map_custom::ElementGenerator;
 
-use crate::block::{group_by_hash, BlockStructure, NextStrategy};
+use crate::block::{group_by_hash, BlockStructure, NextStrategy, Replication};
 use crate::scheduler::ExecutionMetadata;
-use crate::{BatchMode, CoordUInt, KeyedStream, Stream};
+use crate::{BatchMode, KeyedStream, Stream};
 
+#[cfg(feature = "async-tokio")]
+use self::map_async::MapAsync;
+use self::map_memo::MapMemo;
 use self::sink::collect::Collect;
 use self::sink::collect_channel::CollectChannelSink;
 use self::sink::collect_count::CollectCountSink;
@@ -53,37 +58,40 @@ use self::{
 };
 
 #[cfg(feature = "timestamp")]
-pub(crate) mod add_timestamps;
-pub(crate) mod batch_mode;
+mod add_timestamps;
+mod batch_mode;
 pub(crate) mod end;
-pub(crate) mod filter;
-pub(crate) mod filter_map;
-pub(crate) mod flat_map;
-pub(crate) mod flatten;
-pub(crate) mod fold;
-pub(crate) mod inspect;
+mod filter;
+mod filter_map;
+mod flat_map;
+mod flatten;
+mod fold;
+mod inspect;
 #[cfg(feature = "timestamp")]
-pub(crate) mod interval_join;
+mod interval_join;
 pub(crate) mod iteration;
 pub mod join;
-pub(crate) mod key_by;
-pub(crate) mod keyed_fold;
-pub(crate) mod map;
-pub mod max;
-pub(crate) mod max_parallelism;
-pub mod mean;
-pub mod median_exact;
-pub(crate) mod merge;
-pub mod min;
-pub(crate) mod reorder;
-pub(crate) mod rich_map;
-pub(crate) mod rich_map_custom;
-pub(crate) mod route;
+mod key_by;
+mod keyed_fold;
+mod map;
+#[cfg(feature = "async-tokio")]
+mod map_async;
+mod map_memo;
+mod max;
+mod mean;
+mod median_exact;
+mod merge;
+mod min;
+mod reorder;
+mod replication;
+mod rich_map;
+mod rich_map_custom;
+mod route;
 pub mod sink;
 pub mod source;
-pub(crate) mod start;
+mod start;
 pub mod window;
-pub(crate) mod zip;
+mod zip;
 
 /// Marker trait that all the types inside a stream should implement.
 pub trait Data: Clone + Send + 'static {}
@@ -222,6 +230,23 @@ impl<Out> StreamElement<Out> {
         }
     }
 
+    /// Change the type of the element inside the `StreamElement`.
+    #[cfg(feature = "async-tokio")]
+    pub async fn map_async<NewOut, F, Fut>(self, f: F) -> StreamElement<NewOut>
+    where
+        F: FnOnce(Out) -> Fut,
+        Fut: Future<Output = NewOut>,
+    {
+        match self {
+            StreamElement::Item(item) => StreamElement::Item(f(item).await),
+            StreamElement::Timestamped(item, ts) => StreamElement::Timestamped(f(item).await, ts),
+            StreamElement::Watermark(w) => StreamElement::Watermark(w),
+            StreamElement::Terminate => StreamElement::Terminate,
+            StreamElement::FlushAndRestart => StreamElement::FlushAndRestart,
+            StreamElement::FlushBatch => StreamElement::FlushBatch,
+        }
+    }
+
     /// A string representation of the variant of this `StreamElement`.
     pub fn variant(&self) -> &'static str {
         match self {
@@ -250,6 +275,17 @@ impl<Out> StreamElement<Out> {
             StreamElement::Terminate => StreamElement::Terminate,
             StreamElement::FlushAndRestart => StreamElement::FlushAndRestart,
             StreamElement::FlushBatch => StreamElement::FlushBatch,
+        }
+    }
+
+    pub fn value(&self) -> Option<&Out> {
+        match self {
+            StreamElement::Item(v) => Some(v),
+            StreamElement::Timestamped(v, _) => Some(v),
+            StreamElement::Watermark(_) => None,
+            StreamElement::FlushBatch => None,
+            StreamElement::Terminate => None,
+            StreamElement::FlushAndRestart => None,
         }
     }
 }
@@ -365,7 +401,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..10)));
     /// let res = s.filter_map(|n| if n % 2 == 0 { Some(n * 3) } else { None }).collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), vec![0, 6, 12, 18, 24])
     /// ```
@@ -390,7 +426,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..10)));
     /// let res = s.filter(|&n| n % 2 == 0).collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), vec![0, 2, 4, 6, 8])
     /// ```
@@ -417,7 +453,7 @@ where
     ///
     /// The mapping function is _cloned_ inside each replica, and they will not share state between
     /// each other. If you want that only a single replica handles all the items you may want to
-    /// change the parallelism of this operator with [`Stream::max_parallelism`].
+    /// change the parallelism of this operator with [`Stream::replication`].
     ///
     /// ## Examples
     ///
@@ -440,7 +476,7 @@ where
     ///     }
     /// }).collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), vec![1, 1 + 2, /* 1 + 2 - 5, */ 1 + 2 - 5 + 3, 1 + 2 - 5 + 3 + 1]);
     /// ```
@@ -461,7 +497,7 @@ where
     ///
     /// The mapping function is _cloned_ inside each replica, and they will not share state between
     /// each other. If you want that only a single replica handles all the items you may want to
-    /// change the parallelism of this operator with [`Stream::max_parallelism`].
+    /// change the parallelism of this operator with [`Stream::replication`].
     ///
     /// ## Examples
     ///
@@ -482,7 +518,7 @@ where
     ///     }
     /// }).collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), vec![1, 1 + 2, 1 + 2 + 3, 1 + 2 + 3 + 4, 1 + 2 + 3 + 4 + 5]);
     /// ```    
@@ -503,7 +539,7 @@ where
     ///     }
     /// }).collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), vec![(0, 1), (1, 2), (2, 3), (3, 4), (4, 5)]);
     /// ```
@@ -530,7 +566,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..5)));
     /// let res = s.map(|n| n * 10).collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), vec![0, 10, 20, 30, 40]);
     /// ```
@@ -540,6 +576,79 @@ where
     {
         self.add_operator(|prev| Map::new(prev, f))
     }
+
+    #[cfg(feature = "async-tokio")]
+    pub fn map_async_memo_by<O, K, F, Fk, Fut>(
+        self,
+        f: F,
+        fk: Fk,
+        capacity: usize,
+    ) -> Stream<O, impl Operator<O>>
+    where
+        F: Fn(I) -> Fut + Send + Sync + 'static + Clone,
+        Fk: Fn(&I) -> K + Send + Sync + Clone + 'static,
+        Fut: futures::Future<Output = O> + Send,
+        O: Data + Sync,
+        K: DataKey + Sync,
+    {
+        use crate::block::GroupHasherBuilder;
+        use quick_cache::{sync::Cache, UnitWeighter};
+        use std::sync::Arc;
+
+        let cache: Arc<Cache<K, O, _, GroupHasherBuilder>> = Arc::new(Cache::with(
+            capacity,
+            capacity as u64,
+            UnitWeighter,
+            Default::default(),
+        ));
+        self.add_operator(|prev| {
+            MapAsync::new(
+                prev,
+                move |el| {
+                    let fk = fk.clone();
+                    let f = f.clone();
+                    let cache = cache.clone();
+                    let k = fk(&el);
+                    async move {
+                        match cache.get_value_or_guard_async(&k).await {
+                            Ok(o) => o,
+                            Err(g) => {
+                                log::debug!("cache miss, computing");
+                                let o = (f)(el).await;
+                                g.insert(o.clone());
+                                o
+                            }
+                        }
+                    }
+                },
+                capacity,
+            )
+        })
+    }
+
+    #[cfg(feature = "async-tokio")]
+    pub fn map_async<O: Data, F, Fut>(self, f: F) -> Stream<O, impl Operator<O>>
+    where
+        F: Fn(I) -> Fut + Send + Sync + 'static + Clone,
+        Fut: futures::Future<Output = O> + Send + 'static,
+    {
+        self.add_operator(|prev| MapAsync::new(prev, f, 0))
+    }
+
+    /// # TODO
+    pub fn map_memo_by<K: DataKey + Sync, O: Data + Sync, F, Fk>(
+        self,
+        f: F,
+        fk: Fk,
+        capacity: usize,
+    ) -> Stream<O, impl Operator<O>>
+    where
+        F: Fn(I) -> O + Send + Clone + 'static,
+        Fk: Fn(&I) -> K + Send + Clone + 'static,
+    {
+        self.add_operator(|prev| MapMemo::new(prev, f, fk, capacity))
+    }
+
     /// Fold the stream into a stream that emits a single value.
     ///
     /// The folding operator consists in adding to the current accumulation value (initially the
@@ -571,7 +680,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..5)));
     /// let res = s.fold(0, |acc, value| *acc += value).collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), vec![0 + 1 + 2 + 3 + 4]);
     /// ```
@@ -581,7 +690,7 @@ where
         F: Fn(&mut O, I) + Send + Clone + 'static,
         O: Data,
     {
-        self.max_parallelism(1)
+        self.replication(Replication::One)
             .add_operator(|prev| Fold::new(prev, init, f))
     }
 
@@ -617,7 +726,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..5)));
     /// let res = s.fold_assoc(0, |acc, value| *acc += value, |acc, value| *acc += value).collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), vec![0 + 1 + 2 + 3 + 4]);
     /// ```
@@ -628,7 +737,7 @@ where
         O: ExchangeData,
     {
         self.add_operator(|prev| Fold::new(prev, init.clone(), local))
-            .max_parallelism(1)
+            .replication(Replication::One)
             .add_operator(|prev| Fold::new(prev, init, global))
     }
 
@@ -666,7 +775,7 @@ where
     ///     .group_by_fold(|&n| n % 2, 0, |acc, value| *acc += value, |acc, value| *acc += value)
     ///     .collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// res.sort_unstable();
@@ -719,7 +828,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..5)));
     /// let res = s.key_by(|&n| n % 2).collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// res.sort_unstable();
@@ -744,7 +853,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..5)));
     /// s.inspect(|n| println!("Item: {}", n)).for_each(std::mem::drop);
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     /// ```
     pub fn inspect<F>(self, f: F) -> Stream<I, impl Operator<I>>
     where
@@ -763,7 +872,7 @@ where
     ///
     /// The mapping function is _cloned_ inside each replica, and they will not share state between
     /// each other. If you want that only a single replica handles all the items you may want to
-    /// change the parallelism of this operator with [`Stream::max_parallelism`].
+    /// change the parallelism of this operator with [`Stream::replication`].
     ///
     /// ## Examples
     ///
@@ -786,7 +895,7 @@ where
     ///     }
     /// }).collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), vec![(0, 1), (0, 2), (1, 2), (0, 3), (1, 3), (2, 3)]);
     /// ```
@@ -814,7 +923,7 @@ where
     ///
     /// The mapping function is _cloned_ inside each replica, and they will not share state between
     /// each other. If you want that only a single replica handles all the items you may want to
-    /// change the parallelism of this operator with [`Stream::max_parallelism`].
+    /// change the parallelism of this operator with [`Stream::replication`].
     ///
     /// ## Examples
     ///
@@ -841,7 +950,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..3)));
     /// let res = s.flat_map(|n| vec![n, n]).collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), vec![0, 0, 1, 1, 2, 2]);
     /// ```
@@ -867,7 +976,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..5)));
     /// s.for_each(|n| println!("Item: {}", n));
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     /// ```
     pub fn for_each<F>(self, f: F)
     where
@@ -960,7 +1069,7 @@ where
     ///     .group_by_max_element(|&n| n % 2, |&n| n)
     ///     .collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// res.sort_unstable();
@@ -1009,7 +1118,7 @@ where
     ///     .group_by_sum(|&n| n % 2, |n| n)
     ///     .collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// res.sort_unstable();
@@ -1073,7 +1182,7 @@ where
     ///     .group_by_avg(|&n| n % 2, |&n| n as f64)
     ///     .collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// res.sort_by_key(|(k, _)| *k);
@@ -1136,7 +1245,7 @@ where
     ///     .group_by_count(|&n| n % 2)
     ///     .collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// res.sort_by_key(|(k, _)| *k);
@@ -1181,7 +1290,7 @@ where
     ///     .group_by_min_element(|&n| n % 2, |&n| n)
     ///     .collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// res.sort_unstable();
@@ -1238,7 +1347,7 @@ where
     ///     .group_by_reduce(|&n| n % 2, |acc, value| *acc += value)
     ///     .collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// res.sort_unstable();
@@ -1299,8 +1408,8 @@ where
         I2: ExchangeData,
         Op2: Operator<I2> + 'static,
     {
-        let left = self.max_parallelism(1);
-        let right = right.max_parallelism(1);
+        let left = self.replication(Replication::One);
+        let right = right.replication(Replication::One);
         left.merge_distinct(right)
             .key_by(|_| ())
             .add_operator(Reorder::new)
@@ -1312,14 +1421,12 @@ where
     ///
     /// **Note**: this operator is pretty advanced, some operators may need to be fully replicated
     /// and will fail otherwise.
-    pub fn max_parallelism(self, max_parallelism: CoordUInt) -> Stream<I, impl Operator<I>> {
-        assert!(max_parallelism > 0, "Cannot set the parallelism to zero");
-
+    pub fn replication(self, replication: Replication) -> Stream<I, impl Operator<I>> {
         let mut new_stream = self.split_block(End::new, NextStrategy::only_one());
         new_stream
             .block
             .scheduler_requirements
-            .max_parallelism(max_parallelism);
+            .replication(replication);
         new_stream
     }
 
@@ -1354,7 +1461,7 @@ where
     /// let s = env.stream_iter(0..5);
     /// let res = s.reduce(|a, b| a + b).collect::<Vec<_>>();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), vec![0 + 1 + 2 + 3 + 4]);
     /// ```
@@ -1399,7 +1506,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..5)));
     /// let res = s.reduce_assoc(|a, b| a + b).collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), vec![0 + 1 + 2 + 3 + 4]);
     /// ```
@@ -1448,7 +1555,7 @@ where
     /// // 6 8
     /// routes.next().unwrap().for_each(|i| eprintln!("route2: {i}"));
     /// // 5 7 9 ignored
-    /// env.execute();
+    /// env.execute_blocking();
     /// ```
     pub fn route(self) -> RouterBuilder<I, Op> {
         RouterBuilder::new(self)
@@ -1526,7 +1633,7 @@ where
     /// let s2 = env.stream(IteratorSource::new(vec![1, 2, 3].into_iter()));
     /// let res = s1.zip(s2).collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), vec![('A', 1), ('B', 2), ('C', 3)]);
     /// ```
@@ -1542,7 +1649,10 @@ where
             NextStrategy::only_one(),
         );
         // if the zip operator is partitioned there could be some loss of data
-        new_stream.block.scheduler_requirements.max_parallelism(1);
+        new_stream
+            .block
+            .scheduler_requirements
+            .replication(Replication::One);
         new_stream
     }
 
@@ -1564,7 +1674,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..10u32)));
     /// let rx = s.collect_channel();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     /// let mut v = Vec::new();
     /// while let Ok(x) = rx.recv() {
     ///     v.push(x)
@@ -1573,7 +1683,7 @@ where
     /// ```
     pub fn collect_channel(self) -> Receiver<I> {
         let (tx, rx) = unbounded();
-        self.max_parallelism(1)
+        self.replication(Replication::One)
             .add_operator(|prev| CollectChannelSink::new(prev, tx))
             .finalize_block();
         rx
@@ -1595,7 +1705,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..10u32)));
     /// let rx = s.collect_channel();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     /// let mut v = Vec::new();
     /// while let Ok(x) = rx.recv() {
     ///     v.push(x)
@@ -1627,14 +1737,14 @@ where
     /// let s = env.stream(IteratorSource::new((0..10)));
     /// let res = s.collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), (0..10).collect::<Vec<_>>());
     /// ```
     pub fn collect_count(self) -> StreamOutput<usize> {
         let output = StreamOutputRef::default();
         self.add_operator(|prev| Fold::new(prev, 0, |acc, _| *acc += 1))
-            .max_parallelism(1)
+            .replication(Replication::One)
             .add_operator(|prev| CollectCountSink::new(prev, output.clone()))
             .finalize_block();
         StreamOutput::from(output)
@@ -1658,13 +1768,13 @@ where
     /// let s = env.stream(IteratorSource::new((0..10)));
     /// let res = s.collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), (0..10).collect::<Vec<_>>());
     /// ```
     pub fn collect_vec(self) -> StreamOutput<Vec<I>> {
         let output = StreamOutputRef::default();
-        self.max_parallelism(1)
+        self.replication(Replication::One)
             .add_operator(|prev| CollectVecSink::new(prev, output.clone()))
             .finalize_block();
         StreamOutput::from(output)
@@ -1688,13 +1798,13 @@ where
     /// let s = env.stream(IteratorSource::new((0..10)));
     /// let res = s.collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), (0..10).collect::<Vec<_>>());
     /// ```
     pub fn collect<C: FromIterator<I> + Send + 'static>(self) -> StreamOutput<C> {
         let output = StreamOutputRef::default();
-        self.max_parallelism(1)
+        self.replication(Replication::One)
             .add_operator(|prev| Collect::new(prev, output.clone()))
             .finalize_block();
         StreamOutput::from(output)
@@ -1725,12 +1835,48 @@ where
     /// ].into_iter()));
     /// let res = s.flatten().collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), vec![1, 2, 3, 4, 5]);
     /// ```
     pub fn flatten(self) -> Stream<O, impl Operator<O>> {
         self.add_operator(|prev| Flatten::new(prev))
+    }
+}
+
+impl<I, Op> Stream<I, Op>
+where
+    I: Data + Hash + Eq + Sync,
+    Op: Operator<I> + 'static,
+{
+    /// # TODO
+    ///
+    #[cfg(feature = "async-tokio")]
+    pub fn map_async_memo<O: Data + Sync, F, Fut>(
+        self,
+        f: F,
+        capacity: usize,
+    ) -> Stream<O, impl Operator<O>>
+    where
+        F: Fn(I) -> Fut + Send + Sync + Clone + 'static,
+        Fut: Future<Output = O> + Send,
+    {
+        self.map_async_memo_by(f, |x: &I| x.clone(), capacity)
+    }
+}
+
+impl<I, Op> Stream<I, Op>
+where
+    I: Data + Hash + Eq + Sync,
+    Op: Operator<I> + 'static,
+{
+    /// # TODO
+    ///
+    pub fn map_memo<O: Data + Sync, F>(self, f: F, capacity: usize) -> Stream<O, impl Operator<O>>
+    where
+        F: Fn(I) -> O + Send + Clone + 'static,
+    {
+        self.add_operator(|prev| MapMemo::new(prev, f, |x| x.clone(), capacity))
     }
 }
 
@@ -1823,7 +1969,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..10))).group_by(|&n| n % 2);
     /// let res = s.filter_map(|(_key, n)| if n % 3 == 0 { Some(n * 4) } else { None }).collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// res.sort_unstable();
@@ -1852,7 +1998,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..10))).group_by(|&n| n % 2);
     /// let res = s.filter(|&(_key, n)| n % 3 == 0).collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// res.sort_unstable();
@@ -1879,7 +2025,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..3))).group_by(|&n| n % 2);
     /// let res = s.flat_map(|(_key, n)| vec![n, n]).collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// res.sort_unstable();
@@ -1907,7 +2053,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..5))).group_by(|&n| n % 2);
     /// s.inspect(|(key, n)| println!("Item: {} has key {}", n, key)).for_each(std::mem::drop);
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     /// ```
     pub fn inspect<F>(self, f: F) -> KeyedStream<K, I, impl Operator<(K, I)>>
     where
@@ -1947,7 +2093,7 @@ where
     ///     .fold(0, |acc, value| *acc += value)
     ///     .collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// res.sort_unstable();
@@ -1992,7 +2138,7 @@ where
     ///     .reduce(|acc, value| *acc += value)
     ///     .collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// res.sort_unstable();
@@ -2022,7 +2168,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..5))).group_by(|&n| n % 2);
     /// let res = s.map(|(_key, n)| 10 * n).collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// res.sort_unstable();
@@ -2113,7 +2259,7 @@ where
     /// let stream = env.stream(IteratorSource::new((0..4))).group_by(|&n| n % 2);
     /// let res = stream.unkey().collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// res.sort_unstable(); // the output order is nondeterministic
@@ -2135,7 +2281,7 @@ where
     /// let stream = env.stream(IteratorSource::new((0..4))).group_by(|&n| n % 2);
     /// let res = stream.drop_key().collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// res.sort_unstable(); // the output order is nondeterministic
@@ -2156,7 +2302,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..5))).group_by(|&n| n % 2);
     /// s.for_each(|(key, n)| println!("Item: {} has key {}", n, key));
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     /// ```
     pub fn for_each<F>(self, f: F)
     where
@@ -2217,7 +2363,7 @@ where
     /// let s2 = env.stream(IteratorSource::new((3..5))).group_by(|&n| n % 2);
     /// let res = s1.merge(s2).collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// res.sort_unstable(); // the output order is nondeterministic
@@ -2284,7 +2430,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..10u32)));
     /// let rx = s.collect_channel();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     /// let mut v = Vec::new();
     /// while let Ok(x) = rx.recv() {
     ///     v.push(x)
@@ -2311,7 +2457,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..10u32)));
     /// let rx = s.collect_channel();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     /// let mut v = Vec::new();
     /// while let Ok(x) = rx.recv() {
     ///     v.push(x)
@@ -2342,7 +2488,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..3))).group_by(|&n| n % 2);
     /// let res = s.collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// res.sort_unstable(); // the output order is nondeterministic
@@ -2371,7 +2517,7 @@ where
     /// let s = env.stream(IteratorSource::new((0..3))).group_by(|&n| n % 2);
     /// let res = s.collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// res.sort_unstable(); // the output order is nondeterministic
@@ -2410,7 +2556,7 @@ where
     ///     .group_by(|v| v[0] % 2);
     /// let res = s.flatten().collect_vec();
     ///
-    /// env.execute();
+    /// env.execute_blocking();
     ///
     /// let mut res = res.get().unwrap();
     /// res.sort_unstable();

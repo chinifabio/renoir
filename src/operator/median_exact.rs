@@ -7,7 +7,7 @@ use std::ops::{Add, Div};
 use crate::block::{BlockStructure, OperatorKind, OperatorStructure};
 use crate::operator::{ExchangeData, Operator, StreamElement};
 use crate::scheduler::ExecutionMetadata;
-use crate::Stream;
+use crate::{Replication, Stream};
 
 use super::Timestamp;
 
@@ -190,7 +190,7 @@ where
         I: ExchangeData + Ord + Add<Output = I> + Div<f32, Output = I>,
         F: Fn(D) -> I + Clone + Send + Copy + 'static,
     {
-        self.max_parallelism(1)
+        self.replication(Replication::One)
             .add_operator(|prev| MedianExact::new(prev, get_value))
     }
 }
