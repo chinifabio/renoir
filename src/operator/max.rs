@@ -315,6 +315,7 @@ where
     max_watermark: Option<Timestamp>,
     received_end: bool,
     received_end_iter: bool,
+    found_nan: bool,
 }
 
 impl<PreviousOperators> Display for Max<PreviousOperators>
@@ -341,6 +342,7 @@ impl<PreviousOperators: Operator<NoirType>> Max<PreviousOperators> {
             max_watermark: None,
             received_end: false,
             received_end_iter: false,
+            found_nan: false,
         }
     }
 }
@@ -366,34 +368,38 @@ where
                     self.max_watermark = Some(self.max_watermark.unwrap_or(ts).max(ts))
                 }
                 StreamElement::Item(item) => {
-                    if self.accumulator.is_none() {
-                        if !item.is_nan() {
+                    if !self.found_nan {
+                        if self.accumulator.is_none() {
+                            if !item.is_nan() {
+                                self.accumulator = Some(item);
+                            } else if !self.skip_nan {
+                                self.accumulator = Some(item);
+                                self.found_nan = true;
+                            }
+                        } else if !item.is_nan() && &item > self.accumulator.as_ref().unwrap() {
                             self.accumulator = Some(item);
-                        } else if !self.skip_nan {
+                        } else if item.is_nan() && !self.skip_nan {
                             self.accumulator = Some(item);
-                            self.received_end = true;
+                            self.found_nan = true;
                         }
-                    } else if !item.is_nan() && item > self.accumulator.clone().unwrap() {
-                        self.accumulator = Some(item);
-                    } else if item.is_nan() && !self.skip_nan {
-                        self.accumulator = Some(item);
-                        self.received_end = true;
                     }
                 }
                 StreamElement::Timestamped(item, ts) => {
                     self.timestamp = Some(self.timestamp.unwrap_or(ts).max(ts));
-                    if self.accumulator.is_none() {
-                        if !item.is_nan() {
+                    if !self.found_nan {
+                        if self.accumulator.is_none() {
+                            if !item.is_nan() {
+                                self.accumulator = Some(item);
+                            } else if !self.skip_nan {
+                                self.accumulator = Some(item);
+                                self.found_nan = true;
+                            }
+                        } else if !item.is_nan() && &item > self.accumulator.as_ref().unwrap() {
                             self.accumulator = Some(item);
-                        } else if !self.skip_nan {
+                        } else if item.is_nan() && !self.skip_nan {
                             self.accumulator = Some(item);
-                            self.received_end = true;
+                            self.found_nan = true;
                         }
-                    } else if !item.is_nan() && item > self.accumulator.clone().unwrap() {
-                        self.accumulator = Some(item);
-                    } else if item.is_nan() && !self.skip_nan {
-                        self.accumulator = Some(item);
-                        self.received_end = true;
                     }
                 }
                 // this block wont sent anything until the stream ends
@@ -403,6 +409,7 @@ where
 
         // If there is an accumulated value, return it
         if let Some(acc) = self.accumulator.take() {
+            self.found_nan = false;
             if let Some(ts) = self.timestamp.take() {
                 return StreamElement::Timestamped(acc, ts);
             } else {
