@@ -1,4 +1,7 @@
-use noir::operator::source::IteratorSource;
+use noir::{
+    data_type::{NoirData, NoirType},
+    operator::source::IteratorSource,
+};
 use utils::TestHelper;
 
 mod utils;
@@ -110,6 +113,27 @@ fn max_assoc() {
 
         if let Some(res) = res.get() {
             assert_eq!(res, [9u8]);
+        }
+    });
+}
+
+#[test]
+fn max_noir_data() {
+    TestHelper::local_remote_env(|mut env| {
+        let source = IteratorSource::new(
+            vec![
+                NoirData::NoirType(NoirType::Int32(1)),
+                NoirData::NoirType(NoirType::Int32(2)),
+                NoirData::NoirType(NoirType::Int32(0)),
+                NoirData::NoirType(NoirType::Int32(5)),
+            ]
+            .into_iter(),
+        );
+        let res = env.stream(source).max_noir_data(true).collect_vec();
+        env.execute_blocking();
+
+        if let Some(res) = res.get() {
+            assert_eq!(res, [NoirData::NoirType(NoirType::Int32(5))]);
         }
     });
 }

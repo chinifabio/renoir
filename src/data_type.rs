@@ -8,24 +8,22 @@ pub enum NoirType {
     Int32(i32),
     Float32(f32),
     NaN(),
+    None(),
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
-pub struct Row {
-    pub columns: Vec<NoirType>,
+pub enum NoirData {
+    Row(Vec<NoirType>),
+    NoirType(NoirType),
 }
 
-impl Row {
-    pub fn new(columns: Vec<NoirType>) -> Row {
-        Row { columns }
+impl NoirData {
+    pub fn new(columns: Vec<NoirType>) -> NoirData {
+        NoirData::Row(columns)
     }
 
-    pub fn new_empty() -> Row {
-        Row { columns: vec![] }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.columns.is_empty()
+    pub fn new_empty() -> NoirData {
+        NoirData::Row(vec![])
     }
 }
 
@@ -36,11 +34,16 @@ impl NoirType {
             NoirType::Int32(a) => NoirType::Float32((a as f32).sqrt()),
             NoirType::Float32(a) => NoirType::Float32(a.sqrt()),
             NoirType::NaN() => panic!("Found NaN!"),
+            NoirType::None() => panic!("Found None!"),
         }
     }
 
     pub fn is_nan(&self) -> bool {
         matches!(self, NoirType::NaN())
+    }
+
+    pub fn is_none(&self) -> bool {
+        matches!(self, NoirType::None())
     }
 }
 
@@ -86,6 +89,7 @@ impl Mul<f32> for NoirType {
             NoirType::Int32(a) => NoirType::Float32((a as f32) * rhs),
             NoirType::Float32(a) => NoirType::Float32(a * rhs),
             NoirType::NaN() => panic!("Found NaN!"),
+            NoirType::None() => panic!("Found None!"),
         }
     }
 }
@@ -110,6 +114,7 @@ impl Div<usize> for NoirType {
             NoirType::Int32(a) => NoirType::Float32((a as f32) / (rhs as f32)),
             NoirType::Float32(a) => NoirType::Float32(a / (rhs as f32)),
             NoirType::NaN() => panic!("Found NaN!"),
+            NoirType::None() => panic!("Found None!"),
         }
     }
 }
@@ -122,6 +127,7 @@ impl Div<f32> for NoirType {
             NoirType::Int32(a) => NoirType::Float32((a as f32) / rhs),
             NoirType::Float32(a) => NoirType::Float32(a / rhs),
             NoirType::NaN() => panic!("Found NaN!"),
+            NoirType::None() => panic!("Found None!"),
         }
     }
 }
@@ -160,8 +166,28 @@ impl Ord for NoirType {
     }
 }
 
+impl PartialOrd for NoirData {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        match (self, other) {
+            (NoirData::Row(a), NoirData::Row(b)) => a.partial_cmp(b),
+            (NoirData::NoirType(a), NoirData::NoirType(b)) => a.partial_cmp(b),
+            (_, _) => panic!("Type mismatch!"),
+        }
+    }
+}
+
+impl Ord for NoirData {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        match (self, other) {
+            (NoirData::Row(a), NoirData::Row(b)) => a.cmp(b),
+            (NoirData::NoirType(a), NoirData::NoirType(b)) => a.cmp(b),
+            (_, _) => panic!("Type mismatch!"),
+        }
+    }
+}
+
 impl Eq for NoirType {}
-impl Eq for Row {}
+impl Eq for NoirData {}
 
 #[cfg(test)]
 mod tests {
