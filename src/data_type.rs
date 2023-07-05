@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::cmp::Eq;
 use std::f32;
-use std::ops::{Add, Div, Mul};
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul};
 
 #[derive(Clone, Deserialize, Serialize, Debug, PartialEq)]
 pub enum NoirType {
@@ -24,6 +24,20 @@ impl NoirData {
 
     pub fn new_empty() -> NoirData {
         NoirData::Row(vec![])
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            NoirData::Row(row) => row.len(),
+            NoirData::NoirType(_) => 1,
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            NoirData::Row(row) => row.is_empty(),
+            NoirData::NoirType(_) => false,
+        }
     }
 }
 
@@ -59,6 +73,22 @@ macro_rules! impl_from {
 
 impl_from!(i32, Int32);
 
+macro_rules! impl_from_option {
+    ($t:ty, $v:ident) => {
+        impl From<Option<$t>> for NoirType {
+            fn from(item: Option<$t>) -> Self {
+                match item {
+                    Some(i) => NoirType::$v(i),
+                    None => NoirType::None(),
+                }
+            }
+        }
+    };
+}
+
+impl_from_option!(i32, Int32);
+impl_from_option!(f32, Float32);
+
 impl From<f32> for NoirType {
     fn from(item: f32) -> Self {
         if item.is_finite() {
@@ -90,6 +120,27 @@ impl Mul<f32> for NoirType {
             NoirType::Float32(a) => NoirType::Float32(a * rhs),
             NoirType::NaN() => panic!("Found NaN!"),
             NoirType::None() => panic!("Found None!"),
+        }
+    }
+}
+
+impl DivAssign<usize> for NoirType {
+    fn div_assign(&mut self, rhs: usize) {
+        match self {
+            NoirType::Int32(a) => *a /= rhs as i32,
+            NoirType::Float32(a) => *a /= rhs as f32,
+            NoirType::NaN() => panic!("Found NaN!"),
+            NoirType::None() => panic!("Found None!"),
+        }
+    }
+}
+
+impl DivAssign<Self> for NoirType {
+    fn div_assign(&mut self, rhs: Self) {
+        match (self, rhs) {
+            (NoirType::Int32(a), NoirType::Int32(b)) => *a /= b,
+            (NoirType::Float32(a), NoirType::Float32(b)) => *a /= b,
+            (_, _) => panic!("Type mismatch!"),
         }
     }
 }
@@ -132,7 +183,29 @@ impl Div<f32> for NoirType {
     }
 }
 
-impl Add for NoirType {
+impl Add<&Self> for NoirType {
+    type Output = NoirType;
+
+    fn add(self, rhs: &Self) -> Self::Output {
+        match (self, rhs) {
+            (NoirType::Int32(a), NoirType::Int32(b)) => NoirType::Int32(a + b),
+            (NoirType::Float32(a), NoirType::Float32(b)) => NoirType::Float32(a + b),
+            (_, _) => panic!("Type mismatch!"),
+        }
+    }
+}
+
+impl AddAssign for NoirType {
+    fn add_assign(&mut self, rhs: Self) {
+        match (self, rhs) {
+            (NoirType::Int32(a), NoirType::Int32(b)) => *a += b,
+            (NoirType::Float32(a), NoirType::Float32(b)) => *a += b,
+            (_, _) => panic!("Type mismatch!"),
+        }
+    }
+}
+
+impl Add<Self> for NoirType {
     type Output = NoirType;
 
     fn add(self, rhs: Self) -> Self::Output {

@@ -141,10 +141,9 @@ where
     }
 }
 
-///Max operator for a stream of ['Row'] (crate::dataflow::Row).
 #[derive(Clone, Derivative)]
 #[derivative(Debug)]
-pub struct MaxNoirData<PreviousOperators>
+struct MaxNoirData<PreviousOperators>
 where
     PreviousOperators: Operator<NoirData>,
 {
@@ -221,7 +220,6 @@ where
     fn handle_row(&mut self, row: Vec<NoirType>) {
         if !self.found_nan {
             // if we haven't found a NaN yet, update the max_item.
-
             if self.max_item.is_none() {
                 // if the max_item is None, initialize it.
                 self.max_item = Some(NoirData::Row(vec![NoirType::None(); row.len()]));

@@ -1,7 +1,7 @@
-use std::ops::{AddAssign, Div};
-
 use super::{fold::Fold, Data, ExchangeData, Operator};
-use crate::{Replication, Stream};
+use crate::data_type::NoirType;
+use crate::{data_type::NoirData, Replication, Stream};
+use std::ops::{AddAssign, Div};
 
 impl<I, Op> Stream<I, Op>
 where
@@ -64,5 +64,155 @@ where
             )
         })
         .map(|(sum, count)| sum.unwrap() / (count as f64))
+    }
+}
+
+fn mean(
+    sum_total: &mut Option<NoirData>,
+    counts: &mut Option<Vec<usize>>,
+    found_nan: &mut bool,
+    skip_nan: bool,
+    mut count_opt: Option<Vec<usize>>,
+    mut value_opt: Option<NoirData>,
+) {
+    if let Some(value) = value_opt.take() {
+        if let Some(count) = count_opt.take() {
+            match value {
+                NoirData::Row(row) => {
+                    if !*found_nan {
+                        // if we haven't found a NaN yet, update the sum.
+                        if sum_total.is_none() {
+                            // if the sum is None, initialize it.
+                            *sum_total = Some(NoirData::Row(vec![NoirType::None(); row.len()]));
+                            *counts = Some(vec![0; row.len()]);
+                        }
+
+                        match sum_total.as_mut().unwrap() {
+                            NoirData::Row(r) => {
+                                let mut all_nan = true;
+                                for (i, v) in row.into_iter().enumerate() {
+                                    // for each column, update the corrispondent sum.
+                                    if !r[i].is_nan() {
+                                        if !v.is_nan() {
+                                            all_nan = false;
+                                            counts.as_mut().unwrap()[i] += count[i];
+                                            if r[i].is_none() {
+                                                // if the sum is None, set it to the item.
+                                                r[i] = v;
+                                            } else {
+                                                // if the sum is not None, add the item to the sum.
+                                                r[i] += v;
+                                            }
+                                        } else {
+                                            // item is a NaN, check if we skip them.
+                                            if !skip_nan {
+                                                // if we don't skip them, set the current sum to NaN.
+                                                r[i] = v;
+                                            } else {
+                                                all_nan = false
+                                            }
+                                        }
+                                    }
+                                }
+                                *found_nan = all_nan;
+                            }
+                            NoirData::NoirType(_) => panic!("Mismatched types in Stream"),
+                        }
+                    }
+                }
+                NoirData::NoirType(item) => {
+                    if !*found_nan {
+                        // if we haven't found a NaN yet, update the sum.
+                        if sum_total.is_none() {
+                            // if the sum is None, initialize it.
+                            *sum_total = Some(NoirData::NoirType(NoirType::None()));
+                            *counts = Some(vec![0]);
+                        }
+                        match sum_total.as_ref().unwrap() {
+                            NoirData::Row(_) => panic!("Mismatched types in Stream"),
+                            NoirData::NoirType(sum) => {
+                                // check if the item is a NaN.
+                                if !item.is_nan() {
+                                    counts.as_mut().unwrap()[0] += count[0];
+                                    if sum.is_none() {
+                                        // if the sum is None, set it to the item.
+                                        *sum_total = Some(NoirData::NoirType(item));
+                                    } else {
+                                        // if the sum is not None, add the item to the sum.
+                                        *sum_total = Some(NoirData::NoirType(item + sum));
+                                    }
+                                } else if !skip_nan {
+                                    // if we don't skip them, set the sum to NaN.
+                                    *sum_total = Some(NoirData::NoirType(item));
+                                    *found_nan = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl<Op> Stream<NoirData, Op>
+where
+    Op: Operator<NoirData> + 'static,
+{
+    pub fn mean_noir(self, skip_nan: bool) -> Stream<NoirData, impl Operator<NoirData>> {
+        self.add_operator(|prev| {
+            Fold::new(
+                prev,
+                (None::<NoirData>, None::<Vec<usize>>, false),
+                move |(sum_total, counts, found_nan), value| {
+                    mean(
+                        sum_total,
+                        counts,
+                        found_nan,
+                        skip_nan,
+                        Some(vec![1; value.len()]),
+                        Some(value),
+                    )
+                },
+            )
+        })
+        .replication(Replication::One)
+        .add_operator(|prev| {
+            Fold::new(
+                prev,
+                (None::<NoirData>, None::<Vec<usize>>, false),
+                move |(sum_total, counts, found_nan), (local_value, local_count, _)| {
+                    mean(
+                        sum_total,
+                        counts,
+                        found_nan,
+                        skip_nan,
+                        local_count,
+                        local_value,
+                    )
+                },
+            )
+        })
+        .map(|(sum, count, _)| match sum {
+            Some(NoirData::Row(row)) => {
+                let mut result = Vec::with_capacity(row.len());
+                for (i, v) in row.into_iter().enumerate() {
+                    if !v.is_nan() && !v.is_none() {
+                        result.push(v / count.as_ref().unwrap()[i]);
+                    } else {
+                        result.push(v);
+                    }
+                }
+                NoirData::Row(result)
+            }
+            Some(NoirData::NoirType(item)) => {
+                if !item.is_nan() && !item.is_none() {
+                    NoirData::NoirType(item / count.unwrap()[0])
+                } else {
+                    NoirData::NoirType(item)
+                }
+            }
+            None => panic!("No sum found"),
+        })
     }
 }
