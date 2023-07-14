@@ -432,6 +432,7 @@ mod tests {
     use tempfile::NamedTempFile;
 
     use crate::config::EnvironmentConfig;
+    use crate::data_type::{NoirData, NoirType};
     use crate::environment::StreamEnvironment;
     use crate::operator::source::CsvSource;
 
@@ -485,6 +486,57 @@ mod tests {
                     .sorted()
                     .collect_vec();
                 assert_eq!(res, (0..num_records).map(|x| (x, x + 1)).collect_vec());
+            }
+        }
+    }
+
+    #[test]
+    fn csv_noir_data() {
+        for num_records in 0..100 {
+            for terminator in &["\n", "\r\n"] {
+                let file = NamedTempFile::new().unwrap();
+                for i in 0..num_records {
+                    write!(file.as_file(), "{},{},{}", i, i as f32 + 0.5, terminator).unwrap();
+                }
+
+                let mut env = StreamEnvironment::new(EnvironmentConfig::local(4));
+                let source = CsvSource::<NoirData>::new(file.path()).has_headers(false);
+                let res = env.stream(source).collect_vec();
+                env.execute_blocking();
+
+                let res = res.get().unwrap().into_iter().sorted().collect_vec();
+                assert_eq!(
+                    res,
+                    (0..num_records)
+                        .map(|x| NoirData::Row(vec![NoirType::from(x), NoirType::from(x as f32 + 0.5), NoirType::None()]))
+                        .collect_vec()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn csv_noir_data_header() {
+        for num_records in 0..100 {
+            for terminator in &["\n", "\r\n"] {
+                let file = NamedTempFile::new().unwrap();
+                write!(file.as_file(), "a,b,c{terminator}").unwrap();
+                for i in 0..num_records {
+                    write!(file.as_file(), "{},{},{}", i, i as f32 + 0.5, terminator).unwrap();
+                }
+
+                let mut env = StreamEnvironment::new(EnvironmentConfig::local(4));
+                let source = CsvSource::<NoirData>::new(file.path());
+                let res = env.stream(source).collect_vec();
+                env.execute_blocking();
+
+                let res = res.get().unwrap().into_iter().sorted().collect_vec();
+                assert_eq!(
+                    res,
+                    (0..num_records)
+                        .map(|x| NoirData::Row(vec![NoirType::from(x), NoirType::from(x as f32 + 0.5), NoirType::None()]))
+                        .collect_vec()
+                );
             }
         }
     }

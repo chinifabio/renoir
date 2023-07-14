@@ -1,6 +1,9 @@
-use serde::{Deserialize, Serialize};
+use regex::Regex;
+use serde::de::Visitor;
+use serde::{Deserialize, Deserializer, Serialize};
 use std::cmp::Eq;
 use std::f32;
+use std::fmt;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul};
 
 #[derive(Clone, Deserialize, Serialize, Debug, PartialEq)]
@@ -11,10 +14,82 @@ pub enum NoirType {
     None(),
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, PartialEq)]
+#[serde(tag = "type")]
 pub enum NoirData {
     Row(Vec<NoirType>),
     NoirType(NoirType),
+}
+
+impl<'de> Deserialize<'de> for NoirData {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct NoirDataVisitor;
+
+        impl<'de> Visitor<'de> for NoirDataVisitor {
+            type Value = NoirData;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("a struct NoirData")
+            }
+
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::SeqAccess<'de>,
+            {
+                let p_float = r"^([+-]?\d+\.\d*|\.\d+)$|^([+-]?\d{1}(\.\d+)?[eE][+-]?\d+)$";
+                let p_int = r"^([+-]?\d+)$";
+                let r_float = Regex::new(p_float).unwrap();
+                let r_int = Regex::new(p_int).unwrap();
+                let mut data: Vec<NoirType> = Vec::new();
+                while let Ok(Some(value)) = seq.next_element::<String>() {
+                    if r_float.is_match(&value) {
+                        data.push(NoirType::Float32(value.parse::<f32>().unwrap()));
+                    } else if r_int.is_match(&value) {
+                        data.push(NoirType::Int32(value.parse::<i32>().unwrap()));
+                    } else {
+                        data.push(NoirType::None());
+                    }
+                }
+
+                if data.len() == 1 {
+                    Ok(NoirData::NoirType(data.remove(0)))
+                } else {
+                    Ok(NoirData::Row(data))
+                }
+            }
+
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+            where
+                A: serde::de::MapAccess<'de>,
+            {
+                let p_float = r"^([+-]?\d+\.\d*|\.\d+)$|^([+-]?\d{1}(\.\d+)?[eE][+-]?\d+)$";
+                let p_int = r"^([+-]?\d+)$";
+                let r_float = Regex::new(p_float).unwrap();
+                let r_int = Regex::new(p_int).unwrap();
+                let mut data: Vec<NoirType> = Vec::new();
+                while let Ok(value) = map.next_value::<String>() {
+                    if r_float.is_match(&value) {
+                        data.push(NoirType::Float32(value.parse::<f32>().unwrap()));
+                    } else if r_int.is_match(&value) {
+                        data.push(NoirType::Int32(value.parse::<i32>().unwrap()));
+                    } else {
+                        data.push(NoirType::None());
+                    }
+                }
+
+                if data.len() == 1 {
+                    Ok(NoirData::NoirType(data.remove(0)))
+                } else {
+                    Ok(NoirData::Row(data))
+                }
+            }
+        }
+
+        deserializer.deserialize_map(NoirDataVisitor {})
+    }
 }
 
 impl NoirData {

@@ -15,7 +15,7 @@ use crate::scheduler::{BlockId, ExecutionMetadata};
 /// Since those two parts are merged the information about which one ends is lost, therefore there
 /// are two extra variants to keep track of that.
 #[derive(Clone, Debug, Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq)]
-pub(crate) enum BinaryElement<OutL: Data, OutR: Data> {
+pub enum BinaryElement<OutL: Data, OutR: Data> {
     /// An element of the stream on the left.
     Left(OutL),
     /// An element of the stream on the right.
@@ -120,7 +120,7 @@ impl<Out: ExchangeData, Item: ExchangeData> SideReceiver<Out, Item> {
 /// To do so it will first select on the two channels, and wrap each element into an enumeration
 /// that discriminates the two sides.
 #[derive(Clone, Debug)]
-pub(crate) struct BinaryStartReceiver<OutL: ExchangeData, OutR: ExchangeData> {
+pub struct BinaryStartReceiver<OutL: ExchangeData, OutR: ExchangeData> {
     left: SideReceiver<OutL, BinaryElement<OutL, OutR>>,
     right: SideReceiver<OutR, BinaryElement<OutL, OutR>>,
     first_message: bool,

@@ -1,6 +1,8 @@
 use std::fmt::Display;
 
-use super::{fold::Fold, Data, ExchangeData, Operator, StreamElement, Timestamp};
+use super::{
+    fold::Fold, Data, ExchangeData, Operator, SimpleStartOperator, StreamElement, Timestamp,
+};
 use crate::{
     block::{BlockStructure, OperatorStructure},
     data_type::{NoirData, NoirType},
@@ -134,7 +136,10 @@ impl<Op> Stream<NoirData, Op>
 where
     Op: Operator<NoirData> + 'static,
 {
-    pub fn max_noir_data(self, skip_nan: bool) -> Stream<NoirData, impl Operator<NoirData>> {
+    pub fn max_noir_data(
+        self,
+        skip_nan: bool,
+    ) -> Stream<NoirData, MaxNoirData<SimpleStartOperator<NoirData>>> {
         self.add_operator(|prev| MaxNoirData::new(prev, skip_nan))
             .replication(Replication::One)
             .add_operator(|prev| MaxNoirData::new(prev, skip_nan))
@@ -143,7 +148,7 @@ where
 
 #[derive(Clone, Derivative)]
 #[derivative(Debug)]
-struct MaxNoirData<PreviousOperators>
+pub struct MaxNoirData<PreviousOperators>
 where
     PreviousOperators: Operator<NoirData>,
 {

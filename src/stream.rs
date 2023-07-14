@@ -9,9 +9,9 @@ use crate::operator::end::End;
 use crate::operator::iteration::IterationStateLock;
 use crate::operator::source::Source;
 use crate::operator::window::WindowDescription;
-use crate::operator::DataKey;
 use crate::operator::Start;
 use crate::operator::{Data, ExchangeData, KeyerFn, Operator};
+use crate::operator::{DataKey, SimpleStartOperator};
 use crate::scheduler::BlockId;
 
 /// A Stream represents a chain of operators that work on a flow of data. The type of the elements
@@ -112,7 +112,7 @@ where
         self,
         get_end_operator: GetEndOp,
         next_strategy: NextStrategy<I, IndexFn>,
-    ) -> Stream<I, impl Operator<I>>
+    ) -> Stream<I, SimpleStartOperator<I>>
     where
         IndexFn: KeyerFn<u64, I>,
         I: ExchangeData,

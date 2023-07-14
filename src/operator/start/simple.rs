@@ -10,7 +10,7 @@ use crate::scheduler::{BlockId, ExecutionMetadata};
 
 /// This will receive the data from a single previous block.
 #[derive(Debug)]
-pub(crate) struct SimpleStartReceiver<Out: ExchangeData> {
+pub struct SimpleStartReceiver<Out: ExchangeData> {
     pub(super) receiver: Option<NetworkReceiver<Out>>,
     previous_replicas: Vec<Coord>,
     pub(super) previous_block_id: BlockId,

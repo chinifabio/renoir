@@ -87,6 +87,7 @@ glidesort = "0.1.2"
 indexmap = "1.9.3"
 tracing = { version = "0.1.37", features = ["log"] }
 quick_cache = "0.3.0"
+regex = "1.8.4"
 
 
 [dev-dependencies]

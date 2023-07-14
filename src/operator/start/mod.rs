@@ -21,7 +21,7 @@ mod simple;
 mod watermark_frontier;
 
 /// Trait that abstract the receiving part of the `Start`.
-pub(crate) trait StartReceiver<Out>: Clone {
+pub trait StartReceiver<Out>: Clone {
     /// Setup the internal state of the receiver.
     fn setup(&mut self, metadata: &mut ExecutionMetadata);
 
@@ -45,10 +45,10 @@ pub(crate) trait StartReceiver<Out>: Clone {
     fn structure(&self) -> BlockStructure;
 }
 
-pub(crate) type BinaryStartOperator<OutL, OutR> =
+pub type BinaryStartOperator<OutL, OutR> =
     Start<BinaryElement<OutL, OutR>, BinaryStartReceiver<OutL, OutR>>;
 
-pub(crate) type SimpleStartOperator<Out> = Start<Out, SimpleStartReceiver<Out>>;
+pub type SimpleStartOperator<Out> = Start<Out, SimpleStartReceiver<Out>>;
 
 /// Each block should start with a `Start` operator, whose task is to read from the network,
 /// receive from the previous operators and handle the watermark frontier.
@@ -62,7 +62,7 @@ pub(crate) type SimpleStartOperator<Out> = Start<Out, SimpleStartReceiver<Out>>;
 /// is followed. Note that the timestamps of the messages are not sorted, it's only guaranteed that
 /// when a watermark is emitted, all the previous messages are already been emitted (in some order).
 #[derive(Clone, Debug)]
-pub(crate) struct Start<Out: ExchangeData, Receiver: StartReceiver<Out> + Send> {
+pub struct Start<Out: ExchangeData, Receiver: StartReceiver<Out> + Send> {
     /// Execution metadata of this block.
     max_delay: Option<Duration>,
 

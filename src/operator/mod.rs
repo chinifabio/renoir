@@ -178,32 +178,6 @@ pub trait Operator<Out: Data>: Clone + Send + Display {
     fn structure(&self) -> BlockStructure;
 }
 
-/// An operator represents a unit of computation. It's always included inside a chain of operators,
-/// inside a block.
-///
-/// Each operator implements the `Operator<Out>` trait, it produced a stream of `Out` elements.
-///
-/// An `Operator` must be Clone since it is part of a single chain when it's built, but it has to
-/// be cloned to spawn the replicas of the block.
-///
-/// This Operator trait is used for those operations that require to use NoirType as data type to handle
-/// missing values or needs to know the primitive type.
-pub trait OperatorNoirType<Out: Data>: Clone + Send + Display {
-    /// Setup the operator chain. This is called before any call to `next` and it's used to
-    /// initialize the operator. When it's called the operator has already been cloned and it will
-    /// never be cloned again. Therefore it's safe to store replica-specific metadata inside of it.
-    ///
-    /// It's important that each operator (except the start of a chain) calls `.setup()` recursively
-    /// on the previous operators.
-    fn setup(&mut self, metadata: &mut ExecutionMetadata);
-
-    /// Take a value from the previous operator, process it and return it.
-    fn next(&mut self) -> StreamElement<Out>;
-
-    /// A more refined representation of the operator and its predecessors.
-    fn structure(&self) -> BlockStructure;
-}
-
 impl<Out> StreamElement<Out> {
     /// Create a new `StreamElement` with an `Item(())` if `self` contains an item, otherwise it
     /// returns the same variant of `self`.
@@ -1421,7 +1395,7 @@ where
     ///
     /// **Note**: this operator is pretty advanced, some operators may need to be fully replicated
     /// and will fail otherwise.
-    pub fn replication(self, replication: Replication) -> Stream<I, impl Operator<I>> {
+    pub fn replication(self, replication: Replication) -> Stream<I, SimpleStartOperator<I>> {
         let mut new_stream = self.split_block(End::new, NextStrategy::only_one());
         new_stream
             .block
