@@ -1,8 +1,13 @@
-use std::{marker::PhantomData, fmt::Display};
+use std::{fmt::Display, marker::PhantomData};
 
 use dyn_clone::DynClone;
 
-use crate::{ExecutionMetadata, block::BlockStructure, operator::{StreamElement, Operator, Data}, Stream, data_type::NoirData};
+use crate::{
+    block::BlockStructure,
+    data_type::NoirData,
+    operator::{Data, Operator, StreamElement},
+    ExecutionMetadata, Stream,
+};
 
 pub(crate) trait DynOperator<T: Data>: DynClone {
     /// Setup the operator chain. This is called before any call to `next` and it's used to
@@ -36,7 +41,7 @@ impl<T: Data, O: Operator<T>> DynOperator<T> for O {
     }
 }
 
-pub(crate) struct BoxedOperator<T> {
+pub struct BoxedOperator<T> {
     pub(crate) op: Box<dyn DynOperator<T> + 'static + Send>,
     pub(crate) _t: PhantomData<T>,
 }
@@ -83,7 +88,8 @@ impl<Op> Stream<NoirData, Op>
 where
     Op: Operator<NoirData> + 'static,
 {
-    fn boxed(self) -> Stream<NoirData, BoxedOperator<NoirData>> {
-        return self.add_operator(|prev| BoxedOperator::new(prev));
+    #[allow(dead_code)]
+    pub fn into_box(self) -> Stream<NoirData, BoxedOperator<NoirData>> {
+        self.add_operator(|prev| BoxedOperator::new(prev))
     }
 }

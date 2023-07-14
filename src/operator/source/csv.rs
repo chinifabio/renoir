@@ -508,7 +508,11 @@ mod tests {
                 assert_eq!(
                     res,
                     (0..num_records)
-                        .map(|x| NoirData::Row(vec![NoirType::from(x), NoirType::from(x as f32 + 0.5), NoirType::None()]))
+                        .map(|x| NoirData::Row(vec![
+                            NoirType::from(x),
+                            NoirType::from(x as f32 + 0.5),
+                            NoirType::None()
+                        ]))
                         .collect_vec()
                 );
             }
@@ -534,7 +538,11 @@ mod tests {
                 assert_eq!(
                     res,
                     (0..num_records)
-                        .map(|x| NoirData::Row(vec![NoirType::from(x), NoirType::from(x as f32 + 0.5), NoirType::None()]))
+                        .map(|x| NoirData::Row(vec![
+                            NoirType::from(x),
+                            NoirType::from(x as f32 + 0.5),
+                            NoirType::None()
+                        ]))
                         .collect_vec()
                 );
             }
