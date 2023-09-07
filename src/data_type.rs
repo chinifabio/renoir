@@ -1,12 +1,11 @@
-use regex::Regex;
 use serde::de::Visitor;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::cmp::Eq;
 use std::f32;
 use std::fmt;
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul};
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, Sub, SubAssign, Neg};
 
-#[derive(Clone, Deserialize, Serialize, Debug, PartialEq)]
+#[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Copy)]
 pub enum NoirType {
     Int32(i32),
     Float32(f32),
@@ -26,9 +25,14 @@ impl<'de> Deserialize<'de> for NoirData {
     where
         D: Deserializer<'de>,
     {
-        struct NoirDataVisitor;
+        enum __Field {
+            Row,
+            NoirType,
+        }
 
-        impl<'de> Visitor<'de> for NoirDataVisitor {
+        struct __NoirDataVisitor;
+
+        impl<'de> Visitor<'de> for __NoirDataVisitor {
             type Value = NoirData;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
@@ -38,17 +42,14 @@ impl<'de> Deserialize<'de> for NoirData {
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
             where
                 A: serde::de::SeqAccess<'de>,
-            {
-                let p_float = r"^([+-]?\d+\.\d*|\.\d+)$|^([+-]?\d{1}(\.\d+)?[eE][+-]?\d+)$";
-                let p_int = r"^([+-]?\d+)$";
-                let r_float = Regex::new(p_float).unwrap();
-                let r_int = Regex::new(p_int).unwrap();
+            {   
                 let mut data: Vec<NoirType> = Vec::new();
+                
                 while let Ok(Some(value)) = seq.next_element::<String>() {
-                    if r_float.is_match(&value) {
-                        data.push(NoirType::Float32(value.parse::<f32>().unwrap()));
-                    } else if r_int.is_match(&value) {
-                        data.push(NoirType::Int32(value.parse::<i32>().unwrap()));
+                    if let Ok(int_value) = value.parse::<i32>() {
+                        data.push(NoirType::Int32(int_value));
+                    } else if let Ok(float_value) = value.parse::<f32>() {
+                        data.push(NoirType::Float32(float_value));
                     } else {
                         data.push(NoirType::None());
                     }
@@ -65,16 +66,13 @@ impl<'de> Deserialize<'de> for NoirData {
             where
                 A: serde::de::MapAccess<'de>,
             {
-                let p_float = r"^([+-]?\d+\.\d*|\.\d+)$|^([+-]?\d{1}(\.\d+)?[eE][+-]?\d+)$";
-                let p_int = r"^([+-]?\d+)$";
-                let r_float = Regex::new(p_float).unwrap();
-                let r_int = Regex::new(p_int).unwrap();
                 let mut data: Vec<NoirType> = Vec::new();
+                
                 while let Ok(value) = map.next_value::<String>() {
-                    if r_float.is_match(&value) {
-                        data.push(NoirType::Float32(value.parse::<f32>().unwrap()));
-                    } else if r_int.is_match(&value) {
-                        data.push(NoirType::Int32(value.parse::<i32>().unwrap()));
+                    if let Ok(int_value) = value.parse::<i32>() {
+                        data.push(NoirType::Int32(int_value));
+                    } else if let Ok(float_value) = value.parse::<f32>() {
+                        data.push(NoirType::Float32(float_value));
                     } else {
                         data.push(NoirType::None());
                     }
@@ -88,7 +86,7 @@ impl<'de> Deserialize<'de> for NoirData {
             }
         }
 
-        deserializer.deserialize_map(NoirDataVisitor {})
+        deserializer.deserialize_map(__NoirDataVisitor {})
     }
 }
 
@@ -288,6 +286,53 @@ impl Add<Self> for NoirType {
             (NoirType::Int32(a), NoirType::Int32(b)) => NoirType::Int32(a + b),
             (NoirType::Float32(a), NoirType::Float32(b)) => NoirType::Float32(a + b),
             (_, _) => panic!("Type mismatch!"),
+        }
+    }
+}
+
+impl Sub<&Self> for NoirType {
+    type Output = NoirType;
+
+    fn sub(self, rhs: &Self) -> Self::Output {
+        match (self, rhs) {
+            (NoirType::Int32(a), NoirType::Int32(b)) => NoirType::Int32(a - b),
+            (NoirType::Float32(a), NoirType::Float32(b)) => NoirType::Float32(a - b),
+            (_, _) => panic!("Type mismatch!"),
+        }
+    }
+}
+
+impl SubAssign for NoirType {
+    fn sub_assign(&mut self, rhs: Self) {
+        match (self, rhs) {
+            (NoirType::Int32(a), NoirType::Int32(b)) => *a -= b,
+            (NoirType::Float32(a), NoirType::Float32(b)) => *a -= b,
+            (_, _) => panic!("Type mismatch!"),
+        }
+    }
+}
+
+impl Sub<Self> for NoirType {
+    type Output = NoirType;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (NoirType::Int32(a), NoirType::Int32(b)) => NoirType::Int32(a - b),
+            (NoirType::Float32(a), NoirType::Float32(b)) => NoirType::Float32(a - b),
+            (_, _) => panic!("Type mismatch!"),
+        }
+    }
+}
+
+impl Neg for NoirType {
+    type Output = NoirType;
+
+    fn neg(self) -> Self::Output {
+        match self {
+            NoirType::Int32(a) => NoirType::Int32(-a),
+            NoirType::Float32(a) => NoirType::Float32(-a),
+            NoirType::NaN() => panic!("Found NaN!"),
+            NoirType::None() => panic!("Found None!"),
         }
     }
 }
