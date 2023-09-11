@@ -3,7 +3,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use std::cmp::Eq;
 use std::f32;
 use std::fmt;
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, Sub, SubAssign, Neg};
+use std::ops::{Add, AddAssign, Div, DivAssign, Mul, Neg, Sub, SubAssign};
 
 #[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Copy)]
 pub enum NoirType {
@@ -42,9 +42,9 @@ impl<'de> Deserialize<'de> for NoirData {
             fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
             where
                 A: serde::de::SeqAccess<'de>,
-            {   
+            {
                 let mut data: Vec<NoirType> = Vec::new();
-                
+
                 while let Ok(Some(value)) = seq.next_element::<String>() {
                     if let Ok(int_value) = value.parse::<i32>() {
                         data.push(NoirType::Int32(int_value));
@@ -67,7 +67,7 @@ impl<'de> Deserialize<'de> for NoirData {
                 A: serde::de::MapAccess<'de>,
             {
                 let mut data: Vec<NoirType> = Vec::new();
-                
+
                 while let Ok(value) = map.next_value::<String>() {
                     if let Ok(int_value) = value.parse::<i32>() {
                         data.push(NoirType::Int32(int_value));
@@ -425,13 +425,13 @@ mod tests {
         let f_a = NoirType::Float32(6.6);
         let f_b = NoirType::Float32(3.3);
 
-        assert_eq!(f_a.clone() / f_b, NoirType::Float32(2.0));
+        assert_eq!(f_a / f_b, NoirType::Float32(2.0));
         assert_eq!(f_a / 3.3, NoirType::Float32(2.0));
 
         let i_a = NoirType::Int32(6);
         let i_b = NoirType::Int32(3);
 
-        assert_eq!(i_a.clone() / i_b, NoirType::Float32(2.0));
+        assert_eq!(i_a / i_b, NoirType::Float32(2.0));
         assert_eq!(i_a / 3.0, NoirType::Float32(2.0));
     }
 
