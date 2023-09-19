@@ -159,6 +159,28 @@ impl<Op> Stream<NoirData, Op>
 where
     Op: Operator<NoirData> + 'static,
 {
+    /// Find the average of the values of the items in the NoirData stream.
+    ///
+    /// skip_nan: if true, NaN values will not be considered, otherwise they will be considered as the mean value.
+    ///
+    ///
+    /// **Note**: this operator will split the current block.
+    ///
+    /// ## Example
+    /// ```
+    /// # use noir::{StreamEnvironment, EnvironmentConfig};
+    /// # use noir::operator::source::IteratorSource;
+    /// # use noir::data_type::{NoirData, NoirType};
+    /// # let mut env = StreamEnvironment::new(EnvironmentConfig::local(1));
+    /// let s = env.stream(IteratorSource::new(vec![NoirData::Row(vec![NoirType::Int32(1), NoirType::Int32(2)]), NoirData::Row(vec![NoirType::Int32(3), NoirType::Int32(4)])].into_iter()));
+    /// let res = s
+    ///     .mean_noir_data(true)
+    ///     .collect_vec();
+    ///
+    /// env.execute_blocking();
+    ///
+    /// assert_eq!(res.get().unwrap(), vec![NoirData::Row(vec![NoirType::from(2.0), NoirType::from(3.0)])]);
+    /// ```
     pub fn mean_noir_data(self, skip_nan: bool) -> Stream<NoirData, impl Operator<NoirData>> {
         self.add_operator(|prev| {
             Fold::new(

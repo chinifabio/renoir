@@ -2,12 +2,11 @@ use std::fmt::Display;
 
 use super::{NoirData, NoirType};
 
-
 impl NoirData {
     pub fn new(columns: Vec<NoirType>) -> NoirData {
         if columns.len() == 1 {
             NoirData::NoirType(columns[0])
-        }else{
+        } else {
             NoirData::Row(columns)
         }
     }
@@ -31,7 +30,7 @@ impl NoirData {
     }
 }
 
-impl Display for NoirData{
+impl Display for NoirData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             NoirData::Row(row) => {
@@ -48,16 +47,6 @@ impl Display for NoirData{
         }
     }
 }
-
-impl Into<NoirType> for NoirData {
-    fn into(self) -> NoirType {
-        match self {
-            NoirData::Row(_) => panic!("Cannot convert row into NoirType!"),
-            NoirData::NoirType(t) => t,
-        }
-    }
-}
-
 
 impl PartialOrd for NoirData {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {

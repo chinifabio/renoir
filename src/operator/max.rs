@@ -136,6 +136,33 @@ impl<Op> Stream<NoirData, Op>
 where
     Op: Operator<NoirData> + 'static,
 {
+    /// Reduce the stream of NoirData into a stream that emits a single value which is the maximum value of the stream.
+    ///
+    /// The reducing operator consists in scanning the stream and keeping track of the maximum value.
+    ///
+    /// skip_nan: if true, NaN values will not be considered, otherwise they will be considered as the maximum value.
+    ///
+    /// **Note**: this operator will retain all the messages of the stream and emit the values only
+    /// when the stream ends. Therefore this is not properly _streaming_.
+    ///
+    /// **Note**: this is very similar to [`Iteartor::max`](std::iter::Iterator::max).
+    ///
+    /// **Note**: this operator will split the current block.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// # use noir::{StreamEnvironment, EnvironmentConfig};
+    /// # use noir::operator::source::IteratorSource;
+    /// # use noir::data_type::{NoirData, NoirType};
+    /// # let mut env = StreamEnvironment::new(EnvironmentConfig::local(1));
+    /// let s = env.stream(IteratorSource::new([NoirData::NoirType(NoirType::from(0.0)), NoirData::NoirType(NoirType::from(8.0)), NoirData::NoirType(NoirType::from(6.0))].into_iter()));
+    /// let res = s.max_noir_data(true).collect_vec();
+    ///
+    /// env.execute_blocking();
+    ///
+    /// assert_eq!(res.get().unwrap(), vec![NoirData::NoirType(NoirType::from(8.0))]);
+    /// ```
     pub fn max_noir_data(
         self,
         skip_nan: bool,

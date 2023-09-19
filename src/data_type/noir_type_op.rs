@@ -5,6 +5,8 @@ use std::ops::{Add, AddAssign, Div, DivAssign, Mul, Neg, Sub, SubAssign};
 
 use crate::data_type::NoirType;
 
+use super::NoirData;
+
 #[allow(dead_code)]
 impl NoirType {
     fn sqrt(self) -> NoirType {
@@ -59,6 +61,15 @@ impl From<f32> for NoirType {
             NoirType::Float32(item)
         } else {
             NoirType::NaN()
+        }
+    }
+}
+
+impl From<NoirData> for NoirType {
+    fn from(val: NoirData) -> Self {
+        match val {
+            NoirData::Row(_) => panic!("Cannot convert row into NoirType!"),
+            NoirData::NoirType(t) => t,
         }
     }
 }
@@ -252,7 +263,7 @@ impl Ord for NoirType {
 
 impl Eq for NoirType {}
 
-impl Display for NoirType{
+impl Display for NoirType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             NoirType::Int32(i) => write!(f, "{}", i),
@@ -321,13 +332,13 @@ mod tests {
         let f_a = NoirType::Float32(2.0);
         let f_b = NoirType::Float32(3.1);
 
-        assert_eq!(f_a.clone() * f_b, NoirType::Float32(6.2));
+        assert_eq!(f_a * f_b, NoirType::Float32(6.2));
         assert_eq!(f_a * 3.1, NoirType::Float32(6.2));
 
         let i_a = NoirType::Int32(6);
         let i_b = NoirType::Int32(3);
 
-        assert_eq!(i_a.clone() * i_b, NoirType::Int32(18));
+        assert_eq!(i_a * i_b, NoirType::Int32(18));
         assert_eq!(i_a * 3.0, NoirType::Float32(18.0));
     }
 

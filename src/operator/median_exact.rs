@@ -1,6 +1,6 @@
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
-use std::fmt::{Display, Debug};
+use std::fmt::{Debug, Display};
 use std::marker::PhantomData;
 use std::ops::{Add, Div};
 use std::vec;
@@ -11,7 +11,7 @@ use crate::operator::{ExchangeData, Operator, StreamElement};
 use crate::scheduler::ExecutionMetadata;
 use crate::{Replication, Stream};
 
-use super::{Timestamp, SimpleStartOperator};
+use super::{SimpleStartOperator, Timestamp};
 
 #[derive(Debug)]
 pub struct MedianExact<Out: ExchangeData, PreviousOperators, NewOut, F>
@@ -59,7 +59,7 @@ impl<Out: ExchangeData, PreviousOperators, NewOut, F> Display
     for MedianExact<Out, PreviousOperators, NewOut, F>
 where
     Out: ExchangeData,
-    NewOut: ExchangeData + Ord + Add<Output = NewOut> + Div<f32, Output = NewOut> ,
+    NewOut: ExchangeData + Ord + Add<Output = NewOut> + Div<f32, Output = NewOut>,
     PreviousOperators: Operator<Out>,
     F: Fn(Out) -> NewOut + Clone + Send + Copy + 'static,
 {
@@ -72,7 +72,7 @@ impl<Out, PreviousOperators, NewOut, F> Operator<NewOut>
     for MedianExact<Out, PreviousOperators, NewOut, F>
 where
     Out: ExchangeData,
-    NewOut: ExchangeData + Ord + Add<Output = NewOut> + Div<f32, Output = NewOut> ,
+    NewOut: ExchangeData + Ord + Add<Output = NewOut> + Div<f32, Output = NewOut>,
     PreviousOperators: Operator<Out>,
     F: Fn(Out) -> NewOut + Clone + Send + Copy + 'static,
 {
@@ -125,8 +125,7 @@ where
                         }
                         std::cmp::Ordering::Equal => {
                             self.result = Some(
-                                (self.max_heap.pop().unwrap()
-                                    + self.min_heap.pop().unwrap().0)
+                                (self.max_heap.pop().unwrap() + self.min_heap.pop().unwrap().0)
                                     / 2.0,
                             );
                         }
@@ -187,6 +186,29 @@ where
     D: ExchangeData,
     Op: Operator<D> + 'static,
 {
+    /// Reduce the stream to its median value.
+    ///
+    /// get_value is a function that returns the value to be used for the median calculation.
+    ///
+    /// **Note**: this operator will retain all the messages of the stream and emit the values only
+    /// when the stream ends. Therefore this is not properly _streaming_.
+    ///
+    /// **Note**: since this operator compute the exact median it cannot be parallelized.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// # use noir::{StreamEnvironment, EnvironmentConfig};
+    /// # use noir::operator::source::IteratorSource;
+    /// # use noir::data_type::{NoirData, NoirType};
+    /// # let mut env = StreamEnvironment::new(EnvironmentConfig::local(1));
+    /// let s = env.stream(IteratorSource::new([NoirType::from(0.0), NoirType::from(8.0), NoirType::from(6.0)].into_iter()));
+    /// let res = s.median_exact(|v| v).collect_vec();
+    ///
+    /// env.execute_blocking();
+    ///
+    /// assert_eq!(res.get().unwrap(), vec![NoirType::from(6.0)]);
+    /// ```
     pub fn median_exact<F, I>(self, get_value: F) -> Stream<I, impl Operator<I>>
     where
         D: ExchangeData,
@@ -198,11 +220,10 @@ where
     }
 }
 
-
 #[derive(Debug)]
 pub struct MedianExactNoirData<PreviousOperators>
 where
-    PreviousOperators: Operator<NoirData>
+    PreviousOperators: Operator<NoirData>,
 {
     prev: PreviousOperators,
     max_heaps: Option<Vec<BinaryHeap<NoirType>>>,
@@ -217,11 +238,11 @@ where
     result: Option<NoirData>,
 }
 
-impl <PreviousOperators> MedianExactNoirData <PreviousOperators>
+impl<PreviousOperators> MedianExactNoirData<PreviousOperators>
 where
-    PreviousOperators: Operator<NoirData>
+    PreviousOperators: Operator<NoirData>,
 {
-    pub(crate) fn new(prev: PreviousOperators, skip_nan:bool) -> Self {
+    pub(crate) fn new(prev: PreviousOperators, skip_nan: bool) -> Self {
         Self {
             prev,
             max_heaps: None,
@@ -229,7 +250,7 @@ where
             timestamp: None,
             max_watermark: None,
             found_nan: false,
-            columns_nan: None, 
+            columns_nan: None,
             skip_nan,
             received_end: false,
             received_end_iter: false,
@@ -238,20 +259,20 @@ where
     }
 }
 
-impl <PreviousOperators> Display for MedianExactNoirData<PreviousOperators>
+impl<PreviousOperators> Display for MedianExactNoirData<PreviousOperators>
 where
-    PreviousOperators: Operator<NoirData>    
+    PreviousOperators: Operator<NoirData>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} -> Median_Exact_Noir_Data", self.prev)
     }
 }
 
-impl <PreviousOperator> MedianExactNoirData<PreviousOperator>
+impl<PreviousOperator> MedianExactNoirData<PreviousOperator>
 where
-    PreviousOperator: Operator<NoirData>
+    PreviousOperator: Operator<NoirData>,
 {
-    fn handle_noir_type(&mut self, item: NoirType){
+    fn handle_noir_type(&mut self, item: NoirType) {
         if !self.found_nan {
             if self.max_heaps.is_none() {
                 self.max_heaps = Some(vec![BinaryHeap::new()]);
@@ -281,7 +302,7 @@ where
             }
         }
     }
-    fn handle_row(&mut self, item: Vec<NoirType>){
+    fn handle_row(&mut self, item: Vec<NoirType>) {
         if !self.found_nan {
             if self.max_heaps.is_none() {
                 self.max_heaps = Some(vec![BinaryHeap::new(); item.len()]);
@@ -325,9 +346,8 @@ where
         }
     }
 
-
     fn handle_end(&mut self) {
-        if !self.found_nan && self.max_heaps.is_some(){
+        if !self.found_nan && self.max_heaps.is_some() {
             let num_col = self.max_heaps.as_ref().unwrap().len();
             let mut result = Vec::with_capacity(num_col);
             let column_nan = self.columns_nan.take().unwrap_or_default();
@@ -336,32 +356,30 @@ where
             for i in 0..num_col {
                 if num_col > 1 && column_nan[i] {
                     result.push(NoirType::NaN());
-                }else{
+                } else {
                     match min_heap[i].len().cmp(&max_heap[i].len()) {
                         std::cmp::Ordering::Less => result.push(max_heap[i].pop().unwrap()),
-                        std::cmp::Ordering::Greater => {
-                            result.push(min_heap[i].pop().unwrap().0)
-                        }
+                        std::cmp::Ordering::Greater => result.push(min_heap[i].pop().unwrap().0),
                         std::cmp::Ordering::Equal => {
-                            result.push((max_heap[i].pop().unwrap() + min_heap[i].pop().unwrap().0) / 2.0);
+                            result.push(
+                                (max_heap[i].pop().unwrap() + min_heap[i].pop().unwrap().0) / 2.0,
+                            );
                         }
                     }
                 }
             }
             if num_col == 1 {
                 self.result = Some(NoirData::NoirType(result[0]));
-                
-            }else {                
+            } else {
                 self.result = Some(NoirData::Row(result));
             }
         }
     }
-    
 }
 
-impl <PreviousOperators> Operator<NoirData> for MedianExactNoirData<PreviousOperators>
+impl<PreviousOperators> Operator<NoirData> for MedianExactNoirData<PreviousOperators>
 where
-    PreviousOperators: Operator<NoirData>
+    PreviousOperators: Operator<NoirData>,
 {
     fn setup(&mut self, metadata: &mut ExecutionMetadata) {
         self.prev.setup(metadata);
@@ -371,9 +389,9 @@ where
         while !self.received_end {
             match self.prev.next() {
                 StreamElement::Item(item) => match item {
-                        NoirData::Row(row) => self.handle_row(row),
-                        NoirData::NoirType(it) => self.handle_noir_type(it),
-                }
+                    NoirData::Row(row) => self.handle_row(row),
+                    NoirData::NoirType(it) => self.handle_noir_type(it),
+                },
                 StreamElement::Timestamped(item, ts) => {
                     self.timestamp = Some(self.timestamp.unwrap_or(ts).max(ts));
                     match item {
@@ -422,13 +440,15 @@ where
     fn structure(&self) -> BlockStructure {
         self.prev
             .structure()
-            .add_operator(OperatorStructure::new::<NoirData, _>("Median_Exact_Noir_Data"))
+            .add_operator(OperatorStructure::new::<NoirData, _>(
+                "Median_Exact_Noir_Data",
+            ))
     }
 }
 
-impl <PreviousOperators> Clone for MedianExactNoirData<PreviousOperators>
+impl<PreviousOperators> Clone for MedianExactNoirData<PreviousOperators>
 where
-    PreviousOperators: Operator<NoirData>    
+    PreviousOperators: Operator<NoirData>,
 {
     fn clone(&self) -> Self {
         panic!("MedianExact_Noir_Data cannot be cloned, max_parallelism should be 1");
@@ -439,6 +459,29 @@ impl<Op> Stream<NoirData, Op>
 where
     Op: Operator<NoirData> + 'static,
 {
+    /// Reduce the stream of NoirData to its median value.
+    ///
+    /// skip_nan: if true, NaN values will not be considered, otherwise they will be considered as the median value.
+    ///
+    /// **Note**: this operator will retain all the messages of the stream and emit the values only
+    /// when the stream ends. Therefore this is not properly _streaming_.
+    ///
+    /// **Note**: since this operator compute the exact median it cannot be parallelized.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// # use noir::{StreamEnvironment, EnvironmentConfig};
+    /// # use noir::operator::source::IteratorSource;
+    /// # use noir::data_type::{NoirData, NoirType};
+    /// # let mut env = StreamEnvironment::new(EnvironmentConfig::local(1));
+    /// let s = env.stream(IteratorSource::new([NoirData::NoirType(NoirType::from(0.0)), NoirData::NoirType(NoirType::from(8.0)), NoirData::NoirType(NoirType::from(6.0))].into_iter()));
+    /// let res = s.median_noir_data(true).collect_vec();
+    ///
+    /// env.execute_blocking();
+    ///
+    /// assert_eq!(res.get().unwrap(), vec![NoirData::NoirType(NoirType::from(6.0))]);
+    /// ```
     pub fn median_noir_data(
         self,
         skip_nan: bool,
@@ -447,7 +490,6 @@ where
             .add_operator(|prev| MedianExactNoirData::new(prev, skip_nan))
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -460,9 +502,17 @@ mod tests {
 
     #[test]
     fn median_exact_float() {
-        let fake_operator =
-            FakeOperator::new([NoirType::Float32(1.0), NoirType::Float32(2.0), NoirType::Float32(3.0), 
-            NoirType::Float32(4.0), NoirType::Float32(1.0), NoirType::Float32(2.0)].into_iter());
+        let fake_operator = FakeOperator::new(
+            [
+                NoirType::Float32(1.0),
+                NoirType::Float32(2.0),
+                NoirType::Float32(3.0),
+                NoirType::Float32(4.0),
+                NoirType::Float32(1.0),
+                NoirType::Float32(2.0),
+            ]
+            .into_iter(),
+        );
         let mut median = MedianExact::new(fake_operator, |v| v);
 
         assert_eq!(median.next(), StreamElement::Item(NoirType::Float32(2.0)));
@@ -471,8 +521,9 @@ mod tests {
 
     #[test]
     fn median_exact_int() {
-        let fake_operator =
-            FakeOperator::new([NoirType::Int32(1), NoirType::Int32(2), NoirType::Int32(4)].into_iter());
+        let fake_operator = FakeOperator::new(
+            [NoirType::Int32(1), NoirType::Int32(2), NoirType::Int32(4)].into_iter(),
+        );
         let mut median = MedianExact::new(fake_operator, |v| v);
 
         assert_eq!(median.next(), StreamElement::Item(NoirType::Int32(2)));
@@ -481,8 +532,7 @@ mod tests {
 
     #[test]
     fn median_exact_single() {
-        let fake_operator =
-            FakeOperator::new([NoirType::Int32(1)].into_iter());
+        let fake_operator = FakeOperator::new([NoirType::Int32(1)].into_iter());
         let mut median = MedianExact::new(fake_operator, |v| v);
 
         assert_eq!(median.next(), StreamElement::Item(NoirType::Int32(1)));

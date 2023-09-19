@@ -1,6 +1,6 @@
 use core::fmt;
 
-use serde::{Deserialize, Deserializer, de::Visitor};
+use serde::{de::Visitor, Deserialize, Deserializer};
 
 use crate::data_type::NoirType;
 
