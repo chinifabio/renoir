@@ -1,118 +1,9 @@
-use serde::de::Visitor;
-use serde::{Deserialize, Deserializer, Serialize};
 use std::cmp::Eq;
 use std::f32;
-use std::fmt;
+use std::fmt::Display;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, Neg, Sub, SubAssign};
 
-#[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Copy)]
-pub enum NoirType {
-    Int32(i32),
-    Float32(f32),
-    NaN(),
-    None(),
-}
-
-#[derive(Clone, Debug, Serialize, PartialEq)]
-#[serde(tag = "type")]
-pub enum NoirData {
-    Row(Vec<NoirType>),
-    NoirType(NoirType),
-}
-
-impl<'de> Deserialize<'de> for NoirData {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        enum __Field {
-            Row,
-            NoirType,
-        }
-
-        struct __NoirDataVisitor;
-
-        impl<'de> Visitor<'de> for __NoirDataVisitor {
-            type Value = NoirData;
-
-            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-                formatter.write_str("a struct NoirData")
-            }
-
-            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-            where
-                A: serde::de::SeqAccess<'de>,
-            {
-                let mut data: Vec<NoirType> = Vec::new();
-
-                while let Ok(Some(value)) = seq.next_element::<String>() {
-                    if let Ok(int_value) = value.parse::<i32>() {
-                        data.push(NoirType::Int32(int_value));
-                    } else if let Ok(float_value) = value.parse::<f32>() {
-                        data.push(NoirType::Float32(float_value));
-                    } else {
-                        data.push(NoirType::None());
-                    }
-                }
-
-                if data.len() == 1 {
-                    Ok(NoirData::NoirType(data.remove(0)))
-                } else {
-                    Ok(NoirData::Row(data))
-                }
-            }
-
-            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-            where
-                A: serde::de::MapAccess<'de>,
-            {
-                let mut data: Vec<NoirType> = Vec::new();
-
-                while let Ok(value) = map.next_value::<String>() {
-                    if let Ok(int_value) = value.parse::<i32>() {
-                        data.push(NoirType::Int32(int_value));
-                    } else if let Ok(float_value) = value.parse::<f32>() {
-                        data.push(NoirType::Float32(float_value));
-                    } else {
-                        data.push(NoirType::None());
-                    }
-                }
-
-                if data.len() == 1 {
-                    Ok(NoirData::NoirType(data.remove(0)))
-                } else {
-                    Ok(NoirData::Row(data))
-                }
-            }
-        }
-
-        deserializer.deserialize_map(__NoirDataVisitor {})
-    }
-}
-
-impl NoirData {
-    pub fn new(columns: Vec<NoirType>) -> NoirData {
-        NoirData::Row(columns)
-    }
-
-    pub fn new_empty() -> NoirData {
-        NoirData::Row(vec![])
-    }
-
-    pub fn len(&self) -> usize {
-        match self {
-            NoirData::Row(row) => row.len(),
-            NoirData::NoirType(_) => 1,
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        match self {
-            NoirData::Row(row) => row.is_empty(),
-            NoirData::NoirType(_) => false,
-        }
-    }
-}
+use crate::data_type::NoirType;
 
 #[allow(dead_code)]
 impl NoirType {
@@ -359,28 +250,18 @@ impl Ord for NoirType {
     }
 }
 
-impl PartialOrd for NoirData {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        match (self, other) {
-            (NoirData::Row(a), NoirData::Row(b)) => a.partial_cmp(b),
-            (NoirData::NoirType(a), NoirData::NoirType(b)) => a.partial_cmp(b),
-            (_, _) => panic!("Type mismatch!"),
-        }
-    }
-}
-
-impl Ord for NoirData {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        match (self, other) {
-            (NoirData::Row(a), NoirData::Row(b)) => a.cmp(b),
-            (NoirData::NoirType(a), NoirData::NoirType(b)) => a.cmp(b),
-            (_, _) => panic!("Type mismatch!"),
-        }
-    }
-}
-
 impl Eq for NoirType {}
-impl Eq for NoirData {}
+
+impl Display for NoirType{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NoirType::Int32(i) => write!(f, "{}", i),
+            NoirType::Float32(i) => write!(f, "{}", i),
+            NoirType::NaN() => write!(f, "NaN"),
+            NoirType::None() => write!(f, "None"),
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {

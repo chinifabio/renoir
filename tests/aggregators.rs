@@ -219,7 +219,7 @@ fn mean_noir_data() {
             ),
         ];
         let source = IteratorSource::new(rows.into_iter());
-        let res = env.stream(source).mean_noir(true).collect_vec();
+        let res = env.stream(source).mean_noir_data(true).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {
@@ -260,7 +260,7 @@ fn mean_noir_data_nan() {
             ),
         ];
         let source = IteratorSource::new(rows.into_iter());
-        let res = env.stream(source).mean_noir(false).collect_vec();
+        let res = env.stream(source).mean_noir_data(false).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {
@@ -287,7 +287,7 @@ fn mean_noir_type() {
             NoirData::NoirType(NoirType::from(4.0)),
         ];
         let source = IteratorSource::new(rows.into_iter());
-        let res = env.stream(source).mean_noir(true).collect_vec();
+        let res = env.stream(source).mean_noir_data(true).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {
@@ -306,7 +306,7 @@ fn mean_noir_type_nan() {
             NoirData::NoirType(NoirType::from(4.0)),
         ];
         let source = IteratorSource::new(rows.into_iter());
-        let res = env.stream(source).mean_noir(false).collect_vec();
+        let res = env.stream(source).mean_noir_data(false).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {
@@ -325,7 +325,7 @@ fn mean_noir_type_none() {
             NoirData::NoirType(NoirType::from(f32::NAN)),
         ];
         let source = IteratorSource::new(rows.into_iter());
-        let res = env.stream(source).mean_noir(true).collect_vec();
+        let res = env.stream(source).mean_noir_data(true).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {

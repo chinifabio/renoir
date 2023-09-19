@@ -159,7 +159,7 @@ impl<Op> Stream<NoirData, Op>
 where
     Op: Operator<NoirData> + 'static,
 {
-    pub fn mean_noir(self, skip_nan: bool) -> Stream<NoirData, impl Operator<NoirData>> {
+    pub fn mean_noir_data(self, skip_nan: bool) -> Stream<NoirData, impl Operator<NoirData>> {
         self.add_operator(|prev| {
             Fold::new(
                 prev,
