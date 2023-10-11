@@ -11,11 +11,6 @@ impl<'de> Deserialize<'de> for NoirData {
     where
         D: Deserializer<'de>,
     {
-        enum __Field {
-            Row,
-            NoirType,
-        }
-
         struct __NoirDataVisitor;
 
         impl<'de> Visitor<'de> for __NoirDataVisitor {
@@ -30,22 +25,40 @@ impl<'de> Deserialize<'de> for NoirData {
                 A: serde::de::SeqAccess<'de>,
             {
                 let mut data: Vec<NoirType> = Vec::new();
+                let single_data: NoirType;
 
-                while let Ok(Some(value)) = seq.next_element::<String>() {
+                if let Ok(Some(value)) = seq.next_element::<String>() {
                     if let Ok(int_value) = value.parse::<i32>() {
-                        data.push(NoirType::Int32(int_value));
+                        single_data = NoirType::Int32(int_value);
                     } else if let Ok(float_value) = value.parse::<f32>() {
-                        data.push(NoirType::Float32(float_value));
+                        single_data = NoirType::Float32(float_value);
                     } else {
-                        data.push(NoirType::None());
+                        single_data = NoirType::None();
                     }
+                }else {
+                    return Ok(NoirData::NoirType(NoirType::None()));
                 }
-
-                if data.len() == 1 {
-                    Ok(NoirData::NoirType(data.remove(0)))
-                } else {
-                    Ok(NoirData::Row(data))
-                }
+                
+                match seq.next_element::<String>() {
+                    Ok(Some(value)) => {
+                        let mut value = value;
+                        data.push(single_data);
+                        loop {
+                            if let Ok(int_value) = value.parse::<i32>() {
+                                data.push(NoirType::Int32(int_value));
+                            } else if let Ok(float_value) = value.parse::<f32>() {
+                                data.push(NoirType::Float32(float_value));
+                            } else {
+                                data.push(NoirType::None());
+                            }
+                            value = match seq.next_element::<String>() {
+                                Ok(Some(value)) => value,
+                                _ => return Ok(NoirData::Row(data)),
+                            };
+                        }
+                    },
+                    _ => return Ok(NoirData::NoirType(single_data)),
+                };
             }
 
             fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
@@ -53,22 +66,40 @@ impl<'de> Deserialize<'de> for NoirData {
                 A: serde::de::MapAccess<'de>,
             {
                 let mut data: Vec<NoirType> = Vec::new();
+                let single_data: NoirType;
 
-                while let Ok(value) = map.next_value::<String>() {
+                if let Ok(value) = map.next_value::<String>() {
                     if let Ok(int_value) = value.parse::<i32>() {
-                        data.push(NoirType::Int32(int_value));
+                        single_data = NoirType::Int32(int_value);
                     } else if let Ok(float_value) = value.parse::<f32>() {
-                        data.push(NoirType::Float32(float_value));
+                        single_data = NoirType::Float32(float_value);
                     } else {
-                        data.push(NoirType::None());
+                        single_data = NoirType::None();
                     }
+                }else {
+                    return Ok(NoirData::NoirType(NoirType::None()));
                 }
-
-                if data.len() == 1 {
-                    Ok(NoirData::NoirType(data.remove(0)))
-                } else {
-                    Ok(NoirData::Row(data))
-                }
+                
+                match map.next_value::<String>() {
+                    Ok(value) => {
+                        let mut value = value;
+                        data.push(single_data);
+                        loop {
+                            if let Ok(int_value) = value.parse::<i32>() {
+                                data.push(NoirType::Int32(int_value));
+                            } else if let Ok(float_value) = value.parse::<f32>() {
+                                data.push(NoirType::Float32(float_value));
+                            } else {
+                                data.push(NoirType::None());
+                            }
+                            value = match map.next_value::<String>() {
+                                Ok(value) => value,
+                                _ => return Ok(NoirData::Row(data)),
+                            };
+                        }
+                    },
+                    _ => return Ok(NoirData::NoirType(single_data)),
+                };
             }
         }
 
