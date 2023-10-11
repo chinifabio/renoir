@@ -11,6 +11,13 @@ impl NoirData {
         }
     }
 
+    pub fn columns(self) -> Option<Vec<NoirType>> {
+        match self {
+            NoirData::Row(row) => Some(row),
+            NoirData::NoirType(_) => None,
+        }
+    }
+
     pub fn new_empty() -> NoirData {
         NoirData::Row(vec![])
     }
@@ -26,6 +33,13 @@ impl NoirData {
         match self {
             NoirData::Row(row) => row.is_empty(),
             NoirData::NoirType(_) => false,
+        }
+    }
+
+    pub fn contains_none(&self) ->bool {
+        match self {
+            NoirData::Row(row) => row.iter().any(|item| item.is_none()),
+            NoirData::NoirType(v) => v.is_none(),
         }
     }
 }

@@ -85,6 +85,7 @@ mod mean;
 mod median_exact;
 mod merge;
 mod min;
+mod missing_data;
 mod reorder;
 mod replication;
 mod rich_map;

@@ -99,6 +99,19 @@ impl Mul<f32> for NoirType {
     }
 }
 
+impl Mul<i32> for NoirType{
+    type Output = NoirType;
+
+    fn mul(self, rhs: i32) -> Self::Output {
+        match self {
+            NoirType::Int32(a) => NoirType::Int32(a * rhs),
+            NoirType::Float32(a) => NoirType::Float32(a * rhs as f32),
+            NoirType::NaN() => panic!("Found NaN!"),
+            NoirType::None() => panic!("Found None!"),
+        }
+    }
+}
+
 impl DivAssign<usize> for NoirType {
     fn div_assign(&mut self, rhs: usize) {
         match self {
