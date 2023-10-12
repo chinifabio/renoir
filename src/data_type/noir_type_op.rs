@@ -18,6 +18,10 @@ impl NoirType {
         }
     }
 
+    pub fn is_na(&self) -> bool {
+        matches!(self, NoirType::NaN()) || matches!(self, NoirType::None())
+    }
+
     pub fn is_nan(&self) -> bool {
         matches!(self, NoirType::NaN())
     }
@@ -99,7 +103,7 @@ impl Mul<f32> for NoirType {
     }
 }
 
-impl Mul<i32> for NoirType{
+impl Mul<i32> for NoirType {
     type Output = NoirType;
 
     fn mul(self, rhs: i32) -> Self::Output {

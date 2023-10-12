@@ -35,10 +35,10 @@ impl<'de> Deserialize<'de> for NoirData {
                     } else {
                         single_data = NoirType::None();
                     }
-                }else {
+                } else {
                     return Ok(NoirData::NoirType(NoirType::None()));
                 }
-                
+
                 match seq.next_element::<String>() {
                     Ok(Some(value)) => {
                         let mut value = value;
@@ -56,9 +56,9 @@ impl<'de> Deserialize<'de> for NoirData {
                                 _ => return Ok(NoirData::Row(data)),
                             };
                         }
-                    },
-                    _ => return Ok(NoirData::NoirType(single_data)),
-                };
+                    }
+                    _ => Ok(NoirData::NoirType(single_data)),
+                }
             }
 
             fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
@@ -76,10 +76,10 @@ impl<'de> Deserialize<'de> for NoirData {
                     } else {
                         single_data = NoirType::None();
                     }
-                }else {
+                } else {
                     return Ok(NoirData::NoirType(NoirType::None()));
                 }
-                
+
                 match map.next_value::<String>() {
                     Ok(value) => {
                         let mut value = value;
@@ -97,9 +97,9 @@ impl<'de> Deserialize<'de> for NoirData {
                                 _ => return Ok(NoirData::Row(data)),
                             };
                         }
-                    },
-                    _ => return Ok(NoirData::NoirType(single_data)),
-                };
+                    }
+                    _ => Ok(NoirData::NoirType(single_data)),
+                }
             }
         }
 

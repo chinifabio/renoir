@@ -5,7 +5,7 @@ use super::{
 };
 use crate::{
     block::{BlockStructure, OperatorStructure},
-    data_type::{NoirData, NoirType},
+    data_type::NoirData,
     ExecutionMetadata, Replication, Stream,
 };
 
@@ -140,7 +140,7 @@ where
     ///
     /// The reducing operator consists in scanning the stream and keeping track of the maximum value.
     ///
-    /// skip_nan: if true, NaN values will not be considered, otherwise they will be considered as the maximum value.
+    /// skip_na: if true, NaN values will not be considered, otherwise they will be considered as the maximum value.
     ///
     /// **Note**: this operator will retain all the messages of the stream and emit the values only
     /// when the stream ends. Therefore this is not properly _streaming_.
@@ -165,11 +165,11 @@ where
     /// ```
     pub fn max_noir_data(
         self,
-        skip_nan: bool,
+        skip_na: bool,
     ) -> Stream<NoirData, MaxNoirData<SimpleStartOperator<NoirData>>> {
-        self.add_operator(|prev| MaxNoirData::new(prev, skip_nan))
+        self.add_operator(|prev| MaxNoirData::new(prev, skip_na))
             .replication(Replication::One)
-            .add_operator(|prev| MaxNoirData::new(prev, skip_nan))
+            .add_operator(|prev| MaxNoirData::new(prev, skip_na))
     }
 }
 
@@ -182,7 +182,7 @@ where
     prev: PreviousOperators,
     max_item: Option<NoirData>,
     found_nan: bool,
-    skip_nan: bool,
+    skip_na: bool,
     timestamp: Option<Timestamp>,
     max_watermark: Option<Timestamp>,
     received_end: bool,
@@ -204,88 +204,16 @@ where
 }
 
 impl<PreviousOperators: Operator<NoirData>> MaxNoirData<PreviousOperators> {
-    pub fn new(prev: PreviousOperators, skip_nan: bool) -> Self {
+    pub fn new(prev: PreviousOperators, skip_na: bool) -> Self {
         Self {
             prev,
             max_item: None,
             found_nan: false,
-            skip_nan,
+            skip_na,
             timestamp: None,
             max_watermark: None,
             received_end: false,
             received_end_iter: false,
-        }
-    }
-}
-
-impl<PreviousOperators> MaxNoirData<PreviousOperators>
-where
-    PreviousOperators: Operator<NoirData>,
-{
-    fn handle_noir_type(&mut self, item: NoirType) {
-        if !self.found_nan {
-            // if we haven't found a NaN yet, update the max_item.
-            if self.max_item.is_none() {
-                // if the max_item is None, initialize it.
-                self.max_item = Some(NoirData::NoirType(NoirType::None()));
-            }
-            match self.max_item.as_ref().unwrap() {
-                NoirData::Row(_) => panic!("Mismatched types in Stream"),
-                NoirData::NoirType(max) => {
-                    // update the max_item.
-                    if !item.is_nan() {
-                        // item is not a NaN, check if it is greater than the current max.
-                        if max.is_none() || &item > max {
-                            // if the item is greater than the current max, set the current max to the item.
-                            self.max_item = Some(NoirData::NoirType(item));
-                        }
-                    } else if !self.skip_nan {
-                        // if we don't skip them, set the current max to NaN.
-                        self.max_item = Some(NoirData::NoirType(item));
-                        self.found_nan = true;
-                    }
-                }
-            }
-        }
-    }
-
-    fn handle_row(&mut self, row: Vec<NoirType>) {
-        if !self.found_nan {
-            // if we haven't found a NaN yet, update the max_item.
-            if self.max_item.is_none() {
-                // if the max_item is None, initialize it.
-                self.max_item = Some(NoirData::Row(vec![NoirType::None(); row.len()]));
-            }
-
-            match self.max_item.as_mut().unwrap() {
-                NoirData::Row(r) => {
-                    let mut all_nan = true;
-                    for (i, v) in row.into_iter().enumerate() {
-                        // for each column, update the corrispondent max.
-                        if !r[i].is_nan() {
-                            if !v.is_nan() {
-                                all_nan = false;
-                                // item is not a NaN, check if it is greater than the current max.
-                                if r[i].is_none() || v > r[i] {
-                                    // if the item is greater than the current max, set the current max to the item.
-                                    r[i] = v;
-                                }
-                            } else {
-                                // item is a NaN, check if we skip them.
-                                if !self.skip_nan {
-                                    // if we don't skip them, set the current max to NaN.
-                                    r[i] = v;
-                                } else {
-                                    // if we skip them, keep the current max as is.
-                                    all_nan = false
-                                }
-                            }
-                        }
-                    }
-                    self.found_nan = all_nan;
-                }
-                NoirData::NoirType(_) => panic!("Mismatched types in Stream"),
-            }
         }
     }
 }
@@ -310,15 +238,15 @@ where
                 StreamElement::Watermark(ts) => {
                     self.max_watermark = Some(self.max_watermark.unwrap_or(ts).max(ts))
                 }
-                StreamElement::Item(item) => match item {
-                    NoirData::Row(row) => self.handle_row(row),
-                    NoirData::NoirType(it) => self.handle_noir_type(it),
-                },
+                StreamElement::Item(item) => {
+                    if !self.found_nan {
+                        self.found_nan = item.max(&mut self.max_item, self.skip_na)
+                    }
+                }
                 StreamElement::Timestamped(item, ts) => {
                     self.timestamp = Some(self.timestamp.unwrap_or(ts).max(ts));
-                    match item {
-                        NoirData::Row(row) => self.handle_row(row),
-                        NoirData::NoirType(it) => self.handle_noir_type(it),
+                    if !self.found_nan {
+                        self.found_nan = item.max(&mut self.max_item, self.skip_na)
                     }
                 }
                 // this block wont sent anything until the stream ends
@@ -481,7 +409,7 @@ mod tests {
     }
 
     #[test]
-    fn test_max_skip_nan() {
+    fn test_max_skip_na() {
         let fake_operator = FakeOperator::new(
             [
                 NoirData::NoirType(NoirType::from(0.0)),

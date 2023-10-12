@@ -2,6 +2,72 @@ use std::fmt::Display;
 
 use super::{NoirData, NoirType};
 
+macro_rules! impl_comp{
+    ($comp: tt, $v: ident, $n:ident) => {
+        pub fn $n(self, $v: &mut Option<NoirData>, skip_na: bool) -> bool {
+            // if we haven't found a NaN yet, update the $v.
+            if $v.is_none() {
+                // if the $v is None, initialize it.
+                match &self {
+                    NoirData::Row(row) => {
+                        *$v = Some(NoirData::Row(vec![NoirType::None(); row.len()]));
+                    },
+                    NoirData::NoirType(_) => {
+                        *$v = Some(NoirData::NoirType(NoirType::None()));
+                    }
+                }
+            }
+
+            match $v.as_mut().unwrap() {
+                NoirData::Row(r) => {
+                    let mut all_nan = true;
+                    let row = self.to_row();
+                    for (i, v) in row.into_iter().enumerate() {
+                        // for each column, update the corrispondent $n.
+                        if !r[i].is_nan() {
+                            if !v.is_na(){
+                                all_nan = false;
+                                // item is not a NaN, check if it is smaller than the current $n.
+                                if r[i].is_none() || v $comp r[i] {
+                                    // if the item is smaller than the current $n, set the current $n to the item.
+                                    r[i] = v;
+                                }
+                            } else {
+                                // item is a NaN, check if we skip them.
+                                if !skip_na {
+                                    // if we don't skip them, set the current $n to NaN.
+                                    r[i] = v;
+                                } else {
+                                    // if we skip them, keep the current $n as is.
+                                    all_nan = false
+                                }
+                            }
+                        }
+                    }
+                    return all_nan;
+                },
+                NoirData::NoirType($n) => {
+                    let item = self.to_type();
+                    // update the $v.
+                    if !item.is_na() {
+                        // item is not a NaN, check if it is smaller than the current $n.
+                        if $n.is_none() || &item $comp &$n {
+                            // if the item is smaller than the current $n, set the current $n to the item.
+                            *$v = Some(NoirData::NoirType(item));
+                        }
+                        return false;
+                    } else if !skip_na {
+                        // if we don't skip them, set the current $n to NaN.
+                        *$v = Some(NoirData::NoirType(item));
+                        return true;
+                    }
+                    return false;
+                }
+            }
+        }
+    }
+}
+
 impl NoirData {
     pub fn new(columns: Vec<NoirType>) -> NoirData {
         if columns.len() == 1 {
@@ -36,12 +102,29 @@ impl NoirData {
         }
     }
 
-    pub fn contains_none(&self) ->bool {
+    pub fn contains_none(&self) -> bool {
         match self {
             NoirData::Row(row) => row.iter().any(|item| item.is_none()),
             NoirData::NoirType(v) => v.is_none(),
         }
     }
+
+    pub fn to_type(self) -> NoirType {
+        match self {
+            NoirData::Row(_) => panic!("Cannot convert a row to a type"),
+            NoirData::NoirType(v) => v,
+        }
+    }
+
+    pub fn to_row(self) -> Vec<NoirType> {
+        match self {
+            NoirData::Row(row) => row,
+            NoirData::NoirType(_) => panic!("Cannot convert a type to a row"),
+        }
+    }
+
+    impl_comp!(<, min_item, min);
+    impl_comp!(>, max_item, max);
 }
 
 impl Display for NoirData {

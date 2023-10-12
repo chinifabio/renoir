@@ -71,7 +71,7 @@ fn mean(
     sum_total: &mut Option<NoirData>,
     counts: &mut Option<Vec<usize>>,
     found_nan: &mut bool,
-    skip_nan: bool,
+    skip_na: bool,
     mut count_opt: Option<Vec<usize>>,
     mut value_opt: Option<NoirData>,
 ) {
@@ -93,7 +93,7 @@ fn mean(
                                 for (i, v) in row.into_iter().enumerate() {
                                     // for each column, update the corrispondent sum.
                                     if !r[i].is_nan() {
-                                        if !v.is_nan() {
+                                        if !v.is_na() {
                                             all_nan = false;
                                             counts.as_mut().unwrap()[i] += count[i];
                                             if r[i].is_none() {
@@ -105,7 +105,7 @@ fn mean(
                                             }
                                         } else {
                                             // item is a NaN, check if we skip them.
-                                            if !skip_nan {
+                                            if !skip_na {
                                                 // if we don't skip them, set the current sum to NaN.
                                                 r[i] = v;
                                             } else {
@@ -132,7 +132,7 @@ fn mean(
                             NoirData::Row(_) => panic!("Mismatched types in Stream"),
                             NoirData::NoirType(sum) => {
                                 // check if the item is a NaN.
-                                if !item.is_nan() {
+                                if !item.is_na() {
                                     counts.as_mut().unwrap()[0] += count[0];
                                     if sum.is_none() {
                                         // if the sum is None, set it to the item.
@@ -141,7 +141,7 @@ fn mean(
                                         // if the sum is not None, add the item to the sum.
                                         *sum_total = Some(NoirData::NoirType(item + sum));
                                     }
-                                } else if !skip_nan {
+                                } else if !skip_na {
                                     // if we don't skip them, set the sum to NaN.
                                     *sum_total = Some(NoirData::NoirType(item));
                                     *found_nan = true;
@@ -161,7 +161,7 @@ where
 {
     /// Find the average of the values of the items in the NoirData stream.
     ///
-    /// skip_nan: if true, NaN values will not be considered, otherwise they will be considered as the mean value.
+    /// skip_na: if true, NaN and None values will not be considered, otherwise they will be considered as the mean value.
     ///
     ///
     /// **Note**: this operator will split the current block.
@@ -181,7 +181,7 @@ where
     ///
     /// assert_eq!(res.get().unwrap(), vec![NoirData::Row(vec![NoirType::from(2.0), NoirType::from(3.0)])]);
     /// ```
-    pub fn mean_noir_data(self, skip_nan: bool) -> Stream<NoirData, impl Operator<NoirData>> {
+    pub fn mean_noir_data(self, skip_na: bool) -> Stream<NoirData, impl Operator<NoirData>> {
         self.add_operator(|prev| {
             Fold::new(
                 prev,
@@ -191,7 +191,7 @@ where
                         sum_total,
                         counts,
                         found_nan,
-                        skip_nan,
+                        skip_na,
                         Some(vec![1; value.len()]),
                         Some(value),
                     )
@@ -208,7 +208,7 @@ where
                         sum_total,
                         counts,
                         found_nan,
-                        skip_nan,
+                        skip_na,
                         local_count,
                         local_value,
                     )
