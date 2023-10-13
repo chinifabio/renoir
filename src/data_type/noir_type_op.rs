@@ -144,7 +144,9 @@ impl Div<Self> for NoirType {
         match (self, rhs) {
             (NoirType::Int32(a), NoirType::Int32(b)) => NoirType::Float32(a as f32 / b as f32),
             (NoirType::Float32(a), NoirType::Float32(b)) => NoirType::Float32(a / b),
-            (_, _) => panic!("Type mismatch!"),
+            (NoirType::Float32(a), NoirType::Int32(b)) => NoirType::Float32(a / b as f32),
+            (NoirType::Int32(a), NoirType::Float32(b)) => NoirType::Float32(a as f32 / b),
+            (_, _) => panic!("NaN or None!"),
         }
     }
 }
@@ -192,7 +194,9 @@ impl AddAssign for NoirType {
         match (self, rhs) {
             (NoirType::Int32(a), NoirType::Int32(b)) => *a += b,
             (NoirType::Float32(a), NoirType::Float32(b)) => *a += b,
-            (_, _) => panic!("Type mismatch!"),
+            (NoirType::Float32(a), NoirType::Int32(b)) => *a += b as f32,
+            (NoirType::Int32(a), NoirType::Float32(b)) => *a = (*a as f32 + b) as i32,
+            (_, _) => panic!("NaN or None!"),
         }
     }
 }
@@ -238,7 +242,22 @@ impl Sub<Self> for NoirType {
         match (self, rhs) {
             (NoirType::Int32(a), NoirType::Int32(b)) => NoirType::Int32(a - b),
             (NoirType::Float32(a), NoirType::Float32(b)) => NoirType::Float32(a - b),
-            (_, _) => panic!("Type mismatch!"),
+            (NoirType::Float32(a), NoirType::Int32(b)) => NoirType::Float32(a - b as f32),
+            (NoirType::Int32(a), NoirType::Float32(b)) => NoirType::Float32(a as f32 - b),
+            (_, _) => panic!("NaN or None!"),
+        }
+    }
+}
+
+impl Sub<i32> for NoirType{
+    type Output = NoirType;
+
+    fn sub(self, rhs: i32) -> Self::Output {
+        match self {
+            NoirType::Int32(a) => NoirType::Int32(a - rhs),
+            NoirType::Float32(a) => NoirType::Float32(a - rhs as f32),
+            NoirType::NaN() => panic!("Found NaN!"),
+            NoirType::None() => panic!("Found None!"),
         }
     }
 }

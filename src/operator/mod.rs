@@ -63,6 +63,7 @@ use self::{
 mod add_timestamps;
 mod batch_mode;
 pub(crate) mod end;
+mod variance;
 mod filter;
 mod filter_map;
 mod flat_map;
