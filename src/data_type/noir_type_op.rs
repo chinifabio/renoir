@@ -8,9 +8,8 @@ use crate::data_type::NoirType;
 
 use super::NoirData;
 
-#[allow(dead_code)]
 impl NoirType {
-    fn sqrt(self) -> NoirType {
+    pub fn sqrt(self) -> NoirType {
         match self {
             NoirType::Int32(a) => NoirType::Float32((a as f32).sqrt()),
             NoirType::Float32(a) => NoirType::Float32(a.sqrt()),
@@ -186,8 +185,6 @@ impl Div<f32> for NoirType {
     }
 }
 
-
-
 impl Add<&Self> for NoirType {
     type Output = NoirType;
 
@@ -262,7 +259,7 @@ impl Sub<Self> for NoirType {
     }
 }
 
-impl Sub<i32> for NoirType{
+impl Sub<i32> for NoirType {
     type Output = NoirType;
 
     fn sub(self, rhs: i32) -> Self::Output {

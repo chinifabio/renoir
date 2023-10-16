@@ -1,50 +1,78 @@
 use std::fmt::Display;
 
-use crate::{Stream, data_type::NoirData, ExecutionMetadata, block::{BlockStructure, OperatorStructure}};
+use crate::{
+    block::{BlockStructure, OperatorStructure},
+    data_type::NoirData,
+    ExecutionMetadata, Stream,
+};
 
-use super::{Operator, StreamElement, fold::Fold};
+use super::{fold::Fold, Operator, StreamElement};
 use crate::operator::Timestamp;
 
 impl<Op> Stream<NoirData, Op>
 where
     Op: Operator<NoirData> + 'static,
 {
-
-    pub fn variance(self, skip_na: bool) -> Stream<NoirData, impl Operator<NoirData>> {
-        self.add_operator(|prev| Welford::new(prev, skip_na)).replication(crate::Replication::One).add_operator(|prev| Fold::new(
-            prev,
-            (None::<NoirData>, None::<NoirData>, None::<NoirData>, false),
-            move |acc, item| {
-                let (count, mean, m2, found_nan) = acc;
-                if !*found_nan {
-                    NoirData::chen(count, mean, m2, skip_na, item);
+    pub fn std_dev(self, skip_na: bool) -> Stream<NoirData, impl Operator<NoirData>> {
+        self.variance(skip_na).map(|v| match v {
+            NoirData::NoirType(v) => NoirData::NoirType(v.sqrt()),
+            NoirData::Row(v) => {
+                let mut result = Vec::with_capacity(v.len());
+                for i in v {
+                    result.push(i.sqrt());
                 }
+                NoirData::Row(result)
             }
-        )).map(|value| {
-             let (count, mean, m2, _) = value;
-             match (count, mean, m2) {
-                (Some(NoirData::NoirType(count)), Some(NoirData::NoirType(mean)), Some(NoirData::NoirType(m2))) => {
-                    if count.is_na() || m2.is_na() || mean.is_na(){
-                        return NoirData::NoirType(mean);
-                    }
-                    NoirData::NoirType(m2 / (count - 1))
-                }
-                (Some(NoirData::Row(count)), Some(NoirData::Row(mean)), Some(NoirData::Row(m2))) => {
-                    let mut result = Vec::with_capacity(count.len());
-                    for (i, v) in count.into_iter().enumerate() {
-                        if v.is_na() || m2[i].is_na() || mean[i].is_na(){
-                            result.push(mean[i]);
-                        } else {
-                            result.push(m2[i] / (v - 1));
-                        }
-                    }
-                    NoirData::Row(result)
-                }
-                _ => panic!("Fatal error in Entropy"),
-             }
         })
     }
-    
+
+    pub fn variance(self, skip_na: bool) -> Stream<NoirData, impl Operator<NoirData>> {
+        self.add_operator(|prev| Welford::new(prev, skip_na))
+            .replication(crate::Replication::One)
+            .add_operator(|prev| {
+                Fold::new(
+                    prev,
+                    (None::<NoirData>, None::<NoirData>, None::<NoirData>, false),
+                    move |acc, item| {
+                        let (count, mean, m2, found_nan) = acc;
+                        if !*found_nan {
+                            NoirData::chen(count, mean, m2, skip_na, item);
+                        }
+                    },
+                )
+            })
+            .map(|value| {
+                let (count, mean, m2, _) = value;
+                match (count, mean, m2) {
+                    (
+                        Some(NoirData::NoirType(count)),
+                        Some(NoirData::NoirType(mean)),
+                        Some(NoirData::NoirType(m2)),
+                    ) => {
+                        if count.is_na() || m2.is_na() || mean.is_na() {
+                            return NoirData::NoirType(mean);
+                        }
+                        NoirData::NoirType(m2 / (count - 1))
+                    }
+                    (
+                        Some(NoirData::Row(count)),
+                        Some(NoirData::Row(mean)),
+                        Some(NoirData::Row(m2)),
+                    ) => {
+                        let mut result = Vec::with_capacity(count.len());
+                        for (i, v) in count.into_iter().enumerate() {
+                            if v.is_na() || m2[i].is_na() || mean[i].is_na() {
+                                result.push(mean[i]);
+                            } else {
+                                result.push(m2[i] / (v - 1));
+                            }
+                        }
+                        NoirData::Row(result)
+                    }
+                    _ => panic!("Fatal error in Entropy"),
+                }
+            })
+    }
 }
 
 #[derive(Clone, Derivative)]
@@ -118,13 +146,23 @@ where
                 }
                 StreamElement::Item(item) => {
                     if !self.found_nan {
-                        self.found_nan = item.welford(&mut self.count, &mut self.mean, &mut self.m2,  self.skip_na);
+                        self.found_nan = item.welford(
+                            &mut self.count,
+                            &mut self.mean,
+                            &mut self.m2,
+                            self.skip_na,
+                        );
                     }
                 }
                 StreamElement::Timestamped(item, ts) => {
                     self.timestamp = Some(self.timestamp.unwrap_or(ts).max(ts));
                     if !self.found_nan {
-                        self.found_nan = item.welford(&mut self.count, &mut self.mean, &mut self.m2,  self.skip_na);
+                        self.found_nan = item.welford(
+                            &mut self.count,
+                            &mut self.mean,
+                            &mut self.m2,
+                            self.skip_na,
+                        );
                     }
                 }
                 // this block wont sent anything until the stream ends

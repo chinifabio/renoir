@@ -21,7 +21,6 @@ enum FillStateMean {
     Computed(NoirData),
 }
 
-
 macro_rules! fill_iterate {
     ($name: ident, $func: ident, $var:ident, $(#[$meta:meta])*) => {
         $(#[$meta])*
@@ -61,14 +60,12 @@ macro_rules! fill_iterate {
                     }
                 },
             );
-    
+
             $var.for_each(std::mem::drop);
             stream
         }
     };
 }
-
-
 
 impl<Op> Stream<NoirData, Op>
 where
@@ -256,7 +253,7 @@ where
     ///
     /// assert_eq!(res.get().unwrap(), vec![NoirData::Row(vec![NoirType::from(1), NoirType::from(2)]), NoirData::Row(vec![NoirType::from(1.0), NoirType::from(4)])]);
     /// ```
-    pub fn fill_mean(self) -> Stream<NoirData, impl Operator<NoirData>>{
+    pub fn fill_mean(self) -> Stream<NoirData, impl Operator<NoirData>> {
         let (mean, stream) = self.shuffle().iterate(
             2,
             FillStateMean::default(),
@@ -275,7 +272,7 @@ where
             |a, item| {
                 match a {
                     FillStateMean::None => *a = FillStateMean::Accumulating(item),
-                    FillStateMean::Accumulating((s,c)) => {
+                    FillStateMean::Accumulating((s, c)) => {
                         let value = (item.0.unwrap(), item.1.unwrap());
                         NoirData::global_sum_count(s, c, true, value);
                     }
@@ -300,23 +297,22 @@ where
     }
 
     fill_iterate!(fill_min, min, min,
-        /// Fills missing data in a stream using the minimum value in the stream.
-        ///
-        /// ## Example
-        /// ```
-        /// # use noir::{StreamEnvironment, EnvironmentConfig};
-        /// # use noir::operator::source::IteratorSource;
-        /// # use noir::data_type::{NoirData, NoirType};
-        /// # let mut env = StreamEnvironment::new(EnvironmentConfig::local(1));
-        /// let s = env.stream(IteratorSource::new(vec![NoirData::Row(vec![NoirType::Int32(1), NoirType::Int32(2)]), NoirData::Row(vec![NoirType::None(), NoirType::Int32(4)])].into_iter()));
-        /// let res = s
-        ///     .fill_min()
-        ///     .collect_vec();
-        ///
-        /// env.execute_blocking();
-        ///
-        /// assert_eq!(res.get().unwrap(), vec![NoirData::Row(vec![NoirType::from(1), NoirType::from(2)]), NoirData::Row(vec![NoirType::from(1), NoirType::from(4)])]);
-        /// ```
-        );
-    
+    /// Fills missing data in a stream using the minimum value in the stream.
+    ///
+    /// ## Example
+    /// ```
+    /// # use noir::{StreamEnvironment, EnvironmentConfig};
+    /// # use noir::operator::source::IteratorSource;
+    /// # use noir::data_type::{NoirData, NoirType};
+    /// # let mut env = StreamEnvironment::new(EnvironmentConfig::local(1));
+    /// let s = env.stream(IteratorSource::new(vec![NoirData::Row(vec![NoirType::Int32(1), NoirType::Int32(2)]), NoirData::Row(vec![NoirType::None(), NoirType::Int32(4)])].into_iter()));
+    /// let res = s
+    ///     .fill_min()
+    ///     .collect_vec();
+    ///
+    /// env.execute_blocking();
+    ///
+    /// assert_eq!(res.get().unwrap(), vec![NoirData::Row(vec![NoirType::from(1), NoirType::from(2)]), NoirData::Row(vec![NoirType::from(1), NoirType::from(4)])]);
+    /// ```
+    );
 }

@@ -63,7 +63,6 @@ use self::{
 mod add_timestamps;
 mod batch_mode;
 pub(crate) mod end;
-mod variance;
 mod filter;
 mod filter_map;
 mod flat_map;
@@ -87,6 +86,7 @@ mod median_exact;
 mod merge;
 mod min;
 mod missing_data;
+mod mode;
 mod reorder;
 mod replication;
 mod rich_map;
@@ -95,6 +95,7 @@ mod route;
 pub mod sink;
 pub mod source;
 mod start;
+mod variance;
 pub mod window;
 mod zip;
 
