@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use crate::{Stream, data_type::{NoirData, NoirType}, ExecutionMetadata, block::{BlockStructure, OperatorStructure}};
+use crate::{Stream, data_type::NoirData, ExecutionMetadata, block::{BlockStructure, OperatorStructure}};
 
 use super::{Operator, StreamElement, fold::Fold};
 use crate::operator::Timestamp;
@@ -21,19 +21,19 @@ where
                 }
             }
         )).map(|value| {
-             let (count, _, m2, _) = value;
-             match (count, m2) {
-                (Some(NoirData::NoirType(count)), Some(NoirData::NoirType(m2))) => {
-                    if count.is_na() || m2.is_na() {
-                        return NoirData::NoirType(NoirType::NaN());
+             let (count, mean, m2, _) = value;
+             match (count, mean, m2) {
+                (Some(NoirData::NoirType(count)), Some(NoirData::NoirType(mean)), Some(NoirData::NoirType(m2))) => {
+                    if count.is_na() || m2.is_na() || mean.is_na(){
+                        return NoirData::NoirType(mean);
                     }
                     NoirData::NoirType(m2 / (count - 1))
                 }
-                (Some(NoirData::Row(count)), Some(NoirData::Row(m2))) => {
+                (Some(NoirData::Row(count)), Some(NoirData::Row(mean)), Some(NoirData::Row(m2))) => {
                     let mut result = Vec::with_capacity(count.len());
                     for (i, v) in count.into_iter().enumerate() {
-                        if v.is_na() || m2[i].is_na() {
-                            result.push(NoirType::NaN());
+                        if v.is_na() || m2[i].is_na() || mean[i].is_na(){
+                            result.push(mean[i]);
                         } else {
                             result.push(m2[i] / (v - 1));
                         }

@@ -1,3 +1,4 @@
+use core::panic;
 use std::cmp::Eq;
 use std::f32;
 use std::fmt::Display;
@@ -28,6 +29,14 @@ impl NoirType {
 
     pub fn is_none(&self) -> bool {
         matches!(self, NoirType::None())
+    }
+
+    pub fn or(self, other: &NoirType) -> NoirType {
+        match self {
+            NoirType::NaN() => *other,
+            NoirType::None() => *other,
+            _ => self,
+        }
     }
 }
 
@@ -177,6 +186,8 @@ impl Div<f32> for NoirType {
     }
 }
 
+
+
 impl Add<&Self> for NoirType {
     type Output = NoirType;
 
@@ -195,7 +206,7 @@ impl AddAssign for NoirType {
             (NoirType::Int32(a), NoirType::Int32(b)) => *a += b,
             (NoirType::Float32(a), NoirType::Float32(b)) => *a += b,
             (NoirType::Float32(a), NoirType::Int32(b)) => *a += b as f32,
-            (NoirType::Int32(a), NoirType::Float32(b)) => *a = (*a as f32 + b) as i32,
+            (NoirType::Int32(_), NoirType::Float32(_)) => panic!("Convert data to float!"),
             (_, _) => panic!("NaN or None!"),
         }
     }
@@ -208,6 +219,8 @@ impl Add<Self> for NoirType {
         match (self, rhs) {
             (NoirType::Int32(a), NoirType::Int32(b)) => NoirType::Int32(a + b),
             (NoirType::Float32(a), NoirType::Float32(b)) => NoirType::Float32(a + b),
+            (NoirType::Float32(a), NoirType::Int32(b)) => NoirType::Float32(a + b as f32),
+            (NoirType::Int32(a), NoirType::Float32(b)) => NoirType::Float32(a as f32 + b),
             (_, _) => panic!("Type mismatch!"),
         }
     }

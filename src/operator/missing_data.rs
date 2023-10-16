@@ -5,42 +5,70 @@ use crate::{
 
 use super::Operator;
 
-macro_rules! fill_comp {
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
+enum FillState {
+    #[default]
+    None,
+    Accumulating(Option<NoirData>),
+    Computed(NoirData),
+}
+
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
+enum FillStateMean {
+    #[default]
+    None,
+    Accumulating((Option<NoirData>, Option<NoirData>)),
+    Computed(NoirData),
+}
+
+
+macro_rules! fill_iterate {
     ($name: ident, $func: ident, $var:ident, $(#[$meta:meta])*) => {
         $(#[$meta])*
         pub fn $name(self) -> Stream<NoirData, impl Operator<NoirData>>{
-
-            let mut streams = self.split(2);
-            let $var = streams.pop().unwrap().$func(true);
-            let std = streams.pop().unwrap();
-
-            std.join($var, |_| true, |_| true).drop_key().map(
-                |(a, b)| {
-                    match a{
-                        NoirData::Row(row) => {
-                            let $var = b.columns().unwrap();
-                            let new = row.iter().enumerate().map(|v| {
-                                if v.1.is_none() {
-                                    $var[v.0]
-                                }else {
-                                    *v.1
-                                }
-                            }).collect::<Vec<_>>();
-                            NoirData::Row(new)
+            let ($var, stream) = self.shuffle().iterate(
+                2,
+                FillState::default(),
+                |s, state| {
+                    s.map(move |v| {
+                        if let FillState::Computed($var) = state.get() {
+                            v.or($var)
+                        } else {
+                            v
                         }
-                        NoirData::NoirType(v) => {
-                            if v.is_none() {
-                                b
-                            }else{
-                                a
-                            }
-                        },
+                    })
+                },
+                |$var: &mut Option<NoirData>, v| {
+                    v.$func($var, true);
+                },
+                |a, $var| {
+                    match a {
+                        FillState::None => *a = FillState::Accumulating($var),
+                        FillState::Accumulating($name) => {
+                            $var.unwrap().$func($name, true);
+                        }
+                        FillState::Computed(_) => {} // final loop
                     }
-                }
-            )
+                },
+                |s| {
+                    match s {
+                        FillState::None => false, // No elements in stream
+                        FillState::Accumulating($var) => {
+                            *s = FillState::Computed($var.take().unwrap());
+                            true
+                        }
+                        FillState::Computed(_) => false, // terminated
+                    }
+                },
+            );
+    
+            $var.for_each(std::mem::drop);
+            stream
         }
     };
 }
+
+
 
 impl<Op> Stream<NoirData, Op>
 where
@@ -191,26 +219,7 @@ where
         self.map(func)
     }
 
-    fill_comp!(fill_min, min_noir_data, min,
-        /// Fills missing data in a stream using the minimum value in the stream.
-        ///
-        /// ## Example
-        /// ```
-        /// # use noir::{StreamEnvironment, EnvironmentConfig};
-        /// # use noir::operator::source::IteratorSource;
-        /// # use noir::data_type::{NoirData, NoirType};
-        /// # let mut env = StreamEnvironment::new(EnvironmentConfig::local(1));
-        /// let s = env.stream(IteratorSource::new(vec![NoirData::Row(vec![NoirType::Int32(1), NoirType::Int32(2)]), NoirData::Row(vec![NoirType::None(), NoirType::Int32(4)])].into_iter()));
-        /// let res = s
-        ///     .fill_min()
-        ///     .collect_vec();
-        ///
-        /// env.execute_blocking();
-        ///
-        /// assert_eq!(res.get().unwrap(), vec![NoirData::Row(vec![NoirType::from(1), NoirType::from(2)]), NoirData::Row(vec![NoirType::from(1), NoirType::from(4)])]);
-        /// ```
-    );
-    fill_comp!(fill_max, max_noir_data, max,
+    fill_iterate!(fill_max, max, max,
         /// Fills missing data in a stream using the maximum value in the stream.
         ///
         /// ## Example
@@ -229,8 +238,69 @@ where
         /// assert_eq!(res.get().unwrap(), vec![NoirData::Row(vec![NoirType::from(1), NoirType::from(2)]), NoirData::Row(vec![NoirType::from(1), NoirType::from(4)])]);
         /// ```
     );
-    fill_comp!(fill_mean, mean_noir_data, mean,
-        /// Fills missing data in a stream using the mean value in the stream.
+
+    /// Fills missing data in a stream using the mean value in the stream.
+    ///
+    /// ## Example
+    /// ```
+    /// # use noir::{StreamEnvironment, EnvironmentConfig};
+    /// # use noir::operator::source::IteratorSource;
+    /// # use noir::data_type::{NoirData, NoirType};
+    /// # let mut env = StreamEnvironment::new(EnvironmentConfig::local(1));
+    /// let s = env.stream(IteratorSource::new(vec![NoirData::Row(vec![NoirType::Int32(1), NoirType::Int32(2)]), NoirData::Row(vec![NoirType::None(), NoirType::Int32(4)])].into_iter()));
+    /// let res = s
+    ///     .fill_mean()
+    ///     .collect_vec();
+    ///
+    /// env.execute_blocking();
+    ///
+    /// assert_eq!(res.get().unwrap(), vec![NoirData::Row(vec![NoirType::from(1), NoirType::from(2)]), NoirData::Row(vec![NoirType::from(1.0), NoirType::from(4)])]);
+    /// ```
+    pub fn fill_mean(self) -> Stream<NoirData, impl Operator<NoirData>>{
+        let (mean, stream) = self.shuffle().iterate(
+            2,
+            FillStateMean::default(),
+            |s, state| {
+                s.map(move |v| {
+                    if let FillStateMean::Computed(mean) = state.get() {
+                        v.or(mean)
+                    } else {
+                        v
+                    }
+                })
+            },
+            |(sum, count), v| {
+                v.sum_count(sum, count, true);
+            },
+            |a, item| {
+                match a {
+                    FillStateMean::None => *a = FillStateMean::Accumulating(item),
+                    FillStateMean::Accumulating((s,c)) => {
+                        let value = (item.0.unwrap(), item.1.unwrap());
+                        NoirData::global_sum_count(s, c, true, value);
+                    }
+                    FillStateMean::Computed(_) => {} // final loop
+                }
+            },
+            |s| {
+                match s {
+                    FillStateMean::None => false, // No elements in stream
+                    FillStateMean::Accumulating((sum, count)) => {
+                        NoirData::mean(sum, count.clone().unwrap(), true);
+                        *s = FillStateMean::Computed(sum.clone().unwrap());
+                        true
+                    }
+                    FillStateMean::Computed(_) => false, // terminated
+                }
+            },
+        );
+
+        mean.for_each(std::mem::drop);
+        stream
+    }
+
+    fill_iterate!(fill_min, min, min,
+        /// Fills missing data in a stream using the minimum value in the stream.
         ///
         /// ## Example
         /// ```
@@ -240,12 +310,13 @@ where
         /// # let mut env = StreamEnvironment::new(EnvironmentConfig::local(1));
         /// let s = env.stream(IteratorSource::new(vec![NoirData::Row(vec![NoirType::Int32(1), NoirType::Int32(2)]), NoirData::Row(vec![NoirType::None(), NoirType::Int32(4)])].into_iter()));
         /// let res = s
-        ///     .fill_mean()
+        ///     .fill_min()
         ///     .collect_vec();
         ///
         /// env.execute_blocking();
         ///
-        /// assert_eq!(res.get().unwrap(), vec![NoirData::Row(vec![NoirType::from(1), NoirType::from(2)]), NoirData::Row(vec![NoirType::from(1.0), NoirType::from(4)])]);
+        /// assert_eq!(res.get().unwrap(), vec![NoirData::Row(vec![NoirType::from(1), NoirType::from(2)]), NoirData::Row(vec![NoirType::from(1), NoirType::from(4)])]);
         /// ```
-    );
+        );
+    
 }

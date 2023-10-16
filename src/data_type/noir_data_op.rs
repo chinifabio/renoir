@@ -123,6 +123,21 @@ impl NoirData {
         }
     }
 
+    pub fn or(self, other: &NoirData) -> NoirData {
+        match (self, other) {
+            (NoirData::Row(a), NoirData::Row(b)) => {
+                NoirData::Row(
+                    a.into_iter()
+                        .zip(b.into_iter())
+                        .map(|(a, b)| a.or(b))
+                        .collect(),
+                )
+            }
+            (NoirData::NoirType(a), NoirData::NoirType(b)) => NoirData::NoirType(a.or(b)),
+            (_, _) => panic!("Type mismatch!"),
+        }
+    }
+
     pub fn chen(count: &mut Option<NoirData>, mean: &mut Option<NoirData> ,m2: &mut Option<NoirData>, skip_na: bool, item: (NoirData, NoirData, NoirData)) -> bool {
        
         let r_mean = item.1;
@@ -147,8 +162,8 @@ impl NoirData {
                 let old_count = count_row[i];
                 count_row[i] += r_count[i];
                 let delta = v - r[i];
-                r[i] += delta * r_count[i] / count_row[i];
-                (*m2_row)[i] += r_m2[i] + delta * ((old_count * r_count[i])/count_row[i]);
+                r[i] = r[i] + delta * r_count[i] / count_row[i];
+                (*m2_row)[i] = (*m2_row)[i] + r_m2[i] + delta * ((old_count * r_count[i])/count_row[i]);
             };
         }, |avg: &mut NoirType, current: NoirType| {
                 
@@ -166,9 +181,10 @@ impl NoirData {
                 let old_count = *count_item;
                 *count_item += r_count;
                 let delta = current - *avg;
-                *avg += delta * r_count / *count_item;
-                *m2_item += r_m2 + delta * ((old_count * r_count)/ *count_item);
+                *avg = *avg + delta * r_count / *count_item;
+                *m2_item = *m2_item + r_m2 + delta * ((old_count * r_count)/ *count_item);
             }
+
             return false;
         }, mean, m, skip_na)
     }
@@ -191,12 +207,12 @@ impl NoirData {
             let new_mean = if r[i].is_none() {
                 v
             } else {
-                r[i] + (v - r[i]) / count_row[i]
+                r[i] + ((v - r[i]) / count_row[i])
             };
             if (*m2_row)[i].is_none() {
                 (*m2_row)[i] = NoirType::Int32(0);
             }else{
-                (*m2_row)[i] += (v - r[i]) * (v - new_mean);
+                (*m2_row)[i] = (*m2_row)[i] + (v - r[i]) * (v - new_mean);
             };
             r[i] = new_mean;
         }, |avg: &mut NoirType, item: NoirType| {
@@ -209,14 +225,97 @@ impl NoirData {
             }else {
                 *count_item += NoirType::Int32(1);
             }
-            let new_mean = if avg.is_none() {item} else {*avg + (item - *avg) / *count_item};
+            let new_mean = if avg.is_none() { item } else {*avg + ((item - *avg) / *count_item)};
             if m2_item.is_none(){
-                *m2_item = (item - *avg) * (item - new_mean);
+                *m2_item = NoirType::Int32(0);
             }else{
-                *m2_item += (item - *avg) * (item - new_mean);
+                *m2_item = *m2_item + (item - *avg) * (item - new_mean);
             }
-            return false;
+            *avg = new_mean;
         }, mean, m, skip_na)
+    }
+
+    pub fn mean(sum: &mut Option<NoirData>, count: NoirData, skip_na: bool) -> bool{
+        impl_func!(count, |i: usize, r: &mut Vec<NoirType>, v: NoirType| {
+            r[i] = r[i] / v;
+        } , |avg: &mut NoirType, c: NoirType| {
+            *avg = *avg / c;
+        }, sum, m, skip_na);
+    }
+
+    pub fn global_sum_count(sum: &mut Option<NoirData>, count: &mut Option<NoirData>, skip_na: bool, item: (NoirData, NoirData)) -> bool
+    {
+        let r_sum = item.0;
+
+        initialize!(&r_sum, sum);
+        initialize!(&r_sum, count);
+
+        impl_func!(r_sum, |i: usize, r: &mut Vec<NoirType>, v: NoirType| {
+            let count_row = count.as_mut().unwrap().get_row();
+            let remote_count = item.1.clone().to_row();
+
+            if count_row[i].is_none() {
+                count_row[i] = remote_count[i];
+            }else {
+                count_row[i] = count_row[i] + remote_count[i];
+            }
+
+            if r[i].is_none() {
+                r[i] = v;
+            } else {
+                r[i] = r[i] + v;
+            }
+        } , |c_sum: &mut NoirType, it: NoirType| {
+
+            let count_item = count.as_mut().unwrap().get_type();
+            let remote_count =  item.1.to_type();
+
+            if count_item.is_none() {
+                *count_item = remote_count;
+            }else {
+                *count_item = *count_item + remote_count;
+            }
+
+            if c_sum.is_none() {
+                *c_sum = it;
+            } else {
+                *c_sum = *c_sum + it;
+            }
+        }, sum, s, skip_na);
+
+    }
+
+    pub fn sum_count(self, sum: &mut Option<NoirData>, count: &mut Option<NoirData>, skip_na: bool) -> bool {
+        initialize!(&self, sum);
+        initialize!(&self, count);
+        impl_func!(self, |i: usize, r: &mut Vec<NoirType>, v: NoirType| {
+            let count_row = count.as_mut().unwrap().get_row();
+            if count_row[i].is_none() {
+                count_row[i] = NoirType::Int32(1);
+            }else {
+                count_row[i] += NoirType::Int32(1);
+            }
+
+            if r[i].is_none() {
+                r[i] = v;
+            } else {
+                r[i] = r[i] + v;
+            }
+        } , |c_sum: &mut NoirType, item: NoirType| {
+
+            let count_item = count.as_mut().unwrap().get_type();
+            if count_item.is_none() {
+                *count_item = NoirType::Int32(1);
+            }else {
+                *count_item += NoirType::Int32(1);
+            }
+
+            if c_sum.is_none() {
+                *c_sum = item;
+            } else {
+                *c_sum = *c_sum + item;
+            }
+        }, sum, s, skip_na)
     }
 
 
