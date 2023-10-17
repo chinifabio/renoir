@@ -1,6 +1,6 @@
-use std::fmt::Display;
+use std::{collections::HashMap, fmt::Display};
 
-use hashbrown::HashMap;
+use sha2::digest::typenum::Pow;
 
 use super::{NoirData, NoirType};
 
@@ -20,11 +20,11 @@ macro_rules! initialize {
 }
 
 macro_rules! impl_func {
-    ($s:ident, $func_row: expr, $func_type: expr, $v: ident, $n:ident, $skip_na: ident) => {
-        match $v.as_mut().unwrap() {
+    ($self:ident, $func_row: expr, $func_type: expr, $change: ident, $change_type:ident, $skip_na: ident) => {
+        match $change.as_mut().unwrap() {
             NoirData::Row(r) => {
                 let mut all_nan = true;
-                let row = $s.to_row();
+                let row = $self.to_row();
                 for (i, v) in row.into_iter().enumerate() {
                     if !r[i].is_nan() {
                         if !v.is_na() {
@@ -41,13 +41,13 @@ macro_rules! impl_func {
                 }
                 return all_nan;
             }
-            NoirData::NoirType($n) => {
-                let item = $s.to_type();
+            NoirData::NoirType($change_type) => {
+                let item = $self.to_type();
                 if !item.is_na() {
-                    $func_type($n, item);
+                    $func_type($change_type, item);
                     return false;
                 } else if !$skip_na {
-                    *$v = Some(NoirData::NoirType(item));
+                    *$change = Some(NoirData::NoirType(item));
                     return true;
                 }
                 return false;
@@ -106,6 +106,21 @@ impl NoirData {
         }
     }
 
+
+    pub fn get_type(&mut self) -> &mut NoirType {
+        match self {
+            NoirData::Row(_) => panic!("Cannot convert a row to a type"),
+            NoirData::NoirType(v) => v,
+        }
+    }
+
+    pub fn type_(&self) -> &NoirType {
+        match self {
+            NoirData::Row(_) => panic!("Cannot convert a row to a type"),
+            NoirData::NoirType(v) => v,
+        }
+    }
+
     pub fn to_row(self) -> Vec<NoirType> {
         match self {
             NoirData::Row(row) => row,
@@ -120,12 +135,13 @@ impl NoirData {
         }
     }
 
-    pub fn get_type(&mut self) -> &mut NoirType {
+    pub fn row(&self) -> &Vec<NoirType> {
         match self {
-            NoirData::Row(_) => panic!("Cannot convert a row to a type"),
-            NoirData::NoirType(v) => v,
+            NoirData::Row(row) => row,
+            NoirData::NoirType(_) => panic!("Cannot convert a type to a row"),
         }
     }
+
 
     pub fn or(self, other: &NoirData) -> NoirData {
         match (self, other) {
@@ -135,6 +151,46 @@ impl NoirData {
             (NoirData::NoirType(a), NoirData::NoirType(b)) => NoirData::NoirType(a.or(b)),
             (_, _) => panic!("Type mismatch!"),
         }
+    }
+
+    pub fn skewness(
+        self,
+        skew: &mut Option<NoirData>,
+        count: &NoirData,
+        mean: &NoirData,
+        std: &NoirData,
+        skip_na: bool,
+    ) -> bool {
+        initialize!(&self, skew);
+
+        impl_func!(
+            self,
+            |i: usize, skew: &mut Vec<NoirType>, item: NoirType| {
+                let mean_row = mean.row();
+                let count_row = count.row();
+                let std_row = std.row();
+
+                if mean_row[i].is_none() {
+                    skew[i] = NoirType::None();
+                } else {
+                    skew[i] += ((item - mean_row[i]).powi(3))/(count_row[i]*std_row[i].powi(3));
+                }
+            },
+            |skew: &mut NoirType, item: NoirType| {
+                let mean_item = mean.type_();
+                let count_item = count.type_();
+                let std_item = std.type_();
+
+                if mean_item.is_none() {
+                    *skew = NoirType::None();
+                } else {
+                    *skew += ((item - mean_item).powi(3))/(*count_item*std_item.powi(3));
+                }
+            },
+            skew,
+            s,
+            skip_na
+        )
     }
 
     pub fn chen(

@@ -4,6 +4,8 @@ use std::f32;
 use std::fmt::Display;
 use std::ops::{Add, AddAssign, Div, DivAssign, Mul, Neg, Sub, SubAssign};
 
+use sha2::digest::typenum::Pow;
+
 use crate::data_type::NoirType;
 
 use super::NoirData;
@@ -179,6 +181,19 @@ impl Div<f32> for NoirType {
         match self {
             NoirType::Int32(a) => NoirType::Float32((a as f32) / rhs),
             NoirType::Float32(a) => NoirType::Float32(a / rhs),
+            NoirType::NaN() => panic!("Found NaN!"),
+            NoirType::None() => panic!("Found None!"),
+        }
+    }
+}
+
+impl Pow<i32> for NoirType{
+    type Output = NoirType;
+
+    fn powi(self, exp: i32) -> Self::Output {
+        match self {
+            NoirType::Int32(a) => NoirType::Float32((a as f32).powi(exp)),
+            NoirType::Float32(a) => NoirType::Float32(a.powi(exp)),
             NoirType::NaN() => panic!("Found NaN!"),
             NoirType::None() => panic!("Found None!"),
         }

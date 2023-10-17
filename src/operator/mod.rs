@@ -93,6 +93,7 @@ mod rich_map;
 mod rich_map_custom;
 mod route;
 pub mod sink;
+mod skewness_kurtosis;
 pub mod source;
 mod start;
 mod variance;
