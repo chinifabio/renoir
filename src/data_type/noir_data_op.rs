@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt::Display};
 
 use sha2::digest::typenum::Pow;
 
-use super::{NoirData, NoirType};
+use super::{NoirData, NoirDataCsv, NoirType};
 
 macro_rules! initialize {
     (&$s: ident , $v: ident) => {
@@ -106,7 +106,6 @@ impl NoirData {
         }
     }
 
-
     pub fn get_type(&mut self) -> &mut NoirType {
         match self {
             NoirData::Row(_) => panic!("Cannot convert a row to a type"),
@@ -142,7 +141,6 @@ impl NoirData {
         }
     }
 
-
     pub fn or(self, other: &NoirData) -> NoirData {
         match (self, other) {
             (NoirData::Row(a), NoirData::Row(b)) => {
@@ -153,13 +151,14 @@ impl NoirData {
         }
     }
 
-    pub fn skewness(
+    pub fn skew_kurt(
         self,
         skew: &mut Option<NoirData>,
         count: &NoirData,
         mean: &NoirData,
         std: &NoirData,
         skip_na: bool,
+        exp: i32,
     ) -> bool {
         initialize!(&self, skew);
 
@@ -170,10 +169,17 @@ impl NoirData {
                 let count_row = count.row();
                 let std_row = std.row();
 
-                if mean_row[i].is_none() {
-                    skew[i] = NoirType::None();
+                if mean_row[i].is_na() {
+                    skew[i] = mean_row[i];
                 } else {
-                    skew[i] += ((item - mean_row[i]).powi(3))/(count_row[i]*std_row[i].powi(3));
+                    if skew[i].is_none() {
+                        skew[i] = NoirType::Float32(0.0);
+                    }
+                    if std_row[i] != NoirType::Float32(0.0) {
+                        skew[i] = skew[i]
+                            + ((item - mean_row[i]).powi(exp))
+                                / (count_row[i] * std_row[i].powi(exp));
+                    }
                 }
             },
             |skew: &mut NoirType, item: NoirType| {
@@ -181,10 +187,16 @@ impl NoirData {
                 let count_item = count.type_();
                 let std_item = std.type_();
 
-                if mean_item.is_none() {
-                    *skew = NoirType::None();
+                if mean_item.is_na() {
+                    *skew = *mean_item;
                 } else {
-                    *skew += ((item - mean_item).powi(3))/(*count_item*std_item.powi(3));
+                    if skew.is_none() {
+                        *skew = NoirType::Float32(0.0);
+                    }
+                    if *std_item != NoirType::Float32(0.0) {
+                        *skew = *skew
+                            + ((item - mean_item).powi(exp)) / (*count_item * std_item.powi(exp));
+                    }
                 }
             },
             skew,
@@ -224,8 +236,9 @@ impl NoirData {
                     count_row[i] += r_count[i];
                     let delta = v - r[i];
                     r[i] = r[i] + delta * r_count[i] / count_row[i];
-                    (*m2_row)[i] =
-                        (*m2_row)[i] + r_m2[i] + delta * ((old_count * r_count[i]) / count_row[i]);
+                    (*m2_row)[i] = (*m2_row)[i]
+                        + r_m2[i]
+                        + delta.powi(2) * ((old_count * r_count[i]) / count_row[i]);
                 };
             },
             |avg: &mut NoirType, current: NoirType| {
@@ -244,7 +257,8 @@ impl NoirData {
                     *count_item += r_count;
                     let delta = current - *avg;
                     *avg = *avg + delta * r_count / *count_item;
-                    *m2_item = *m2_item + r_m2 + delta * ((old_count * r_count) / *count_item);
+                    *m2_item =
+                        *m2_item + r_m2 + delta.powi(2) * ((old_count * r_count) / *count_item);
                 }
 
                 false
@@ -380,6 +394,30 @@ impl NoirData {
             s,
             skip_na
         );
+    }
+
+    pub fn sum(self, sum: &mut Option<NoirData>, skip_na: bool) -> bool {
+        initialize!(&self, sum);
+        impl_func!(
+            self,
+            |i: usize, r: &mut Vec<NoirType>, v: NoirType| {
+                if r[i].is_none() {
+                    r[i] = v;
+                } else {
+                    r[i] = r[i] + v;
+                }
+            },
+            |c_sum: &mut NoirType, item: NoirType| {
+                if c_sum.is_none() {
+                    *c_sum = item;
+                } else {
+                    *c_sum = *c_sum + item;
+                }
+            },
+            sum,
+            s,
+            skip_na
+        )
     }
 
     pub fn sum_count(
@@ -562,3 +600,12 @@ impl Ord for NoirData {
 }
 
 impl Eq for NoirData {}
+
+impl From<NoirDataCsv> for NoirData {
+    fn from(value: NoirDataCsv) -> Self {
+        match value {
+            NoirDataCsv::Row(row) => NoirData::Row(row),
+            NoirDataCsv::NoirType(v) => NoirData::NoirType(v),
+        }
+    }
+}

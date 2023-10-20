@@ -4,17 +4,17 @@ use serde::{de::Visitor, Deserialize, Deserializer};
 
 use crate::data_type::NoirType;
 
-use super::NoirData;
+use super::NoirDataCsv;
 
-impl<'de> Deserialize<'de> for NoirData {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+impl<'de> Deserialize<'de> for NoirDataCsv {
+    fn deserialize<D>(deserializer: D) -> Result<NoirDataCsv, D::Error>
     where
         D: Deserializer<'de>,
     {
         struct __NoirDataVisitor;
 
         impl<'de> Visitor<'de> for __NoirDataVisitor {
-            type Value = NoirData;
+            type Value = NoirDataCsv;
 
             fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
                 formatter.write_str("a struct NoirData")
@@ -36,7 +36,7 @@ impl<'de> Deserialize<'de> for NoirData {
                         single_data = NoirType::None();
                     }
                 } else {
-                    return Ok(NoirData::NoirType(NoirType::None()));
+                    return Ok(NoirDataCsv::NoirType(NoirType::None()));
                 }
 
                 match seq.next_element::<String>() {
@@ -53,11 +53,11 @@ impl<'de> Deserialize<'de> for NoirData {
                             }
                             value = match seq.next_element::<String>() {
                                 Ok(Some(value)) => value,
-                                _ => return Ok(NoirData::Row(data)),
+                                _ => return Ok(NoirDataCsv::Row(data)),
                             };
                         }
                     }
-                    _ => Ok(NoirData::NoirType(single_data)),
+                    _ => Ok(NoirDataCsv::NoirType(single_data)),
                 }
             }
 
@@ -77,7 +77,7 @@ impl<'de> Deserialize<'de> for NoirData {
                         single_data = NoirType::None();
                     }
                 } else {
-                    return Ok(NoirData::NoirType(NoirType::None()));
+                    return Ok(NoirDataCsv::NoirType(NoirType::None()));
                 }
 
                 match map.next_value::<String>() {
@@ -94,11 +94,11 @@ impl<'de> Deserialize<'de> for NoirData {
                             }
                             value = match map.next_value::<String>() {
                                 Ok(value) => value,
-                                _ => return Ok(NoirData::Row(data)),
+                                _ => return Ok(NoirDataCsv::Row(data)),
                             };
                         }
                     }
-                    _ => Ok(NoirData::NoirType(single_data)),
+                    _ => Ok(NoirDataCsv::NoirType(single_data)),
                 }
             }
         }

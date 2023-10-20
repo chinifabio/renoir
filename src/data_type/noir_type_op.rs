@@ -95,6 +95,8 @@ impl Mul for NoirType {
         match (self, rhs) {
             (NoirType::Int32(a), NoirType::Int32(b)) => NoirType::Int32(a * b),
             (NoirType::Float32(a), NoirType::Float32(b)) => NoirType::Float32(a * b),
+            (NoirType::Float32(a), NoirType::Int32(b)) => NoirType::Float32(a * b as f32),
+            (NoirType::Int32(a), NoirType::Float32(b)) => NoirType::Float32(a as f32 * b),
             (_, _) => panic!("Type mismatch!"),
         }
     }
@@ -187,7 +189,7 @@ impl Div<f32> for NoirType {
     }
 }
 
-impl Pow<i32> for NoirType{
+impl Pow<i32> for NoirType {
     type Output = NoirType;
 
     fn powi(self, exp: i32) -> Self::Output {
@@ -207,7 +209,9 @@ impl Add<&Self> for NoirType {
         match (self, rhs) {
             (NoirType::Int32(a), NoirType::Int32(b)) => NoirType::Int32(a + b),
             (NoirType::Float32(a), NoirType::Float32(b)) => NoirType::Float32(a + b),
-            (_, _) => panic!("Type mismatch!"),
+            (NoirType::Int32(a), NoirType::Float32(b)) => NoirType::Float32(a as f32 + b),
+            (NoirType::Float32(a), NoirType::Int32(b)) => NoirType::Float32(a + *b as f32),
+            (_, _) => panic!("None or NaN!"),
         }
     }
 }
@@ -233,7 +237,7 @@ impl Add<Self> for NoirType {
             (NoirType::Float32(a), NoirType::Float32(b)) => NoirType::Float32(a + b),
             (NoirType::Float32(a), NoirType::Int32(b)) => NoirType::Float32(a + b as f32),
             (NoirType::Int32(a), NoirType::Float32(b)) => NoirType::Float32(a as f32 + b),
-            (_, _) => panic!("Type mismatch!"),
+            (_, _) => panic!("None or NaN!"),
         }
     }
 }
@@ -245,7 +249,9 @@ impl Sub<&Self> for NoirType {
         match (self, rhs) {
             (NoirType::Int32(a), NoirType::Int32(b)) => NoirType::Int32(a - b),
             (NoirType::Float32(a), NoirType::Float32(b)) => NoirType::Float32(a - b),
-            (_, _) => panic!("Type mismatch!"),
+            (NoirType::Float32(a), NoirType::Int32(b)) => NoirType::Float32(a - *b as f32),
+            (NoirType::Int32(a), NoirType::Float32(b)) => NoirType::Float32(a as f32 - b),
+            (_, _) => panic!("NaN or None!"),
         }
     }
 }

@@ -19,9 +19,14 @@ pub enum NoirType {
 /// NoirData is the data type that is used in Noir.
 /// It can be either a row of NoirType or a single NoirType, this reduce the allocation of memory necessary
 /// when we are dealing with a single value.
-#[derive(Clone, Debug, Serialize, PartialEq)]
-#[serde(tag = "type")]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub enum NoirData {
+    Row(Vec<NoirType>),
+    NoirType(NoirType),
+}
+
+#[derive(Clone, Debug)]
+pub enum NoirDataCsv {
     Row(Vec<NoirType>),
     NoirType(NoirType),
 }

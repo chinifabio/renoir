@@ -36,7 +36,7 @@ where
                     move |acc, item| {
                         let (count, mean, m2, found_nan) = acc;
                         if !*found_nan {
-                            NoirData::chen(count, mean, m2, skip_na, item);
+                            *found_nan = NoirData::chen(count, mean, m2, skip_na, item);
                         }
                     },
                 )

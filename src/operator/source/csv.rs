@@ -9,6 +9,7 @@ use csv::{Reader, ReaderBuilder, Terminator, Trim};
 use serde::Deserialize;
 
 use crate::block::{BlockStructure, OperatorKind, OperatorStructure, Replication};
+use crate::data_type::{NoirData, NoirDataCsv};
 use crate::operator::source::Source;
 use crate::operator::{Data, Operator, StreamElement};
 use crate::scheduler::ExecutionMetadata;
@@ -421,6 +422,14 @@ impl crate::StreamEnvironment {
         let source = CsvSource::new(path);
         self.stream(source)
     }
+
+    pub fn stream_csv_noirdata(
+        &mut self,
+        path: impl Into<PathBuf>,
+    ) -> Stream<NoirData, impl Operator<NoirData>> {
+        let source = CsvSource::<NoirDataCsv>::new(path);
+        self.stream(source).map(|v| v.into())
+    }
 }
 
 #[cfg(test)]
@@ -432,7 +441,7 @@ mod tests {
     use tempfile::NamedTempFile;
 
     use crate::config::EnvironmentConfig;
-    use crate::data_type::{NoirData, NoirType};
+    use crate::data_type::{NoirData, NoirDataCsv, NoirType};
     use crate::environment::StreamEnvironment;
     use crate::operator::source::CsvSource;
 
@@ -500,8 +509,8 @@ mod tests {
                 }
 
                 let mut env = StreamEnvironment::new(EnvironmentConfig::local(4));
-                let source = CsvSource::<NoirData>::new(file.path()).has_headers(false);
-                let res = env.stream(source).collect_vec();
+                let source = CsvSource::<NoirDataCsv>::new(file.path()).has_headers(false);
+                let res = env.stream(source).map(NoirData::from).collect_vec();
                 env.execute_blocking();
 
                 let res = res.get().unwrap().into_iter().sorted().collect_vec();
@@ -530,8 +539,8 @@ mod tests {
                 }
 
                 let mut env = StreamEnvironment::new(EnvironmentConfig::local(4));
-                let source = CsvSource::<NoirData>::new(file.path());
-                let res = env.stream(source).collect_vec();
+                let source = CsvSource::<NoirDataCsv>::new(file.path());
+                let res = env.stream(source).map(NoirData::from).collect_vec();
                 env.execute_blocking();
 
                 let res = res.get().unwrap().into_iter().sorted().collect_vec();

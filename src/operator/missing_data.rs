@@ -44,7 +44,9 @@ macro_rules! fill_iterate {
                     match a {
                         FillState::None => *a = FillState::Accumulating($var),
                         FillState::Accumulating($name) => {
-                            $var.unwrap().$func($name, true);
+                            if $var.is_some(){
+                                $var.unwrap().$func($name, true);
+                            }
                         }
                         FillState::Computed(_) => {} // final loop
                     }
@@ -214,6 +216,41 @@ where
         let func = move |value: NoirData| wrapper(f.clone(), value);
 
         self.map(func)
+    }
+
+    pub fn fill_backward(self) -> Stream<NoirData, impl Operator<NoirData>> {
+        self.replication(crate::Replication::One).rich_map({
+            let mut last_values: Option<NoirData> = None;
+
+            move |mut item| match &mut item {
+                NoirData::Row(row) => {
+                    if last_values.is_none() {
+                        last_values = Some(NoirData::Row(vec![NoirType::None(); row.len()]));
+                    }
+
+                    let last = last_values.as_mut().unwrap().get_row();
+
+                    for (i, v) in row.iter_mut().enumerate() {
+                        if v.is_none() && !last[i].is_none() {
+                            *v = last[i];
+                        } else if !v.is_na() {
+                            last[i] = *v;
+                        }
+                    }
+                    NoirData::Row(row.to_vec())
+                }
+                NoirData::NoirType(v) => {
+                    if !v.is_na() {
+                        last_values = Some(item.clone());
+                        item
+                    } else if v.is_none() && last_values.is_some() {
+                        last_values.clone().unwrap()
+                    } else {
+                        item
+                    }
+                }
+            }
+        })
     }
 
     fill_iterate!(fill_max, max, max,
