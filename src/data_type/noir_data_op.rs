@@ -504,6 +504,71 @@ impl NoirData {
         )
     }
 
+    pub fn mode_count(
+        self,
+        bins: &mut Option<Vec<Option<HashMap<i32, usize>>>>,
+        counts: &mut Option<Vec<usize>>,
+        skip_na: bool,
+    ) -> bool {
+        match self {
+            NoirData::Row(row) => {
+                if bins.is_none() {
+                    *bins = Some(vec![Some(HashMap::new()); row.len()]);
+                    *counts = Some(vec![0; row.len()]);
+                }
+                let mut all_nan = true;
+                for (i, r) in row.iter().enumerate() {
+                    if !r.is_na() {
+                        all_nan = false;
+                        let bin = bins.as_mut().unwrap();
+                        match r {
+                            NoirType::Int32(k) => {
+                                if bin[i].is_some() {
+                                    let count = bin[i].as_mut().unwrap().entry(*k).or_insert(0);
+                                    *count += 1;
+                                    counts.as_mut().unwrap()[i] += 1;
+                                }
+                            }
+                            NoirType::Float32(_) => panic!("Mode supported only for int!"),
+                            _ => panic!("NaN or None!"),
+                        }
+                    } else if !skip_na {
+                        let bin = bins.as_mut().unwrap();
+                        bin[i] = None;
+                    } else {
+                        all_nan = false;
+                    }
+                }
+
+                all_nan
+            }
+            NoirData::NoirType(value) => {
+                if bins.is_none() {
+                    *bins = Some(vec![Some(HashMap::new())]);
+                    *counts = Some(vec![0]);
+                }
+                let bin = bins.as_mut().unwrap();
+                if !value.is_na() {
+                    match value {
+                        NoirType::Int32(k) => {
+                            let count = bin[0].as_mut().unwrap().entry(k).or_insert(0);
+                            *count += 1;
+                            counts.as_mut().unwrap()[0] += 1;
+                        }
+                        NoirType::Float32(_) => panic!("Mode supported only for int!"),
+                        _ => panic!("NaN or None!"),
+                    }
+                    false
+                } else if !skip_na {
+                    bin[0] = None;
+                    return true;
+                } else {
+                    return false;
+                }
+            }
+        }
+    }
+
     pub fn mode(self, bins: &mut Option<Vec<Option<HashMap<i32, usize>>>>, skip_na: bool) -> bool {
         match self {
             NoirData::Row(row) => {

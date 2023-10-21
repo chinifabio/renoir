@@ -1,9 +1,13 @@
+use std::{collections::VecDeque, fmt::Display};
+
+use crate::operator::Timestamp;
 use crate::{
+    block::{BlockStructure, OperatorStructure},
     data_type::{NoirData, NoirType},
-    Stream,
+    ExecutionMetadata, Stream,
 };
 
-use super::Operator;
+use super::{Operator, StreamElement};
 
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize, Default)]
 enum FillState {
@@ -352,4 +356,238 @@ where
     /// assert_eq!(res.get().unwrap(), vec![NoirData::Row(vec![NoirType::from(1), NoirType::from(2)]), NoirData::Row(vec![NoirType::from(1), NoirType::from(4)])]);
     /// ```
     );
+
+    pub fn fill_forward(self) -> Stream<NoirData, impl Operator<NoirData>> {
+        self.replication(crate::Replication::One)
+            .add_operator(FillForward::new)
+    }
+}
+
+#[derive(Clone, Derivative)]
+#[derivative(Debug)]
+pub struct FillForward<PreviousOperators>
+where
+    PreviousOperators: Operator<NoirData>,
+{
+    prev: PreviousOperators,
+    searching: Option<Vec<bool>>,
+    buffer: VecDeque<NoirData>,
+    to_send: VecDeque<NoirData>,
+    timestamp: Option<Timestamp>,
+    max_watermark: Option<Timestamp>,
+    received_end: bool,
+    received_end_iter: bool,
+}
+
+impl<PreviousOperators> Display for FillForward<PreviousOperators>
+where
+    PreviousOperators: Operator<NoirData>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} -> Fill_Forward<{}>",
+            self.prev,
+            std::any::type_name::<NoirData>(),
+        )
+    }
+}
+
+impl<PreviousOperators: Operator<NoirData>> FillForward<PreviousOperators> {
+    pub fn new(prev: PreviousOperators) -> Self {
+        Self {
+            prev,
+            searching: None,
+            buffer: VecDeque::new(),
+            to_send: VecDeque::new(),
+            timestamp: None,
+            max_watermark: None,
+            received_end: false,
+            received_end_iter: false,
+        }
+    }
+}
+
+impl<PreviousOperators> Operator<NoirData> for FillForward<PreviousOperators>
+where
+    PreviousOperators: Operator<NoirData>,
+{
+    fn setup(&mut self, metadata: &mut ExecutionMetadata) {
+        self.prev.setup(metadata);
+    }
+
+    #[inline]
+    fn next(&mut self) -> StreamElement<NoirData> {
+        if !self.to_send.is_empty() {
+            return StreamElement::Item(self.to_send.pop_front().unwrap());
+        }
+
+        while !self.received_end {
+            match self.prev.next() {
+                StreamElement::Terminate => self.received_end = true,
+                StreamElement::FlushAndRestart => {
+                    self.received_end = true;
+                    self.received_end_iter = true;
+                }
+                StreamElement::Watermark(ts) => {
+                    self.max_watermark = Some(self.max_watermark.unwrap_or(ts).max(ts))
+                }
+                StreamElement::Item(item) => match item {
+                    NoirData::Row(row) => {
+                        if self.searching.is_none() {
+                            self.searching = Some(vec![false; row.len()]);
+                        }
+
+                        let mut found_none = false;
+                        for (i, v) in row.iter().enumerate() {
+                            if v.is_none() {
+                                self.searching.as_mut().unwrap()[i] = true;
+                                found_none = true;
+                            } else if !v.is_na() && self.searching.as_ref().unwrap()[i] {
+                                self.searching.as_mut().unwrap()[i] = false;
+
+                                for buf in self.buffer.iter_mut() {
+                                    if buf.row()[i].is_none() {
+                                        buf.get_row()[i] = *v;
+                                    }
+                                }
+                            }
+                        }
+
+                        while !self.buffer.is_empty()
+                            && !self.buffer.get(0).unwrap().contains_none()
+                        {
+                            self.to_send.push_back(self.buffer.pop_front().unwrap());
+                        }
+
+                        if found_none {
+                            self.buffer.push_back(NoirData::Row(row));
+                        } else if self.to_send.len() > 0 {
+                            self.to_send.push_back(NoirData::Row(row));
+                            return StreamElement::Item(self.to_send.pop_front().unwrap());
+                        } else {
+                            println!("{:?}", row);
+                            return StreamElement::Item(NoirData::Row(row));
+                        }
+
+                        if !self.to_send.is_empty() {
+                            return StreamElement::Item(self.to_send.pop_front().unwrap());
+                        }
+                    }
+                    NoirData::NoirType(v) => {
+                        if self.searching.is_none() {
+                            self.searching = Some(vec![false]);
+                        }
+
+                        if v.is_none() {
+                            self.searching.as_mut().unwrap()[0] = true;
+                            self.buffer.push_back(item);
+                        } else if !v.is_na() {
+                            if self.searching.as_ref().unwrap()[0] {
+                                self.searching.as_mut().unwrap()[0] = false;
+
+                                while !self.buffer.is_empty() {
+                                    self.buffer.pop_front();
+                                    self.to_send.push_back(item.clone());
+                                }
+                            }
+
+                            if self.to_send.len() > 0 {
+                                self.to_send.push_back(item.clone());
+                                return StreamElement::Item(self.to_send.pop_front().unwrap());
+                            } else {
+                                return StreamElement::Item(item);
+                            }
+                        }
+                    }
+                },
+                StreamElement::Timestamped(item, ts) => {
+                    self.timestamp = Some(self.timestamp.unwrap_or(ts).max(ts));
+                    match item {
+                        NoirData::Row(row) => {
+                            if self.searching.is_none() {
+                                self.searching = Some(vec![false; row.len()]);
+                            }
+
+                            let mut found_none = false;
+                            for (i, v) in row.iter().enumerate() {
+                                if v.is_none() {
+                                    self.searching.as_mut().unwrap()[i] = true;
+                                    found_none = true;
+                                } else if !v.is_na() && self.searching.as_ref().unwrap()[i] {
+                                    self.searching.as_mut().unwrap()[i] = false;
+
+                                    for buf in self.buffer.iter_mut() {
+                                        if buf.row()[i].is_none() {
+                                            buf.get_row()[i] = *v;
+                                        }
+                                    }
+                                }
+                            }
+
+                            if found_none {
+                                self.buffer.push_back(NoirData::Row(row));
+                            }
+
+                            while !self.buffer.is_empty()
+                                || self.buffer.get(0).unwrap().contains_none()
+                            {
+                                self.to_send.push_back(self.buffer.pop_front().unwrap());
+                            }
+
+                            if !self.to_send.is_empty() {
+                                return StreamElement::Item(self.to_send.pop_front().unwrap());
+                            }
+                        }
+                        NoirData::NoirType(v) => {
+                            if self.searching.is_none() {
+                                self.searching = Some(vec![false]);
+                            }
+
+                            if v.is_none() {
+                                self.searching.as_mut().unwrap()[0] = true;
+                                self.buffer.push_back(item);
+                            } else if !v.is_na() && self.searching.as_ref().unwrap()[0] {
+                                self.buffer.pop_front();
+                                self.searching.as_mut().unwrap()[0] = false;
+
+                                while !self.buffer.is_empty() {
+                                    self.buffer.pop_front();
+                                    self.to_send.push_back(item.clone());
+                                }
+
+                                return StreamElement::Item(item);
+                            }
+                        }
+                    }
+                }
+                // this block wont sent anything until the stream ends
+                StreamElement::FlushBatch => {}
+            }
+        }
+
+        if !self.buffer.is_empty() {
+            return StreamElement::Item(self.buffer.pop_front().unwrap());
+        }
+
+        // If watermark were received, send one downstream
+        if let Some(ts) = self.max_watermark.take() {
+            return StreamElement::Watermark(ts);
+        }
+
+        // the end was not really the end... just the end of one iteration!
+        if self.received_end_iter {
+            self.received_end_iter = false;
+            self.received_end = false;
+            return StreamElement::FlushAndRestart;
+        }
+
+        StreamElement::Terminate
+    }
+
+    fn structure(&self) -> BlockStructure {
+        self.prev
+            .structure()
+            .add_operator(OperatorStructure::new::<NoirData, _>("Fill_Forward"))
+    }
 }

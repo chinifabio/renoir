@@ -34,7 +34,6 @@ impl NoirType {
 
     pub fn or(self, other: &NoirType) -> NoirType {
         match self {
-            NoirType::NaN() => *other,
             NoirType::None() => *other,
             _ => self,
         }
