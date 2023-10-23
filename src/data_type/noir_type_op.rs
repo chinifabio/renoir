@@ -12,11 +12,17 @@ use super::NoirData;
 
 impl NoirType {
     pub fn sqrt(self) -> NoirType {
-        match self {
+        let res = match self {
             NoirType::Int32(a) => NoirType::Float32((a as f32).sqrt()),
             NoirType::Float32(a) => NoirType::Float32(a.sqrt()),
             NoirType::NaN() => panic!("Found NaN!"),
             NoirType::None() => panic!("Found None!"),
+        };
+
+        if res == NoirType::Float32(f32::NAN){
+            NoirType::NaN()
+        }else{
+            res
         }
     }
 
@@ -105,11 +111,17 @@ impl Mul<f32> for NoirType {
     type Output = NoirType;
 
     fn mul(self, rhs: f32) -> Self::Output {
-        match self {
+        let res = match self {
             NoirType::Int32(a) => NoirType::Float32((a as f32) * rhs),
             NoirType::Float32(a) => NoirType::Float32(a * rhs),
             NoirType::NaN() => panic!("Found NaN!"),
             NoirType::None() => panic!("Found None!"),
+        };
+
+        if res == NoirType::Float32(f32::NAN) {
+            NoirType::NaN()
+        } else {
+            res
         }
     }
 }
@@ -152,12 +164,18 @@ impl Div<Self> for NoirType {
     type Output = NoirType;
 
     fn div(self, rhs: Self) -> Self::Output {
-        match (self, rhs) {
+        let res = match (self, rhs) {
             (NoirType::Int32(a), NoirType::Int32(b)) => NoirType::Float32(a as f32 / b as f32),
             (NoirType::Float32(a), NoirType::Float32(b)) => NoirType::Float32(a / b),
             (NoirType::Float32(a), NoirType::Int32(b)) => NoirType::Float32(a / b as f32),
             (NoirType::Int32(a), NoirType::Float32(b)) => NoirType::Float32(a as f32 / b),
             (_, _) => panic!("NaN or None!"),
+        };
+
+        if res == NoirType::Float32(f32::NAN) {
+            NoirType::NaN()
+        } else {
+            res
         }
     }
 }
@@ -166,12 +184,18 @@ impl Div<&Self> for NoirType {
     type Output = NoirType;
 
     fn div(self, rhs: &Self) -> Self::Output {
-        match (self, rhs) {
+        let res = match (self, rhs) {
             (NoirType::Int32(a), NoirType::Int32(b)) => NoirType::Float32(a as f32 / *b as f32),
             (NoirType::Float32(a), NoirType::Float32(b)) => NoirType::Float32(a / b),
             (NoirType::Float32(a), NoirType::Int32(b)) => NoirType::Float32(a / *b as f32),
             (NoirType::Int32(a), NoirType::Float32(b)) => NoirType::Float32(a as f32 / b),
             (_, _) => panic!("NaN or None!"),
+        };
+
+        if res == NoirType::Float32(f32::NAN) {
+            NoirType::NaN()
+        } else {
+            res
         }
     }
 }
@@ -180,11 +204,17 @@ impl Div<usize> for NoirType {
     type Output = NoirType;
 
     fn div(self, rhs: usize) -> Self::Output {
-        match self {
+        let res = match self {
             NoirType::Int32(a) => NoirType::Float32((a as f32) / (rhs as f32)),
             NoirType::Float32(a) => NoirType::Float32(a / (rhs as f32)),
             NoirType::NaN() => panic!("Found NaN!"),
             NoirType::None() => panic!("Found None!"),
+        };
+
+        if res == NoirType::Float32(f32::NAN) {
+            NoirType::NaN()
+        } else {
+            res
         }
     }
 }
@@ -193,11 +223,17 @@ impl Div<f32> for NoirType {
     type Output = NoirType;
 
     fn div(self, rhs: f32) -> Self::Output {
-        match self {
+        let res = match self {
             NoirType::Int32(a) => NoirType::Float32((a as f32) / rhs),
             NoirType::Float32(a) => NoirType::Float32(a / rhs),
             NoirType::NaN() => panic!("Found NaN!"),
             NoirType::None() => panic!("Found None!"),
+        };
+
+        if res == NoirType::Float32(f32::NAN) {
+            NoirType::NaN()
+        } else {
+            res
         }
     }
 }
@@ -321,11 +357,7 @@ impl Neg for NoirType {
 
 impl PartialOrd for NoirType {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        match (self, other) {
-            (NoirType::Int32(a), NoirType::Int32(b)) => a.partial_cmp(b),
-            (NoirType::Float32(a), NoirType::Float32(b)) => a.partial_cmp(b),
-            (_, _) => panic!("Type mismatch!"),
-        }
+        Some(self.cmp(other))
     }
 }
 

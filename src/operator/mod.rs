@@ -89,6 +89,7 @@ mod merge;
 mod min;
 mod missing_data;
 mod mode;
+mod pearson;
 mod reorder;
 mod replication;
 mod rich_map;

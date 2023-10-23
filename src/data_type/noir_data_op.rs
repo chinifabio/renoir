@@ -625,7 +625,6 @@ impl NoirData {
         }
     }
 
-
     pub(crate) fn covariance(&self, cov: &mut Option<NoirData>, count: &NoirData, mean: &NoirData) {
         if cov.is_none() {
             *cov = Some(NoirData::NoirType(NoirType::None()))
@@ -637,10 +636,35 @@ impl NoirData {
         let means = mean.row();
         let count = count.type_();
 
-        if cov.is_none(){
-            *cov = ((data[0]- means[0])*(data[1] - means[1])) / count;
-        }else{
-            *cov += ((data[0]- means[0])*(data[1] - means[1])) / count;
+        if cov.is_none() {
+            *cov = ((data[0] - means[0]) * (data[1] - means[1])) / count;
+        } else {
+            *cov += ((data[0] - means[0]) * (data[1] - means[1])) / count;
+        }
+    }
+
+    pub fn pearson(
+        &self,
+        corr: &mut Option<NoirData>,
+        count: &NoirData,
+        mean: &NoirData,
+        std: &NoirData,
+    ) {
+        if corr.is_none() {
+            *corr = Some(NoirData::NoirType(NoirType::None()))
+        }
+
+        let cov = corr.as_mut().unwrap().get_type();
+
+        let data = self.row();
+        let means = mean.row();
+        let count = count.type_();
+        let stds = std.row();
+
+        if cov.is_none() {
+            *cov = ((data[0] - means[0]) * (data[1] - means[1])) / (*count * stds[0] * stds[1]);
+        } else {
+            *cov += ((data[0] - means[0]) * (data[1] - means[1])) / (*count * stds[0] * stds[1]);
         }
     }
 }
@@ -665,11 +689,7 @@ impl Display for NoirData {
 
 impl PartialOrd for NoirData {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        match (self, other) {
-            (NoirData::Row(a), NoirData::Row(b)) => a.partial_cmp(b),
-            (NoirData::NoirType(a), NoirData::NoirType(b)) => a.partial_cmp(b),
-            (_, _) => panic!("Type mismatch!"),
-        }
+        Some(self.cmp(other))
     }
 }
 

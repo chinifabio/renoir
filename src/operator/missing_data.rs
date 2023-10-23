@@ -481,7 +481,7 @@ where
 
                         if found_none {
                             self.buffer.push_back(NoirData::Row(row));
-                        } else if self.to_send.len() > 0 {
+                        } else if !self.to_send.is_empty() {
                             self.to_send.push_back(NoirData::Row(row));
                             return StreamElement::Item(self.to_send.pop_front().unwrap());
                         } else {
@@ -511,7 +511,7 @@ where
                                 }
                             }
 
-                            if self.to_send.len() > 0 {
+                            if !self.to_send.is_empty() {
                                 self.to_send.push_back(item.clone());
                                 return StreamElement::Item(self.to_send.pop_front().unwrap());
                             } else {
