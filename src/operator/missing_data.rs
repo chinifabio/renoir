@@ -139,6 +139,25 @@ where
         })
     }
 
+    pub fn retain_columns(self, columns: Vec<usize>) -> Stream<NoirData, impl Operator<NoirData>> {
+        self.map(move |value| match value {
+            NoirData::Row(mut row) => {
+                let mut i = 0;
+                row.retain(|_| {
+                    i += 1;
+                    columns.contains(&i)
+                });
+
+                if row.len() == 1 {
+                    NoirData::NoirType(row[0])
+                } else {
+                    NoirData::Row(row)
+                }
+            }
+            NoirData::NoirType(_) => value,
+        })
+    }
+
     /// Returns a new `Stream` that replaces missing values in each row with a constant value.
     ///
     /// value: The constant value to replace missing values with.

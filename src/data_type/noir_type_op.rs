@@ -162,6 +162,20 @@ impl Div<Self> for NoirType {
     }
 }
 
+impl Div<&Self> for NoirType {
+    type Output = NoirType;
+
+    fn div(self, rhs: &Self) -> Self::Output {
+        match (self, rhs) {
+            (NoirType::Int32(a), NoirType::Int32(b)) => NoirType::Float32(a as f32 / *b as f32),
+            (NoirType::Float32(a), NoirType::Float32(b)) => NoirType::Float32(a / b),
+            (NoirType::Float32(a), NoirType::Int32(b)) => NoirType::Float32(a / *b as f32),
+            (NoirType::Int32(a), NoirType::Float32(b)) => NoirType::Float32(a as f32 / b),
+            (_, _) => panic!("NaN or None!"),
+        }
+    }
+}
+
 impl Div<usize> for NoirType {
     type Output = NoirType;
 

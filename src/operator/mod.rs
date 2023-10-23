@@ -62,6 +62,7 @@ use self::{
 #[cfg(feature = "timestamp")]
 mod add_timestamps;
 mod batch_mode;
+mod covariance;
 pub(crate) mod end;
 mod entropy;
 mod filter;

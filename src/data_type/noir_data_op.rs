@@ -624,6 +624,25 @@ impl NoirData {
             }
         }
     }
+
+
+    pub(crate) fn covariance(&self, cov: &mut Option<NoirData>, count: &NoirData, mean: &NoirData) {
+        if cov.is_none() {
+            *cov = Some(NoirData::NoirType(NoirType::None()))
+        }
+
+        let cov = cov.as_mut().unwrap().get_type();
+
+        let data = self.row();
+        let means = mean.row();
+        let count = count.type_();
+
+        if cov.is_none(){
+            *cov = ((data[0]- means[0])*(data[1] - means[1])) / count;
+        }else{
+            *cov += ((data[0]- means[0])*(data[1] - means[1])) / count;
+        }
+    }
 }
 
 impl Display for NoirData {
