@@ -93,6 +93,17 @@ impl From<NoirData> for NoirType {
     }
 }
 
+impl Into<f64> for NoirType{
+    fn into(self) -> f64 {
+        match self {
+            NoirType::Int32(i) => i as f64,
+            NoirType::Float32(f) => f as f64,
+            NoirType::NaN() => f64::NAN,
+            NoirType::None() => f64::NAN,
+        }
+    }
+}
+
 impl Mul for NoirType {
     type Output = NoirType;
 

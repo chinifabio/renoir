@@ -90,6 +90,7 @@ mod min;
 mod missing_data;
 mod mode;
 mod pearson;
+mod quantile_approx;
 mod reorder;
 mod replication;
 mod rich_map;

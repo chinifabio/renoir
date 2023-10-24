@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fmt::Display};
 
+use quantiles::ckms::CKMS;
 use sha2::digest::typenum::Pow;
 
 use super::{NoirData, NoirDataCsv, NoirType};
@@ -502,6 +503,52 @@ impl NoirData {
             max,
             skip_na
         )
+    }
+
+    pub fn quantile_approx(self, quantiles: &mut Option<Vec<Option<CKMS<NoirType>>>>, skip_na: bool)-> bool{
+        if quantiles.is_none() {
+            match &self {
+                NoirData::Row(row) => {
+                    *quantiles = Some(vec![Some(CKMS::new(0.001)); row.len()]);
+                }
+                NoirData::NoirType(_) => {
+                    *quantiles = Some(vec![Some(CKMS::new(0.001))]);
+                }
+            }
+        }
+
+        if let Some(quant) = quantiles{
+            if quant.len() > 1 {
+                let mut all_nan = true;
+                let row = self.to_row();
+                for (i, v) in row.into_iter().enumerate() {
+                    if !quant[i].is_none() {
+                        if !v.is_na() {
+                            all_nan = false;
+                            quant[i].as_mut().unwrap().insert(v);
+                        } else {
+                            if !skip_na {
+                                quant[i] = None;
+                            } else {
+                                all_nan = false;
+                            }
+                        }
+                    }
+                }
+                return all_nan;
+            }else{
+                let item = self.to_type();
+                if !item.is_na() {
+                    quant[0].as_mut().unwrap().insert(item);
+                    return false;
+                } else if !skip_na {
+                    quant[0] = None;
+                    return true;
+                }
+                return false;
+            }
+        }
+        unreachable!("Quantiles should be initialized!");
     }
 
     pub fn mode_count(

@@ -1021,6 +1021,7 @@ dependencies = [
  "nexmark",
  "once_cell",
  "parking_lot 0.12.1",
+ "quantiles",
  "quick_cache",
  "rand",
  "regex",
@@ -1245,6 +1246,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "78803b62cbf1f46fde80d7c0e803111524b9877184cfe7c3033659490ac7a7da"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "quantiles"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c10fa813fb26fb6c321a6f3085b5ade4cb4730d08d0b9e70a3759136940957f2"
+dependencies = [
+ "serde",
+ "serde_derive",
 ]
 
 [[package]]
