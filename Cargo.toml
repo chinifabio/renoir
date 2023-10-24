@@ -90,6 +90,7 @@ quick_cache = "0.3.0"
 regex = "1.8.4"
 dyn-clone = "1.0.11"
 quantiles = { version = "0.7.1", features = ["serde_support"] }
+average = { version = "0.14.1", features = ["serde1"]}
 
 
 [dev-dependencies]

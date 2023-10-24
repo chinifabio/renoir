@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 mod noir_data_op;
 mod noir_deserialize;
 mod noir_type_op;
+mod greenwald_khanna;
 
 /// NoirType is the basic data type in Noir.
 /// It can be either an Int32 or a Float32.
