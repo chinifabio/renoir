@@ -96,6 +96,7 @@ pub struct CsvSource<Out: Data + for<'a> Deserialize<'a>> {
     options: CsvOptions,
     /// Whether the reader has terminated its job.
     terminated: bool,
+    replication: Replication,
     _out: PhantomData<Out>,
 }
 
@@ -144,6 +145,7 @@ impl<Out: Data + for<'a> Deserialize<'a>> CsvSource<Out> {
             csv_reader: None,
             options: Default::default(),
             terminated: false,
+            replication: Replication::Unlimited,
             _out: PhantomData,
         }
     }
@@ -257,11 +259,16 @@ impl<Out: Data + for<'a> Deserialize<'a>> CsvSource<Out> {
         self.options.has_headers = has_headers;
         self
     }
+
+    pub fn replication(mut self, replication: Replication) -> Self {
+        self.replication = replication;
+        self
+    }
 }
 
 impl<Out: Data + for<'a> Deserialize<'a>> Source<Out> for CsvSource<Out> {
     fn replication(&self) -> Replication {
-        Replication::Unlimited
+        self.replication
     }
 }
 
@@ -408,6 +415,7 @@ impl<Out: Data + for<'a> Deserialize<'a>> Clone for CsvSource<Out> {
             csv_reader: None,
             options: self.options.clone(),
             terminated: false,
+            replication: self.replication,
             _out: PhantomData,
         }
     }

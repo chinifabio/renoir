@@ -19,9 +19,9 @@ impl NoirType {
             NoirType::None() => panic!("Found None!"),
         };
 
-        if res == NoirType::Float32(f32::NAN){
+        if res == NoirType::Float32(f32::NAN) {
             NoirType::NaN()
-        }else{
+        } else {
             res
         }
     }
@@ -93,9 +93,9 @@ impl From<NoirData> for NoirType {
     }
 }
 
-impl Into<f64> for NoirType{
-    fn into(self) -> f64 {
-        match self {
+impl From<NoirType> for f64 {
+    fn from(value: NoirType) -> Self {
+        match value {
             NoirType::Int32(i) => i as f64,
             NoirType::Float32(f) => f as f64,
             NoirType::NaN() => f64::NAN,
@@ -379,7 +379,14 @@ impl Ord for NoirType {
             (NoirType::Float32(a), NoirType::Float32(b)) => {
                 a.partial_cmp(b).unwrap_or_else(|| panic!("Found NaN!"))
             }
-            (_, _) => panic!("Type mismatch!"),
+            (NoirType::Float32(a), NoirType::Int32(b)) => a
+                .partial_cmp(&(*b as f32))
+                .unwrap_or_else(|| panic!("Found NaN!")),
+            (NoirType::Int32(a), NoirType::Float32(b)) => match b.partial_cmp(&(*a as f32)) {
+                Some(ord) => ord.reverse(),
+                None => panic!("Found NaN!"),
+            },
+            (_, _) => panic!("Found NaN or None!"),
         }
     }
 }

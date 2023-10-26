@@ -60,9 +60,8 @@ fn skew() {
             let mut row = res[0].clone().to_row();
 
             for v in row.iter_mut() {
-                match v {
-                    NoirType::Float32(a) => *v = NoirType::from(round(*a, 4)),
-                    _ => {}
+                if let NoirType::Float32(a) = v {
+                    *v = NoirType::from(round(*a, 4))
                 }
             }
 
@@ -228,9 +227,8 @@ fn kurt() {
             let mut row = res[0].clone().to_row();
 
             for v in row.iter_mut() {
-                match v {
-                    NoirType::Float32(a) => *v = NoirType::from(round(*a, 4)),
-                    _ => {}
+                if let NoirType::Float32(a) = v {
+                    *v = NoirType::from(round(*a, 4))
                 }
             }
 
@@ -306,9 +304,8 @@ fn kurt_noir_type() {
         if let Some(res) = res.get() {
             let mut v = res[0].clone().to_type();
 
-            match v {
-                NoirType::Float32(a) => v = NoirType::from(round(a, 4)),
-                _ => {}
+            if let NoirType::Float32(a) = v {
+                v = NoirType::from(round(a, 4))
             }
 
             let data = [NoirData::NoirType(v)];

@@ -78,7 +78,7 @@
 use std::cmp;
 use std::ops::AddAssign;
 
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Locates the proper position of v in a vector vs
 /// such that when v is inserted at position i,
@@ -121,8 +121,7 @@ where
 }
 
 /// 3-tuple of a value v[i], g[i] and delta[i].
-#[derive(Eq, Ord, Debug, Clone)]
-#[derive(Serialize, Deserialize)]
+#[derive(Eq, Debug, Clone, Serialize, Deserialize)]
 pub struct Tuple<T>
 where
     T: Ord,
@@ -157,19 +156,27 @@ where
     }
 }
 
+impl<T> Ord for Tuple<T>
+where
+    T: Ord,
+{
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        self.v.cmp(&other.v)
+    }
+}
+
 impl<T> PartialOrd for Tuple<T>
 where
     T: Ord,
 {
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        self.v.partial_cmp(&other.v)
+        Some(self.cmp(other))
     }
 }
 
 /// The summary S of the observations seen so far.
-#[derive(Debug, Clone)]
-#[derive(Serialize, Deserialize)]
-pub struct GKA<T>
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Gka<T>
 where
     T: Ord,
 {
@@ -183,13 +190,13 @@ where
     n: usize,
 }
 
-impl<T> GKA<T>
+impl<T> Gka<T>
 where
     T: Ord,
 {
     /// Creates a new instance of a Stream
-    pub fn new(epsilon: f64) -> GKA<T> {
-        GKA {
+    pub fn new(epsilon: f64) -> Gka<T> {
+        Gka {
             summary: vec![],
             epsilon,
             n: 0,
@@ -222,7 +229,7 @@ where
     /// from the summary data structure.
     pub fn quantile(&self, phi: f64) -> &T {
         assert!(!self.summary.is_empty());
-        assert!(phi >= 0f64 && phi <= 1f64);
+        assert!((0f64..=1f64).contains(&phi));
 
         let r = (phi * self.n as f64).floor() as usize;
         let en = (self.epsilon * self.n as f64) as usize;
@@ -316,7 +323,7 @@ where
     }
 }
 
-impl<T: Ord> AddAssign for GKA<T> {
+impl<T: Ord> AddAssign for Gka<T> {
     fn add_assign(&mut self, rhs: Self) {
         // The GK algorithm is a bit unclear about it, but we need to adjust the statistics during the
         // merging. The main idea is that samples that come from one side will suffer from the lack of
@@ -352,9 +359,7 @@ impl<T: Ord> AddAssign for GKA<T> {
         let additional_rhs_delta = (2. * self.epsilon * self.n as f64).floor() as usize;
 
         // Do a merge of two sorted lists until one of the lists is fully consumed
-        let mut self_samples = std::mem::replace(&mut self.summary, Vec::new())
-            .into_iter()
-            .peekable();
+        let mut self_samples = std::mem::take(&mut self.summary).into_iter().peekable();
         let mut rhs_samples = rhs.summary.into_iter().peekable();
         let mut started_self = false;
         let mut started_rhs = false;

@@ -179,12 +179,13 @@ where
     /// ```
     pub fn fill_constant(self, value: NoirType) -> Stream<NoirData, impl Operator<NoirData>> {
         self.map(move |data| match data {
-            NoirData::Row(row) => {
-                let new = row
-                    .iter()
-                    .map(|v| if v.is_none() { value } else { *v })
-                    .collect::<Vec<_>>();
-                NoirData::Row(new)
+            NoirData::Row(mut row) => {
+                for v in row.iter_mut() {
+                    if v.is_none() {
+                        *v = value;
+                    }
+                }
+                NoirData::Row(row)
             }
             NoirData::NoirType(v) => {
                 if v.is_none() {
@@ -236,7 +237,13 @@ where
             }
         }
 
-        let func = move |value: NoirData| wrapper(f.clone(), value);
+        let func = move |value: NoirData| {
+            if value.contains_none() {
+                wrapper(f.clone(), value)
+            } else {
+                value
+            }
+        };
 
         self.map(func)
     }

@@ -1,10 +1,10 @@
 use std::{collections::HashMap, fmt::Display};
 
-use average::{Quantile, Estimate};
+use average::{Estimate, Quantile};
 use quantiles::ckms::CKMS;
 use sha2::digest::typenum::Pow;
 
-use super::{NoirData, NoirDataCsv, NoirType, greenwald_khanna::GKA};
+use super::{greenwald_khanna::Gka, NoirData, NoirDataCsv, NoirType};
 
 macro_rules! initialize {
     (&$s: ident , $v: ident) => {
@@ -506,7 +506,7 @@ impl NoirData {
         )
     }
 
-    pub fn p2(self, quantiles: &mut Option<Vec<Option<Quantile>>>, skip_na: bool)-> bool{
+    pub fn p2(self, quantiles: &mut Option<Vec<Option<Quantile>>>, skip_na: bool) -> bool {
         if quantiles.is_none() {
             match &self {
                 NoirData::Row(row) => {
@@ -518,26 +518,24 @@ impl NoirData {
             }
         }
 
-        if let Some(quant) = quantiles{
+        if let Some(quant) = quantiles {
             if quant.len() > 1 {
                 let mut all_nan = true;
                 let row = self.to_row();
                 for (i, v) in row.into_iter().enumerate() {
-                    if !quant[i].is_none() {
+                    if quant[i].is_some() {
                         if !v.is_na() {
                             all_nan = false;
                             quant[i].as_mut().unwrap().add(v.into());
+                        } else if !skip_na {
+                            quant[i] = None;
                         } else {
-                            if !skip_na {
-                                quant[i] = None;
-                            } else {
-                                all_nan = false;
-                            }
+                            all_nan = false;
                         }
                     }
                 }
                 return all_nan;
-            }else{
+            } else {
                 let item = self.to_type();
                 if !item.is_na() {
                     quant[0].as_mut().unwrap().add(item.into());
@@ -552,38 +550,36 @@ impl NoirData {
         unreachable!("Quantiles should be initialized!");
     }
 
-    pub fn gk(self, quantiles: &mut Option<Vec<Option<GKA<NoirType>>>>, skip_na: bool)-> bool{
+    pub fn gk(self, quantiles: &mut Option<Vec<Option<Gka<NoirType>>>>, skip_na: bool) -> bool {
         if quantiles.is_none() {
             match &self {
                 NoirData::Row(row) => {
-                    *quantiles = Some(vec![Some(GKA::new(0.001)); row.len()]);
+                    *quantiles = Some(vec![Some(Gka::new(0.001)); row.len()]);
                 }
                 NoirData::NoirType(_) => {
-                    *quantiles = Some(vec![Some(GKA::new(0.001))]);
+                    *quantiles = Some(vec![Some(Gka::new(0.001))]);
                 }
             }
         }
 
-        if let Some(quant) = quantiles{
+        if let Some(quant) = quantiles {
             if quant.len() > 1 {
                 let mut all_nan = true;
                 let row = self.to_row();
                 for (i, v) in row.into_iter().enumerate() {
-                    if !quant[i].is_none() {
+                    if quant[i].is_some() {
                         if !v.is_na() {
                             all_nan = false;
                             quant[i].as_mut().unwrap().insert(v);
+                        } else if !skip_na {
+                            quant[i] = None;
                         } else {
-                            if !skip_na {
-                                quant[i] = None;
-                            } else {
-                                all_nan = false;
-                            }
+                            all_nan = false;
                         }
                     }
                 }
                 return all_nan;
-            }else{
+            } else {
                 let item = self.to_type();
                 if !item.is_na() {
                     quant[0].as_mut().unwrap().insert(item);
@@ -598,7 +594,7 @@ impl NoirData {
         unreachable!("Quantiles should be initialized!");
     }
 
-    pub fn ckms(self, quantiles: &mut Option<Vec<Option<CKMS<NoirType>>>>, skip_na: bool)-> bool{
+    pub fn ckms(self, quantiles: &mut Option<Vec<Option<CKMS<NoirType>>>>, skip_na: bool) -> bool {
         if quantiles.is_none() {
             match &self {
                 NoirData::Row(row) => {
@@ -610,26 +606,24 @@ impl NoirData {
             }
         }
 
-        if let Some(quant) = quantiles{
+        if let Some(quant) = quantiles {
             if quant.len() > 1 {
                 let mut all_nan = true;
                 let row = self.to_row();
                 for (i, v) in row.into_iter().enumerate() {
-                    if !quant[i].is_none() {
+                    if quant[i].is_some() {
                         if !v.is_na() {
                             all_nan = false;
                             quant[i].as_mut().unwrap().insert(v);
+                        } else if !skip_na {
+                            quant[i] = None;
                         } else {
-                            if !skip_na {
-                                quant[i] = None;
-                            } else {
-                                all_nan = false;
-                            }
+                            all_nan = false;
                         }
                     }
                 }
                 return all_nan;
-            }else{
+            } else {
                 let item = self.to_type();
                 if !item.is_na() {
                     quant[0].as_mut().unwrap().insert(item);

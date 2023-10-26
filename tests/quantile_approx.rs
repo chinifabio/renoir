@@ -1,4 +1,7 @@
-use noir::{data_type::{NoirData, NoirType}, prelude::IteratorSource};
+use noir::{
+    data_type::{NoirData, NoirType},
+    prelude::IteratorSource,
+};
 use utils::TestHelper;
 
 mod utils;
@@ -7,7 +10,7 @@ mod utils;
 fn quantiles_noir_type() {
     TestHelper::local_remote_env(|mut env| {
         let mut data = Vec::new();
-        
+
         for i in 1..1001 {
             data.push(NoirData::NoirType(NoirType::Int32(i)));
         }
@@ -21,7 +24,6 @@ fn quantiles_noir_type() {
         }
     });
 }
-
 
 #[test]
 fn quantile_noir_data() {
@@ -180,13 +182,11 @@ fn quantile_noir_type_none() {
     });
 }
 
-
-
 #[test]
 fn gk_noir_type() {
     TestHelper::local_remote_env(|mut env| {
         let mut data = Vec::new();
-        
+
         for i in 1..1001 {
             data.push(NoirData::NoirType(NoirType::Int32(i)));
         }
@@ -200,7 +200,6 @@ fn gk_noir_type() {
         }
     });
 }
-
 
 #[test]
 fn gks_noir_data() {
@@ -359,12 +358,11 @@ fn gk_noir_type_none() {
     });
 }
 
-
 #[test]
 fn p2_noir_types() {
     TestHelper::local_remote_env(|mut env| {
         let mut data = Vec::new();
-        
+
         for i in 1..1001 {
             data.push(NoirData::NoirType(NoirType::Int32(i)));
         }
@@ -378,7 +376,6 @@ fn p2_noir_types() {
         }
     });
 }
-
 
 #[test]
 fn p2_noir_data() {

@@ -59,9 +59,8 @@ fn pearson_noir_data() {
         if let Some(res) = res.get() {
             let mut corr: NoirType = res[0].clone().to_type();
 
-            match corr {
-                NoirType::Float32(a) => corr = NoirType::from(round(a, 4)),
-                _ => {}
+            if let NoirType::Float32(a) = corr {
+                corr = NoirType::from(round(a, 4))
             }
 
             let data = [NoirData::NoirType(corr)];
