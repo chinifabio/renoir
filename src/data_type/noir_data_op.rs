@@ -506,58 +506,37 @@ impl NoirData {
         )
     }
 
-    pub fn p2(self, quantiles: &mut Option<Vec<Option<Quantile>>>, skip_na: bool) -> bool {
+    pub fn p2(self, quantiles: &mut Option<Quantile>, q: f64, skip_na: bool) -> bool {
         if quantiles.is_none() {
-            match &self {
-                NoirData::Row(row) => {
-                    *quantiles = Some(vec![Some(Quantile::new(0.5)); row.len()]);
-                }
-                NoirData::NoirType(_) => {
-                    *quantiles = Some(vec![Some(Quantile::new(0.5))]);
-                }
-            }
+            *quantiles = Some(Quantile::new(q));
         }
 
         if let Some(quant) = quantiles {
-            if quant.len() > 1 {
-                let mut all_nan = true;
-                let row = self.to_row();
-                for (i, v) in row.into_iter().enumerate() {
-                    if quant[i].is_some() {
-                        if !v.is_na() {
-                            all_nan = false;
-                            quant[i].as_mut().unwrap().add(v.into());
-                        } else if !skip_na {
-                            quant[i] = None;
-                        } else {
-                            all_nan = false;
-                        }
-                    }
-                }
-                return all_nan;
-            } else {
-                let item = self.to_type();
-                if !item.is_na() {
-                    quant[0].as_mut().unwrap().add(item.into());
-                    return false;
-                } else if !skip_na {
-                    quant[0] = None;
-                    return true;
-                }
+            let item = self.to_type();
+            if !item.is_na() {
+                quant.add(item.into());
                 return false;
+            } else if !skip_na {
+                return true;
             }
+            return false;
         }
         unreachable!("Quantiles should be initialized!");
     }
 
-    pub fn gk(self, quantiles: &mut Option<Vec<Option<Gka<NoirType>>>>, skip_na: bool) -> bool {
+    pub fn gk(
+        self,
+        quantiles: &mut Option<Vec<Option<Gka<NoirType>>>>,
+        error: f64,
+        skip_na: bool,
+    ) -> bool {
         if quantiles.is_none() {
             match &self {
                 NoirData::Row(row) => {
-                    *quantiles = Some(vec![Some(Gka::new(0.001)); row.len()]);
+                    *quantiles = Some(vec![Some(Gka::new(error)); row.len()]);
                 }
                 NoirData::NoirType(_) => {
-                    *quantiles = Some(vec![Some(Gka::new(0.001))]);
+                    *quantiles = Some(vec![Some(Gka::new(error))]);
                 }
             }
         }
@@ -594,14 +573,19 @@ impl NoirData {
         unreachable!("Quantiles should be initialized!");
     }
 
-    pub fn ckms(self, quantiles: &mut Option<Vec<Option<CKMS<NoirType>>>>, skip_na: bool) -> bool {
+    pub fn ckms(
+        self,
+        quantiles: &mut Option<Vec<Option<CKMS<NoirType>>>>,
+        error: f64,
+        skip_na: bool,
+    ) -> bool {
         if quantiles.is_none() {
             match &self {
                 NoirData::Row(row) => {
-                    *quantiles = Some(vec![Some(CKMS::new(0.001)); row.len()]);
+                    *quantiles = Some(vec![Some(CKMS::new(error)); row.len()]);
                 }
                 NoirData::NoirType(_) => {
-                    *quantiles = Some(vec![Some(CKMS::new(0.001))]);
+                    *quantiles = Some(vec![Some(CKMS::new(error))]);
                 }
             }
         }

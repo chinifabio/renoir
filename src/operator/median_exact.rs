@@ -203,13 +203,13 @@ where
     /// # use noir::data_type::{NoirData, NoirType};
     /// # let mut env = StreamEnvironment::new(EnvironmentConfig::local(1));
     /// let s = env.stream(IteratorSource::new([NoirType::from(0.0), NoirType::from(8.0), NoirType::from(6.0)].into_iter()));
-    /// let res = s.median_exact(|v| v).collect_vec();
+    /// let res = s.median(|v| v).collect_vec();
     ///
     /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), vec![NoirType::from(6.0)]);
     /// ```
-    pub fn median_exact<F, I>(self, get_value: F) -> Stream<I, impl Operator<I>>
+    pub fn median<F, I>(self, get_value: F) -> Stream<I, impl Operator<I>>
     where
         D: ExchangeData,
         I: ExchangeData + Ord + Add<Output = I> + Div<f32, Output = I>,
@@ -226,6 +226,7 @@ where
     PreviousOperators: Operator<NoirData>,
 {
     prev: PreviousOperators,
+    quantile: f32,
     max_heaps: Option<Vec<BinaryHeap<NoirType>>>,
     min_heaps: Option<Vec<BinaryHeap<Reverse<NoirType>>>>,
     found_nan: bool,
@@ -242,9 +243,10 @@ impl<PreviousOperators> MedianExactNoirData<PreviousOperators>
 where
     PreviousOperators: Operator<NoirData>,
 {
-    pub(crate) fn new(prev: PreviousOperators, skip_nan: bool) -> Self {
+    pub(crate) fn new(prev: PreviousOperators, quantile: f32, skip_nan: bool) -> Self {
         Self {
             prev,
+            quantile,
             max_heaps: None,
             min_heaps: None,
             timestamp: None,
@@ -286,13 +288,21 @@ where
 
             if !item.is_nan() {
                 if !min_heap.is_empty() && item < min_heap.peek().unwrap().0 {
+                    println!("push max: {:?}", item);
                     max_heap.push(item);
-                    if max_heap.len() > min_heap.len() + 1 {
+                    if max_heap.len() as f32
+                        > ((max_heap.len() + min_heap.len()) as f32 * self.quantile) + 0.5
+                    {
+                        println!("balance min: {:?}", item);
                         min_heap.push(Reverse(max_heap.pop().unwrap()));
                     }
                 } else {
+                    println!("push min : {:?}", item);
                     min_heap.push(Reverse(item));
-                    if min_heap.len() > max_heap.len() + 1 {
+                    if min_heap.len() as f32
+                        > ((max_heap.len() + min_heap.len()) as f32 * (1.0 - self.quantile)) + 0.5
+                    {
+                        println!("balance max: {:?}", item);
                         max_heap.push(min_heap.pop().unwrap().0);
                     }
                 }
@@ -325,12 +335,17 @@ where
                         all_nan = false;
                         if !min_heaps[i].is_empty() && v < min_heaps[i].peek().unwrap().0 {
                             max_heaps[i].push(v);
-                            if max_heaps[i].len() > min_heaps[i].len() + 1 {
+                            if max_heaps[i].len() as f32
+                                > ((max_heaps[i].len() + min_heaps[i].len()) as f32 * self.quantile) + 0.5
+                            {
                                 min_heaps[i].push(Reverse(max_heaps[i].pop().unwrap()));
                             }
                         } else {
                             min_heaps[i].push(Reverse(v));
-                            if min_heaps[i].len() > max_heaps[i].len() + 1 {
+                            if min_heaps[i].len() as f32
+                                > ((max_heaps[i].len() + min_heaps[i].len()) as f32
+                                    * (1.0 - self.quantile)) + 0.5
+                            {
                                 max_heaps[i].push(min_heaps[i].pop().unwrap().0);
                             }
                         }
@@ -353,13 +368,19 @@ where
             let column_nan = self.columns_nan.take().unwrap_or_default();
             let mut max_heap = self.max_heaps.take().unwrap_or_default();
             let mut min_heap = self.min_heaps.take().unwrap_or_default();
+            println!("max: {:?}, min: {:?}", max_heap, min_heap);
             for i in 0..num_col {
                 if num_col > 1 && column_nan[i] {
                     result.push(NoirType::NaN());
                 } else {
-                    match min_heap[i].len().cmp(&max_heap[i].len()) {
-                        std::cmp::Ordering::Less => result.push(max_heap[i].pop().unwrap()),
-                        std::cmp::Ordering::Greater => result.push(min_heap[i].pop().unwrap().0),
+                    match (max_heap[i].len() as f32)
+                        .partial_cmp(
+                            &((max_heap[i].len() + min_heap[i].len()) as f32 * self.quantile),
+                        )
+                        .unwrap()
+                    {
+                        std::cmp::Ordering::Less => result.push(min_heap[i].pop().unwrap().0),
+                        std::cmp::Ordering::Greater => result.push(max_heap[i].pop().unwrap()),
                         std::cmp::Ordering::Equal => {
                             result.push(
                                 (max_heap[i].pop().unwrap() + min_heap[i].pop().unwrap().0) / 2.0,
@@ -459,6 +480,95 @@ impl<Op> Stream<NoirData, Op>
 where
     Op: Operator<NoirData> + 'static,
 {
+    pub fn quantile_parallel(
+        self,
+        quantile: f32,
+        skip_nan: bool,
+    ) -> Stream<NoirData, impl Operator<NoirData>> {
+        self.flat_map(|item| match item {
+            NoirData::Row(row) => {
+                let mut res = Vec::with_capacity(row.len());
+                for (i, el) in row.iter().enumerate() {
+                    res.push((i, NoirData::NoirType(*el)));
+                }
+                res
+            }
+            NoirData::NoirType(_) => vec![(0, item)],
+        })
+        .group_by(|it| it.0)
+        .fold(
+            (
+                false,
+                BinaryHeap::new(),
+                BinaryHeap::<Reverse<NoirType>>::new(),
+            ),
+            move |acc, item| {
+                if !acc.0 {
+                    let max_heap = &mut acc.1;
+                    let min_heap = &mut acc.2;
+                    let item = item.1.to_type();
+
+                    if !item.is_na() {
+                        if !min_heap.is_empty() && item < min_heap.peek().unwrap().0 {
+                            max_heap.push(item);
+                            if max_heap.len() as f32
+                                > ((max_heap.len() + min_heap.len()) as f32 * quantile) + 0.5
+                            {
+                                min_heap.push(Reverse(max_heap.pop().unwrap()));
+                            }
+                        } else {
+                            min_heap.push(Reverse(item));
+                            if min_heap.len() as f32
+                                > ((max_heap.len() + min_heap.len()) as f32 * (1.0 - quantile)) + 0.5
+                            {
+                                max_heap.push(min_heap.pop().unwrap().0);
+                            }
+                        }
+                    } else if !skip_nan {
+                        acc.0 = true;
+                    }
+                }
+            },
+        )
+        .map(move |(_, item)| {
+            if !item.0 {
+                let mut max_heap = item.1;
+                let mut min_heap = item.2;
+                if max_heap.is_empty() && min_heap.is_empty() {
+                    NoirData::NoirType(NoirType::None())
+                } else {
+                    match (max_heap.len() as f32)
+                        .partial_cmp(&((max_heap.len() + min_heap.len()) as f32 * quantile))
+                        .unwrap()
+                    {
+                        std::cmp::Ordering::Less => NoirData::NoirType(min_heap.pop().unwrap().0),
+                        std::cmp::Ordering::Greater => NoirData::NoirType(max_heap.pop().unwrap()),
+                        std::cmp::Ordering::Equal => NoirData::NoirType(
+                            (max_heap.pop().unwrap() + min_heap.pop().unwrap().0) / 2.0,
+                        ),
+                    }
+                }
+            } else {
+                NoirData::NoirType(NoirType::NaN())
+            }
+        })
+        .unkey()
+        .fold(Vec::new(), |acc, item| {
+            if acc.len() <= item.0 {
+                acc.resize(item.0 + 1, NoirType::None())
+            }
+            let v = acc.get_mut(item.0).unwrap();
+            *v = item.1.to_type();
+        })
+        .map(|item| {
+            if item.len() == 1 {
+                NoirData::NoirType(item[0])
+            } else {
+                NoirData::Row(item)
+            }
+        })
+    }
+
     /// Reduce the stream of NoirData to its median value.
     ///
     /// skip_nan: if true, NaN values will not be considered, otherwise they will be considered as the median value.
@@ -476,18 +586,19 @@ where
     /// # use noir::data_type::{NoirData, NoirType};
     /// # let mut env = StreamEnvironment::new(EnvironmentConfig::local(1));
     /// let s = env.stream(IteratorSource::new([NoirData::NoirType(NoirType::from(0.0)), NoirData::NoirType(NoirType::from(8.0)), NoirData::NoirType(NoirType::from(6.0))].into_iter()));
-    /// let res = s.median_noir_data(true).collect_vec();
+    /// let res = s.quantile_exact(0.5, true).collect_vec();
     ///
     /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), vec![NoirData::NoirType(NoirType::from(6.0))]);
     /// ```
-    pub fn median_noir_data(
+    pub fn quantile_exact(
         self,
+        quantile: f32,
         skip_nan: bool,
     ) -> Stream<NoirData, MedianExactNoirData<SimpleStartOperator<NoirData>>> {
         self.replication(Replication::One)
-            .add_operator(|prev| MedianExactNoirData::new(prev, skip_nan))
+            .add_operator(|prev| MedianExactNoirData::new(prev, quantile, skip_nan))
     }
 }
 
@@ -583,7 +694,7 @@ mod tests {
             ),
         ];
         let fake_operator = FakeOperator::new(rows.iter().cloned());
-        let mut median = MedianExactNoirData::new(fake_operator, true);
+        let mut median = MedianExactNoirData::new(fake_operator, 0.5, true);
 
         assert_eq!(
             median.next(),
@@ -641,7 +752,7 @@ mod tests {
             ),
         ];
         let fake_operator = FakeOperator::new(rows.iter().cloned());
-        let mut median = MedianExactNoirData::new(fake_operator, false);
+        let mut median = MedianExactNoirData::new(fake_operator, 0.5, false);
 
         assert_eq!(
             median.next(),
@@ -671,7 +782,7 @@ mod tests {
             .iter()
             .cloned(),
         );
-        let mut median = MedianExactNoirData::new(fake_operator, true);
+        let mut median = MedianExactNoirData::new(fake_operator, 0.5, true);
 
         assert_eq!(
             median.next(),
@@ -693,7 +804,7 @@ mod tests {
             .iter()
             .cloned(),
         );
-        let mut median = MedianExactNoirData::new(fake_operator, false);
+        let mut median = MedianExactNoirData::new(fake_operator, 0.5, false);
 
         assert_eq!(
             median.next(),
@@ -715,7 +826,7 @@ mod tests {
             .iter()
             .cloned(),
         );
-        let mut median = MedianExactNoirData::new(fake_operator, true);
+        let mut median = MedianExactNoirData::new(fake_operator, 0.5, true);
 
         assert_eq!(
             median.next(),
@@ -743,7 +854,7 @@ mod tests {
         ));
         fake_operator.push(StreamElement::Watermark(4));
 
-        let mut median = MedianExactNoirData::new(fake_operator, true);
+        let mut median = MedianExactNoirData::new(fake_operator, 0.5, true);
 
         assert_eq!(
             median.next(),
@@ -766,7 +877,7 @@ mod tests {
         fake_operator.push(StreamElement::Item(NoirData::NoirType(NoirType::from(5))));
         fake_operator.push(StreamElement::FlushAndRestart);
 
-        let mut median = MedianExactNoirData::new(fake_operator, true);
+        let mut median = MedianExactNoirData::new(fake_operator, 0.5, true);
 
         assert_eq!(
             median.next(),

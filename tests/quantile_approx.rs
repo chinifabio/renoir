@@ -16,7 +16,7 @@ fn quantiles_noir_type() {
         }
 
         let source = IteratorSource::new(data.into_iter());
-        let res = env.stream(source).ckms(true).collect_vec();
+        let res = env.stream(source).ckms(0.5, 0.001, true).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {
@@ -67,7 +67,7 @@ fn quantile_noir_data() {
             ),
         ];
         let source = IteratorSource::new(rows.into_iter());
-        let res = env.stream(source).ckms(true).collect_vec();
+        let res = env.stream(source).ckms(0.5, 0.001, true).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {
@@ -108,7 +108,7 @@ fn quantile_noir_data_nan() {
             ),
         ];
         let source = IteratorSource::new(rows.into_iter());
-        let res = env.stream(source).ckms(false).collect_vec();
+        let res = env.stream(source).ckms(0.5, 0.001, false).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {
@@ -135,7 +135,7 @@ fn quantile_noir_type() {
             NoirData::NoirType(NoirType::from(4.0)),
         ];
         let source = IteratorSource::new(rows.into_iter());
-        let res = env.stream(source).ckms(true).collect_vec();
+        let res = env.stream(source).ckms(0.5, 0.001, true).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {
@@ -154,7 +154,7 @@ fn quantile_noir_type_nan() {
             NoirData::NoirType(NoirType::from(4.0)),
         ];
         let source = IteratorSource::new(rows.into_iter());
-        let res = env.stream(source).ckms(false).collect_vec();
+        let res = env.stream(source).ckms(0.5, 0.001, false).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {
@@ -173,7 +173,7 @@ fn quantile_noir_type_none() {
             NoirData::NoirType(NoirType::from(f32::NAN)),
         ];
         let source = IteratorSource::new(rows.into_iter());
-        let res = env.stream(source).ckms(true).collect_vec();
+        let res = env.stream(source).ckms(0.5, 0.001, true).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {
@@ -192,7 +192,7 @@ fn gk_noir_type() {
         }
 
         let source = IteratorSource::new(data.into_iter());
-        let res = env.stream(source).gk(true).collect_vec();
+        let res = env.stream(source).gk(0.5, 0.001, true).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {
@@ -243,7 +243,7 @@ fn gks_noir_data() {
             ),
         ];
         let source = IteratorSource::new(rows.into_iter());
-        let res = env.stream(source).gk(true).collect_vec();
+        let res = env.stream(source).gk(0.5, 0.001, true).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {
@@ -284,7 +284,7 @@ fn gk_noir_data_nan() {
             ),
         ];
         let source = IteratorSource::new(rows.into_iter());
-        let res = env.stream(source).gk(false).collect_vec();
+        let res = env.stream(source).gk(0.5, 0.001, false).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {
@@ -311,7 +311,7 @@ fn gks_noir_type() {
             NoirData::NoirType(NoirType::from(4.0)),
         ];
         let source = IteratorSource::new(rows.into_iter());
-        let res = env.stream(source).gk(true).collect_vec();
+        let res = env.stream(source).gk(0.5, 0.001, true).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {
@@ -330,7 +330,7 @@ fn gk_noir_type_nan() {
             NoirData::NoirType(NoirType::from(4.0)),
         ];
         let source = IteratorSource::new(rows.into_iter());
-        let res = env.stream(source).gk(false).collect_vec();
+        let res = env.stream(source).gk(0.5, 0.001, false).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {
@@ -349,7 +349,7 @@ fn gk_noir_type_none() {
             NoirData::NoirType(NoirType::from(f32::NAN)),
         ];
         let source = IteratorSource::new(rows.into_iter());
-        let res = env.stream(source).gk(true).collect_vec();
+        let res = env.stream(source).gk(0.5, 0.001, true).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {
@@ -368,7 +368,7 @@ fn p2_noir_types() {
         }
 
         let source = IteratorSource::new(data.into_iter());
-        let res = env.stream(source).p2(true).collect_vec();
+        let res = env.stream(source).p2(0.5, true).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {
@@ -419,7 +419,7 @@ fn p2_noir_data() {
             ),
         ];
         let source = IteratorSource::new(rows.into_iter());
-        let res = env.stream(source).p2(true).collect_vec();
+        let res = env.stream(source).p2(0.5, true).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {
@@ -460,7 +460,7 @@ fn p2_noir_data_nan() {
             ),
         ];
         let source = IteratorSource::new(rows.into_iter());
-        let res = env.stream(source).p2(false).collect_vec();
+        let res = env.stream(source).p2(0.5, false).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {
@@ -487,7 +487,7 @@ fn p2_noir_type() {
             NoirData::NoirType(NoirType::from(4.0)),
         ];
         let source = IteratorSource::new(rows.into_iter());
-        let res = env.stream(source).p2(true).collect_vec();
+        let res = env.stream(source).p2(0.5, true).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {
@@ -506,7 +506,7 @@ fn p2_noir_type_nan() {
             NoirData::NoirType(NoirType::from(4.0)),
         ];
         let source = IteratorSource::new(rows.into_iter());
-        let res = env.stream(source).p2(false).collect_vec();
+        let res = env.stream(source).p2(0.5, false).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {
@@ -525,7 +525,7 @@ fn p2_noir_type_none() {
             NoirData::NoirType(NoirType::from(f32::NAN)),
         ];
         let source = IteratorSource::new(rows.into_iter());
-        let res = env.stream(source).p2(true).collect_vec();
+        let res = env.stream(source).p2(0.5, true).collect_vec();
         env.execute_blocking();
 
         if let Some(res) = res.get() {

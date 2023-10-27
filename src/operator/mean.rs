@@ -182,50 +182,37 @@ where
     /// assert_eq!(res.get().unwrap(), vec![NoirData::Row(vec![NoirType::from(2.0), NoirType::from(3.0)])]);
     /// ```
     pub fn mean_noir_data(self, skip_na: bool) -> Stream<NoirData, impl Operator<NoirData>> {
-        self.add_operator(|prev| {
-            Fold::new(
-                prev,
-                (None::<NoirData>, None::<Vec<usize>>, false),
-                move |(sum_total, counts, found_nan), value| {
-                    mean(
-                        sum_total,
-                        counts,
-                        found_nan,
-                        skip_na,
-                        Some(vec![1; value.len()]),
-                        Some(value),
-                    )
-                },
-            )
-        })
-        .replication(Replication::One)
-        .add_operator(|prev| {
-            Fold::new(
-                prev,
-                (None::<NoirData>, None::<Vec<usize>>, false),
-                move |(sum_total, counts, found_nan), (local_value, local_count, _)| {
-                    mean(
-                        sum_total,
-                        counts,
-                        found_nan,
-                        skip_na,
-                        local_count,
-                        local_value,
-                    )
-                },
-            )
-        })
+        self.fold_assoc(
+            (None::<NoirData>, None::<Vec<usize>>, false),
+            move |(sum_total, counts, found_nan), value| {
+                mean(
+                    sum_total,
+                    counts,
+                    found_nan,
+                    skip_na,
+                    Some(vec![1; value.len()]),
+                    Some(value),
+                )
+            },
+            move |(sum_total, counts, found_nan), (local_value, local_count, _)| {
+                mean(
+                    sum_total,
+                    counts,
+                    found_nan,
+                    skip_na,
+                    local_count,
+                    local_value,
+                )
+            },
+        )
         .map(|(sum, count, _)| match sum {
-            Some(NoirData::Row(row)) => {
-                let mut result = Vec::with_capacity(row.len());
-                for (i, v) in row.into_iter().enumerate() {
+            Some(NoirData::Row(mut row)) => {
+                for (i, v) in row.iter_mut().enumerate() {
                     if !v.is_nan() && !v.is_none() {
-                        result.push(v / count.as_ref().unwrap()[i]);
-                    } else {
-                        result.push(v);
+                        *v = *v / count.as_ref().unwrap()[i];
                     }
                 }
-                NoirData::Row(result)
+                NoirData::Row(row)
             }
             Some(NoirData::NoirType(item)) => {
                 if !item.is_nan() && !item.is_none() {
