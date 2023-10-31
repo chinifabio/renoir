@@ -1,93 +1,23 @@
 use std::fmt::Display;
 use std::fs::File;
-use std::io;
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
-use std::marker::PhantomData;
+use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::PathBuf;
 
 use csv::{Reader, ReaderBuilder, Terminator, Trim};
-use serde::Deserialize;
 
 use crate::block::{BlockStructure, OperatorKind, OperatorStructure, Replication};
-use crate::data_type::{NoirData, NoirDataCsv};
+use crate::data_type::{NoirData, NoirType};
 use crate::operator::source::Source;
-use crate::operator::{Data, Operator, StreamElement};
+use crate::operator::{Operator, StreamElement};
 use crate::scheduler::ExecutionMetadata;
 use crate::Stream;
 
-/// Wrapper that limits the bytes that can be read from a type that implements `io::Read`.
-pub(crate) struct LimitedReader<R: Read> {
-    inner: R,
-    /// Bytes remaining to be read.
-    remaining: usize,
-}
+use super::{LimitedReader, CsvOptions};
 
-impl<R: Read> LimitedReader<R> {
-    pub(crate) fn new(inner: R, remaining: usize) -> Self {
-        Self { inner, remaining }
-    }
-}
-
-impl<R: Read> Read for LimitedReader<R> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let read_bytes = if self.remaining > 0 {
-            // if there are some bytes to be read, call read on the inner reader
-            self.inner.read(buf)?.min(self.remaining)
-        } else {
-            // all the bytes have been read
-            0
-        };
-        self.remaining -= read_bytes;
-        Ok(read_bytes)
-    }
-}
-
-/// Options for the CSV parser.
-#[derive(Clone)]
-pub(super) struct CsvOptions {
-    /// Byte used to mark a line as a comment.
-    pub(super) comment: Option<u8>,
-    /// Field delimiter.
-    pub(super) delimiter: u8,
-    /// Whether quotes are escaped by using doubled quotes.
-    pub(super) double_quote: bool,
-    /// Byte used to escape quotes.
-    pub(super) escape: Option<u8>,
-    /// Whether to allow records with different number of fields.
-    pub(super) flexible: bool,
-    /// Byte used to quote fields.
-    pub(super) quote: u8,
-    /// Whether to enable field quoting.
-    pub(super) quoting: bool,
-    /// Line terminator.
-    pub(super) terminator: Terminator,
-    /// Whether to trim fields and/or headers.
-    pub(super) trim: Trim,
-    /// Whether the CSV file has headers.
-    pub(super) has_headers: bool,
-}
-
-impl Default for CsvOptions {
-    fn default() -> Self {
-        Self {
-            comment: None,
-            delimiter: b',',
-            double_quote: true,
-            escape: None,
-            flexible: false,
-            quote: b'"',
-            quoting: true,
-            terminator: Terminator::CRLF,
-            trim: Trim::None,
-            has_headers: true,
-        }
-    }
-}
-
-/// Source that reads and parses a CSV file.
+/// Source that reads and parses a CSV file to NoirData rows.
 ///
 /// The file is divided in chunks and is read concurrently by multiple replicas.
-pub struct CsvSource<Out: Data + for<'a> Deserialize<'a>> {
+pub struct RowCsvSource {
     /// Path of the file.
     path: PathBuf,
     /// Reader used to parse the CSV file.
@@ -97,16 +27,16 @@ pub struct CsvSource<Out: Data + for<'a> Deserialize<'a>> {
     /// Whether the reader has terminated its job.
     terminated: bool,
     replication: Replication,
-    _out: PhantomData<Out>,
+    record: csv::StringRecord,
 }
 
-impl<Out: Data + for<'a> Deserialize<'a>> Display for CsvSource<Out> {
+impl Display for RowCsvSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "CsvSource<{}>", std::any::type_name::<Out>())
+        write!(f, "RowCsvSource<{}>", std::any::type_name::<NoirData>())
     }
 }
 
-impl<Out: Data + for<'a> Deserialize<'a>> CsvSource<Out> {
+impl RowCsvSource {
     /// Create a new source that reads and parse the lines of a CSV file.
     ///
     /// The file is partitioned into as many chunks as replicas, each replica has to have the
@@ -146,7 +76,7 @@ impl<Out: Data + for<'a> Deserialize<'a>> CsvSource<Out> {
             options: Default::default(),
             terminated: false,
             replication: Replication::Unlimited,
-            _out: PhantomData,
+            record: csv::StringRecord::new(),
         }
     }
 
@@ -266,13 +196,13 @@ impl<Out: Data + for<'a> Deserialize<'a>> CsvSource<Out> {
     }
 }
 
-impl<Out: Data + for<'a> Deserialize<'a>> Source<Out> for CsvSource<Out> {
+impl Source<NoirData> for RowCsvSource {
     fn replication(&self) -> Replication {
         self.replication
     }
 }
 
-impl<Out: Data + for<'a> Deserialize<'a>> Operator<Out> for CsvSource<Out> {
+impl Operator<NoirData> for RowCsvSource {
     fn setup(&mut self, metadata: &mut ExecutionMetadata) {
         let global_id = metadata.global_id;
         let instances = metadata.replicas.len();
@@ -379,7 +309,7 @@ impl<Out: Data + for<'a> Deserialize<'a>> Operator<Out> for CsvSource<Out> {
         self.csv_reader = Some(csv_reader);
     }
 
-    fn next(&mut self) -> StreamElement<Out> {
+    fn next(&mut self) -> StreamElement<NoirData> {
         if self.terminated {
             return StreamElement::Terminate;
         }
@@ -388,23 +318,39 @@ impl<Out: Data + for<'a> Deserialize<'a>> Operator<Out> for CsvSource<Out> {
             .as_mut()
             .expect("CsvSource was not initialized");
 
-        match csv_reader.deserialize::<Out>().next() {
-            Some(item) => StreamElement::Item(item.unwrap()),
-            None => {
+        match csv_reader.read_record(&mut self.record) {
+            Ok(true) => {
+                let mut data: Vec<NoirType> = Vec::with_capacity(self.record.len());
+                for field in self.record.iter() {
+                    if field.is_empty() {
+                        data.push(NoirType::None());
+                    } else if let Ok(int_value) = field.parse::<i32>() {
+                        data.push(NoirType::Int32(int_value));
+                    } else if let Ok(float_value) = field.parse::<f32>() {
+                        data.push(NoirType::Float32(float_value));
+                    } else {
+                        data.push(NoirType::None());
+                    }
+                }
+
+                StreamElement::Item(NoirData::Row(data))
+            }
+            Ok(false) => {
                 self.terminated = true;
                 StreamElement::FlushAndRestart
             }
+            Err(e) => panic!("Error while reading CSV file: {:?}", e),
         }
     }
 
     fn structure(&self) -> BlockStructure {
-        let mut operator = OperatorStructure::new::<Out, _>("CSVSource");
+        let mut operator = OperatorStructure::new::<NoirData, _>("RowCsvSource");
         operator.kind = OperatorKind::Source;
         BlockStructure::default().add_operator(operator)
     }
 }
 
-impl<Out: Data + for<'a> Deserialize<'a>> Clone for CsvSource<Out> {
+impl Clone for RowCsvSource {
     fn clone(&self) -> Self {
         assert!(
             self.csv_reader.is_none(),
@@ -416,27 +362,19 @@ impl<Out: Data + for<'a> Deserialize<'a>> Clone for CsvSource<Out> {
             options: self.options.clone(),
             terminated: false,
             replication: self.replication,
-            _out: PhantomData,
+            record: csv::StringRecord::new(),
         }
     }
 }
 
 impl crate::StreamEnvironment {
     /// Convenience method, creates a `CsvSource` and makes a stream using `StreamEnvironment::stream`
-    pub fn stream_csv<T: Data + for<'a> Deserialize<'a>>(
+    pub fn stream_csv_rows(
         &mut self,
         path: impl Into<PathBuf>,
-    ) -> Stream<T, CsvSource<T>> {
-        let source = CsvSource::new(path);
+    ) -> Stream<NoirData, RowCsvSource> {
+        let source = RowCsvSource::new(path);
         self.stream(source)
-    }
-
-    pub fn stream_csv_noirdata(
-        &mut self,
-        path: impl Into<PathBuf>,
-    ) -> Stream<NoirData, impl Operator<NoirData>> {
-        let source = CsvSource::<NoirDataCsv>::new(path);
-        self.stream(source).map(|v| v.into())
     }
 }
 
@@ -445,67 +383,12 @@ mod tests {
     use std::io::Write;
 
     use itertools::Itertools;
-    use serde::{Deserialize, Serialize};
     use tempfile::NamedTempFile;
 
     use crate::config::EnvironmentConfig;
-    use crate::data_type::{NoirData, NoirDataCsv, NoirType};
+    use crate::data_type::{NoirData, NoirType};
     use crate::environment::StreamEnvironment;
-    use crate::operator::source::CsvSource;
-
-    #[test]
-    fn csv_without_headers() {
-        for num_records in 0..100 {
-            for terminator in &["\n", "\r\n"] {
-                let file = NamedTempFile::new().unwrap();
-                for i in 0..num_records {
-                    write!(file.as_file(), "{},{}{}", i, i + 1, terminator).unwrap();
-                }
-
-                let mut env = StreamEnvironment::new(EnvironmentConfig::local(4));
-                let source = CsvSource::<(i32, i32)>::new(file.path()).has_headers(false);
-                let res = env.stream(source).shuffle().collect_vec();
-                env.execute_blocking();
-
-                let mut res = res.get().unwrap();
-                res.sort_unstable();
-                assert_eq!(res, (0..num_records).map(|x| (x, x + 1)).collect_vec());
-            }
-        }
-    }
-
-    #[test]
-    fn csv_with_headers() {
-        #[derive(Clone, Serialize, Deserialize)]
-        struct T {
-            a: i32,
-            b: i32,
-        }
-
-        for num_records in 0..100 {
-            for terminator in &["\n", "\r\n"] {
-                let file = NamedTempFile::new().unwrap();
-                write!(file.as_file(), "a,b{terminator}").unwrap();
-                for i in 0..num_records {
-                    write!(file.as_file(), "{},{}{}", i, i + 1, terminator).unwrap();
-                }
-
-                let mut env = StreamEnvironment::new(EnvironmentConfig::local(4));
-                let source = CsvSource::<T>::new(file.path());
-                let res = env.stream(source).shuffle().collect_vec();
-                env.execute_blocking();
-
-                let res = res
-                    .get()
-                    .unwrap()
-                    .into_iter()
-                    .map(|x| (x.a, x.b))
-                    .sorted()
-                    .collect_vec();
-                assert_eq!(res, (0..num_records).map(|x| (x, x + 1)).collect_vec());
-            }
-        }
-    }
+    use crate::operator::source::csv_fast::RowCsvSource;
 
     #[test]
     fn csv_noir_data() {
@@ -513,11 +396,11 @@ mod tests {
             for terminator in &["\n", "\r\n"] {
                 let file = NamedTempFile::new().unwrap();
                 for i in 0..num_records {
-                    write!(file.as_file(), "{},{},{}{}", i, "", i as f32 + 0.5, terminator).unwrap();
+                    write!(file.as_file(), "{},{},{}", i, i as f32 + 0.5, terminator).unwrap();
                 }
 
                 let mut env = StreamEnvironment::new(EnvironmentConfig::local(4));
-                let source = CsvSource::<NoirDataCsv>::new(file.path()).has_headers(false);
+                let source = RowCsvSource::new(file.path()).has_headers(false);
                 let res = env.stream(source).map(NoirData::from).collect_vec();
                 env.execute_blocking();
 
@@ -527,8 +410,8 @@ mod tests {
                     (0..num_records)
                         .map(|x| NoirData::Row(vec![
                             NoirType::from(x),
-                            NoirType::None(),
                             NoirType::from(x as f32 + 0.5),
+                            NoirType::None()
                         ]))
                         .collect_vec()
                 );
@@ -547,7 +430,7 @@ mod tests {
                 }
 
                 let mut env = StreamEnvironment::new(EnvironmentConfig::local(4));
-                let source = CsvSource::<NoirDataCsv>::new(file.path());
+                let source = RowCsvSource::new(file.path());
                 let res = env.stream(source).map(NoirData::from).collect_vec();
                 env.execute_blocking();
 

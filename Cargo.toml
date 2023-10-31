@@ -151,6 +151,9 @@ harness = false
 [[bench]]
 name = "nexmark"
 harness = false
+[[bench]]
+name = "csv"
+harness = false
 
 [profile.release]
 lto = true
