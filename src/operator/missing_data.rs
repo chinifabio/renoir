@@ -492,7 +492,6 @@ where
                             self.to_send.push_back(NoirData::Row(row));
                             return StreamElement::Item(self.to_send.pop_front().unwrap());
                         } else {
-                            println!("{:?}", row);
                             return StreamElement::Item(NoirData::Row(row));
                         }
 

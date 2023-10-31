@@ -286,23 +286,19 @@ where
             let max_heap = &mut self.max_heaps.as_mut().unwrap()[0];
             let min_heap = &mut self.min_heaps.as_mut().unwrap()[0];
 
-            if !item.is_nan() {
+            if !item.is_na() {
                 if !min_heap.is_empty() && item < min_heap.peek().unwrap().0 {
-                    println!("push max: {:?}", item);
                     max_heap.push(item);
                     if max_heap.len() as f32
                         > ((max_heap.len() + min_heap.len()) as f32 * self.quantile) + 0.5
                     {
-                        println!("balance min: {:?}", item);
                         min_heap.push(Reverse(max_heap.pop().unwrap()));
                     }
                 } else {
-                    println!("push min : {:?}", item);
                     min_heap.push(Reverse(item));
                     if min_heap.len() as f32
                         > ((max_heap.len() + min_heap.len()) as f32 * (1.0 - self.quantile)) + 0.5
                     {
-                        println!("balance max: {:?}", item);
                         max_heap.push(min_heap.pop().unwrap().0);
                     }
                 }
@@ -331,7 +327,7 @@ where
             let mut all_nan = true;
             for (i, v) in item.into_iter().enumerate() {
                 if !columns_nan[i] {
-                    if !v.is_nan() {
+                    if !v.is_na() {
                         all_nan = false;
                         if !min_heaps[i].is_empty() && v < min_heaps[i].peek().unwrap().0 {
                             max_heaps[i].push(v);
@@ -368,7 +364,6 @@ where
             let column_nan = self.columns_nan.take().unwrap_or_default();
             let mut max_heap = self.max_heaps.take().unwrap_or_default();
             let mut min_heap = self.min_heaps.take().unwrap_or_default();
-            println!("max: {:?}, min: {:?}", max_heap, min_heap);
             for i in 0..num_col {
                 if num_col > 1 && column_nan[i] {
                     result.push(NoirType::NaN());

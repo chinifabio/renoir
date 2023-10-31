@@ -513,7 +513,7 @@ mod tests {
             for terminator in &["\n", "\r\n"] {
                 let file = NamedTempFile::new().unwrap();
                 for i in 0..num_records {
-                    write!(file.as_file(), "{},{},{}", i, i as f32 + 0.5, terminator).unwrap();
+                    write!(file.as_file(), "{},{},{}{}", i, "", i as f32 + 0.5, terminator).unwrap();
                 }
 
                 let mut env = StreamEnvironment::new(EnvironmentConfig::local(4));
@@ -527,8 +527,8 @@ mod tests {
                     (0..num_records)
                         .map(|x| NoirData::Row(vec![
                             NoirType::from(x),
+                            NoirType::None(),
                             NoirType::from(x as f32 + 0.5),
-                            NoirType::None()
                         ]))
                         .collect_vec()
                 );
