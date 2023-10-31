@@ -20,7 +20,7 @@ fn csv_bench(c: &mut Criterion) {
         |b, path| {
             b.iter(move || {
                 let mut env = StreamEnvironment::default();
-                env.stream_csv_noirdata(path.to_path_buf()).for_each(|v| {std::hint::black_box(v); });
+                env.stream_csv_noirdata_old(path.to_path_buf()).for_each(|v| {std::hint::black_box(v); });
                 env.execute_blocking();
             })
         },
@@ -32,7 +32,7 @@ fn csv_bench(c: &mut Criterion) {
         |b, path| {
             b.iter(move || {
                 let mut env = StreamEnvironment::default();
-                env.stream_csv_rows(path.to_path_buf()).for_each(|v| {std::hint::black_box(v); });
+                env.stream_csv_noirdata(path.to_path_buf()).for_each(|v| {std::hint::black_box(v); });
                 env.execute_blocking();
             })
         },

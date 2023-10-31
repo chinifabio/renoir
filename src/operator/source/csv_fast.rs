@@ -320,20 +320,33 @@ impl Operator<NoirData> for RowCsvSource {
 
         match csv_reader.read_record(&mut self.record) {
             Ok(true) => {
-                let mut data: Vec<NoirType> = Vec::with_capacity(self.record.len());
-                for field in self.record.iter() {
+                if self.record.len() == 1 {
+                    let field = self.record.get(0).unwrap();
                     if field.is_empty() {
-                        data.push(NoirType::None());
+                        StreamElement::Item(NoirData::NoirType(NoirType::None()))
                     } else if let Ok(int_value) = field.parse::<i32>() {
-                        data.push(NoirType::Int32(int_value));
+                        StreamElement::Item(NoirData::NoirType(NoirType::Int32(int_value)))
                     } else if let Ok(float_value) = field.parse::<f32>() {
-                        data.push(NoirType::Float32(float_value));
+                        StreamElement::Item(NoirData::NoirType(NoirType::Float32(float_value)))
                     } else {
-                        data.push(NoirType::None());
+                        StreamElement::Item(NoirData::NoirType(NoirType::None()))
                     }
-                }
+                }else{
+                    let mut data: Vec<NoirType> = Vec::with_capacity(self.record.len());
+                    for field in self.record.iter() {
+                        if field.is_empty() {
+                            data.push(NoirType::None());
+                        } else if let Ok(int_value) = field.parse::<i32>() {
+                            data.push(NoirType::Int32(int_value));
+                        } else if let Ok(float_value) = field.parse::<f32>() {
+                            data.push(NoirType::Float32(float_value));
+                        } else {
+                            data.push(NoirType::None());
+                        }
+                    }
 
-                StreamElement::Item(NoirData::Row(data))
+                    StreamElement::Item(NoirData::Row(data))
+                }
             }
             Ok(false) => {
                 self.terminated = true;
@@ -369,7 +382,7 @@ impl Clone for RowCsvSource {
 
 impl crate::StreamEnvironment {
     /// Convenience method, creates a `CsvSource` and makes a stream using `StreamEnvironment::stream`
-    pub fn stream_csv_rows(
+    pub fn stream_csv_noirdata(
         &mut self,
         path: impl Into<PathBuf>,
     ) -> Stream<NoirData, RowCsvSource> {
@@ -443,6 +456,34 @@ mod tests {
                             NoirType::from(x as f32 + 0.5),
                             NoirType::None()
                         ]))
+                        .collect_vec()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn csv_noir_type() {
+        for num_records in 0..100 {
+            for terminator in &["\n", "\r\n"] {
+                let file = NamedTempFile::new().unwrap();
+                write!(file.as_file(), "a,b,c{terminator}").unwrap();
+                for i in 0..num_records {
+                    write!(file.as_file(), "{}{}", i, terminator).unwrap();
+                }
+
+                let mut env = StreamEnvironment::new(EnvironmentConfig::local(4));
+                let source = RowCsvSource::new(file.path());
+                let res = env.stream(source).map(NoirData::from).collect_vec();
+                env.execute_blocking();
+
+                let res = res.get().unwrap().into_iter().sorted().collect_vec();
+                assert_eq!(
+                    res,
+                    (0..num_records)
+                        .map(|x| NoirData::NoirType(
+                            NoirType::from(x)
+                        ))
                         .collect_vec()
                 );
             }

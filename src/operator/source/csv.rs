@@ -431,7 +431,7 @@ impl crate::StreamEnvironment {
         self.stream(source)
     }
 
-    pub fn stream_csv_noirdata(
+    pub fn stream_csv_noirdata_old(
         &mut self,
         path: impl Into<PathBuf>,
     ) -> Stream<NoirData, impl Operator<NoirData>> {
