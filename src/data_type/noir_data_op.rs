@@ -362,7 +362,7 @@ impl NoirData {
             r_sum,
             |i: usize, r: &mut Vec<NoirType>, v: NoirType| {
                 let count_row = count.as_mut().unwrap().get_row();
-                let remote_count = item.1.clone().to_row();
+                let remote_count = item.1.row();
 
                 if count_row[i].is_none() {
                     count_row[i] = remote_count[i];
@@ -462,6 +462,196 @@ impl NoirData {
             },
             sum,
             s,
+            skip_na
+        )
+    }
+
+    pub fn global_count_kumulant_4(
+        count: &mut Option<NoirData>,
+        s1: &mut Option<NoirData>,
+        s2: &mut Option<NoirData>,
+        s3: &mut Option<NoirData>,
+        s4: &mut Option<NoirData>,
+        skip_na: bool,
+        item: (NoirData, NoirData, NoirData, NoirData, NoirData),
+    ) -> bool {
+        let r_count = item.0;
+
+        initialize!(&r_count, count);
+        initialize!(&r_count, s1);
+        initialize!(&r_count, s2);
+        initialize!(&r_count, s3);
+        initialize!(&r_count, s4);
+
+        impl_func!(
+            r_count,
+            |i: usize, r: &mut Vec<NoirType>, v: NoirType| {
+                let s1_item = s1.as_mut().unwrap().get_row();
+                let s2_item = s2.as_mut().unwrap().get_row();
+                let s3_item = s3.as_mut().unwrap().get_row();
+                let s4_item = s4.as_mut().unwrap().get_row();
+
+                let remote_s1 = item.1.row();
+                let remote_s2 = item.2.row();
+                let remote_s3 = item.3.row();
+                let remote_s4 = item.4.row();
+                if s1_item[i].is_none() {
+                    s1_item[i] = remote_s1[i];
+                } else {
+                    s1_item[i] += remote_s1[i];
+                }
+                if s2_item[i].is_none() {
+                    s2_item[i] = remote_s2[i];
+                } else {
+                    s2_item[i] += remote_s2[i];
+                }
+                if s3_item[i].is_none() {
+                    s3_item[i] = remote_s3[i];
+                } else {
+                    s3_item[i] += remote_s3[i];
+                }
+                if s4_item[i].is_none() {
+                    s4_item[i] = remote_s4[i];
+                } else {
+                    s4_item[i] += remote_s4[i];
+                }
+                if r[i].is_none() {
+                    r[i] = v;
+                } else {
+                    r[i] = r[i] + v;
+                }
+            },
+            |c_count: &mut NoirType, it: NoirType| {
+                let s1_item = s1.as_mut().unwrap().get_type();
+                let s2_item = s2.as_mut().unwrap().get_type();
+                let s3_item = s3.as_mut().unwrap().get_type();
+                let s4_item = s4.as_mut().unwrap().get_type();
+
+                let remote_s1 = item.1.to_type();
+                let remote_s2 = item.2.to_type();
+                let remote_s3 = item.3.to_type();
+                let remote_s4 = item.4.to_type();
+                if s1_item.is_none() {
+                    *s1_item = remote_s1;
+                } else {
+                    *s1_item += remote_s1;
+                }
+                if s2_item.is_none() {
+                    *s2_item = remote_s2;
+                } else {
+                    *s2_item += remote_s2;
+                }
+                if s3_item.is_none() {
+                    *s3_item = remote_s3;
+                } else {
+                    *s3_item += remote_s3;
+                }
+                if s4_item.is_none() {
+                    *s4_item = remote_s4;
+                } else {
+                    *s4_item += remote_s4;
+                }
+                if c_count.is_none() {
+                    *c_count = it;
+                } else {
+                    *c_count = *c_count + it;
+                }
+            },
+            count,
+            c,
+            skip_na
+        );
+    }
+
+    pub fn count_kumulant_4(
+        self,
+        count: &mut Option<NoirData>,
+        s1: &mut Option<NoirData>,
+        s2: &mut Option<NoirData>,
+        s3: &mut Option<NoirData>,
+        s4: &mut Option<NoirData>,
+        skip_na: bool,
+    ) -> bool {
+        initialize!(&self, count);
+        initialize!(&self, s1);
+        initialize!(&self, s2);
+        initialize!(&self, s3);
+        initialize!(&self, s4);
+
+        impl_func!(
+            self,
+            |i: usize, r: &mut Vec<NoirType>, v: NoirType| {
+                let s1_item = s1.as_mut().unwrap().get_row();
+                if s1_item[i].is_none() {
+                    s1_item[i] = v;
+                } else {
+                    s1_item[i] += v;
+                }
+
+                let s2_item = s2.as_mut().unwrap().get_row();
+                if s2_item[i].is_none() {
+                    s2_item[i] = v.powi(2);
+                } else {
+                    s2_item[i] += v.powi(2);
+                }
+
+                let s3_item = s3.as_mut().unwrap().get_row();
+                if s3_item[i].is_none() {
+                    s3_item[i] = v.powi(3);
+                } else {
+                    s3_item[i] += v.powi(3);
+                }
+
+                let s4_item = s4.as_mut().unwrap().get_row();
+                if s4_item[i].is_none() {
+                    s4_item[i] = v.powi(4);
+                } else {
+                    s4_item[i] += v.powi(4);
+                }
+
+                if r[i].is_none() {
+                    r[i] = NoirType::Int32(1);
+                } else {
+                    r[i] += NoirType::Int32(1);
+                }
+            },
+            |c_count: &mut NoirType, item: NoirType| {
+                let s1_item = s1.as_mut().unwrap().get_type();
+                if s1_item.is_none() {
+                    *s1_item = item;
+                } else {
+                    *s1_item += item;
+                }
+
+                let s2_item = s2.as_mut().unwrap().get_type();
+                if s2_item.is_none() {
+                    *s2_item = item.powi(2);
+                } else {
+                    *s2_item += item.powi(2);
+                }
+
+                let s3_item = s3.as_mut().unwrap().get_type();
+                if s3_item.is_none() {
+                    *s3_item = item.powi(3);
+                } else {
+                    *s3_item += item.powi(3);
+                }
+
+                let s4_item = s4.as_mut().unwrap().get_type();
+                if s4_item.is_none() {
+                    *s4_item = item.powi(4);
+                } else {
+                    *s4_item += item.powi(4);
+                }
+
+                if c_count.is_none() {
+                    *c_count = NoirType::Int32(1);
+                } else {
+                    *c_count += NoirType::Int32(1);
+                }
+            },
+            count,
+            c,
             skip_na
         )
     }

@@ -332,7 +332,8 @@ where
                         if !min_heaps[i].is_empty() && v < min_heaps[i].peek().unwrap().0 {
                             max_heaps[i].push(v);
                             if max_heaps[i].len() as f32
-                                > ((max_heaps[i].len() + min_heaps[i].len()) as f32 * self.quantile) + 0.5
+                                > ((max_heaps[i].len() + min_heaps[i].len()) as f32 * self.quantile)
+                                    + 0.5
                             {
                                 min_heaps[i].push(Reverse(max_heaps[i].pop().unwrap()));
                             }
@@ -340,7 +341,8 @@ where
                             min_heaps[i].push(Reverse(v));
                             if min_heaps[i].len() as f32
                                 > ((max_heaps[i].len() + min_heaps[i].len()) as f32
-                                    * (1.0 - self.quantile)) + 0.5
+                                    * (1.0 - self.quantile))
+                                    + 0.5
                             {
                                 max_heaps[i].push(min_heaps[i].pop().unwrap().0);
                             }
@@ -514,7 +516,8 @@ where
                         } else {
                             min_heap.push(Reverse(item));
                             if min_heap.len() as f32
-                                > ((max_heap.len() + min_heap.len()) as f32 * (1.0 - quantile)) + 0.5
+                                > ((max_heap.len() + min_heap.len()) as f32 * (1.0 - quantile))
+                                    + 0.5
                             {
                                 max_heap.push(min_heap.pop().unwrap().0);
                             }

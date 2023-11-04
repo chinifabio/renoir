@@ -352,3 +352,207 @@ fn kurt_noir_type_none() {
         }
     });
 }
+
+#[test]
+fn kurtosis_unbiased() {
+    TestHelper::local_remote_env(|mut env| {
+        let rows = vec![
+            NoirData::new(
+                [
+                    NoirType::from(0.0),
+                    NoirType::from(8.0),
+                    NoirType::from(f32::NAN),
+                    NoirType::from(4.0),
+                ]
+                .to_vec(),
+            ),
+            NoirData::new(
+                [
+                    NoirType::from(1.0),
+                    NoirType::from(4.0),
+                    NoirType::from(f32::NAN),
+                    NoirType::from(4.0),
+                ]
+                .to_vec(),
+            ),
+            NoirData::new(
+                [
+                    NoirType::from(f32::NAN),
+                    NoirType::from(1.0),
+                    NoirType::from(f32::NAN),
+                    NoirType::from(9.0),
+                ]
+                .to_vec(),
+            ),
+            NoirData::new(
+                [
+                    NoirType::from(2.0),
+                    NoirType::from(9.0),
+                    NoirType::from(f32::NAN),
+                    NoirType::from(3.0),
+                ]
+                .to_vec(),
+            ),
+            NoirData::new(
+                [
+                    NoirType::from(2.0),
+                    NoirType::from(9.0),
+                    NoirType::from(f32::NAN),
+                    NoirType::from(3.0),
+                ]
+                .to_vec(),
+            ),
+        ];
+        let source = IteratorSource::new(rows.into_iter());
+        let res = env.stream(source).kurtosis_unbiased(true).collect_vec();
+        env.execute_blocking();
+
+        if let Some(res) = res.get() {
+            let mut row = res[0].clone().to_row();
+
+            for v in row.iter_mut() {
+                if let NoirType::Float32(a) = v {
+                    *v = NoirType::from(round(*a, 4))
+                }
+            }
+
+            let data = [NoirData::Row(row)];
+
+            assert_eq!(
+                data,
+                [NoirData::Row(vec![
+                    NoirType::from(-1.2893),
+                    NoirType::from(-1.1179),
+                    NoirType::from(None::<f32>),
+                    NoirType::from(4.2252)
+                ])]
+            );
+        }
+    });
+}
+
+#[test]
+fn kurtosis_unbiased_noir_data_nan() {
+    TestHelper::local_remote_env(|mut env| {
+        let rows = vec![
+            NoirData::new(
+                [
+                    NoirType::from(0.0),
+                    NoirType::from(f32::NAN),
+                    NoirType::from(f32::NAN),
+                    NoirType::from(4.0),
+                ]
+                .to_vec(),
+            ),
+            NoirData::new(
+                [
+                    NoirType::from(f32::NAN),
+                    NoirType::from(4.0),
+                    NoirType::from(f32::NAN),
+                    NoirType::from(4.0),
+                ]
+                .to_vec(),
+            ),
+            NoirData::new(
+                [
+                    NoirType::from(f32::NAN),
+                    NoirType::from(4.0),
+                    NoirType::from(f32::NAN),
+                    NoirType::from(4.0),
+                ]
+                .to_vec(),
+            ),
+            NoirData::new(
+                [
+                    NoirType::from(f32::NAN),
+                    NoirType::from(4.0),
+                    NoirType::from(f32::NAN),
+                    NoirType::from(2.0),
+                ]
+                .to_vec(),
+            ),
+        ];
+        let source = IteratorSource::new(rows.into_iter());
+        let res = env.stream(source).kurtosis_unbiased(false).collect_vec();
+        env.execute_blocking();
+
+        if let Some(res) = res.get() {
+            assert_eq!(
+                res,
+                [NoirData::Row(vec![
+                    NoirType::from(f32::NAN),
+                    NoirType::from(f32::NAN),
+                    NoirType::from(f32::NAN),
+                    NoirType::from(4.0)
+                ])]
+            );
+        }
+    });
+}
+
+#[test]
+fn kurtosis_unbiased_noir_type() {
+    TestHelper::local_remote_env(|mut env| {
+        let rows = vec![
+            NoirData::NoirType(NoirType::from(0.0)),
+            NoirData::NoirType(NoirType::from(8.0)),
+            NoirData::NoirType(NoirType::from(f32::NAN)),
+            NoirData::NoirType(NoirType::from(4.0)),
+            NoirData::NoirType(NoirType::from(4.0)),
+            NoirData::NoirType(NoirType::from(4.0)),
+        ];
+        let source = IteratorSource::new(rows.into_iter());
+        let res = env.stream(source).kurtosis_unbiased(true).collect_vec();
+        env.execute_blocking();
+
+        if let Some(res) = res.get() {
+            let mut v = res[0].clone().to_type();
+
+            if let NoirType::Float32(a) = v {
+                v = NoirType::from(round(a, 4))
+            }
+
+            let data = [NoirData::NoirType(v)];
+
+            assert_eq!(data, [NoirData::NoirType(NoirType::from(2.0))]);
+        }
+    });
+}
+
+#[test]
+fn kurtosis_unbiased_noir_type_nan() {
+    TestHelper::local_remote_env(|mut env| {
+        let rows = vec![
+            NoirData::NoirType(NoirType::from(0.0)),
+            NoirData::NoirType(NoirType::from(8.0)),
+            NoirData::NoirType(NoirType::from(f32::NAN)),
+            NoirData::NoirType(NoirType::from(4.0)),
+        ];
+        let source = IteratorSource::new(rows.into_iter());
+        let res = env.stream(source).kurtosis_unbiased(false).collect_vec();
+        env.execute_blocking();
+
+        if let Some(res) = res.get() {
+            assert_eq!(res, [NoirData::NoirType(NoirType::from(f32::NAN))]);
+        }
+    });
+}
+
+#[test]
+fn kurtosis_unbiased_noir_type_none() {
+    TestHelper::local_remote_env(|mut env| {
+        let rows = vec![
+            NoirData::NoirType(NoirType::from(f32::NAN)),
+            NoirData::NoirType(NoirType::from(f32::NAN)),
+            NoirData::NoirType(NoirType::from(f32::NAN)),
+            NoirData::NoirType(NoirType::from(f32::NAN)),
+        ];
+        let source = IteratorSource::new(rows.into_iter());
+        let res = env.stream(source).kurtosis_unbiased(true).collect_vec();
+        env.execute_blocking();
+
+        if let Some(res) = res.get() {
+            assert_eq!(res, [NoirData::NoirType(NoirType::from(None::<f32>))]);
+        }
+    });
+}

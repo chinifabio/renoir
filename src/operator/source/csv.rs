@@ -513,7 +513,15 @@ mod tests {
             for terminator in &["\n", "\r\n"] {
                 let file = NamedTempFile::new().unwrap();
                 for i in 0..num_records {
-                    write!(file.as_file(), "{},{},{}{}", i, "", i as f32 + 0.5, terminator).unwrap();
+                    write!(
+                        file.as_file(),
+                        "{},{},{}{}",
+                        i,
+                        "",
+                        i as f32 + 0.5,
+                        terminator
+                    )
+                    .unwrap();
                 }
 
                 let mut env = StreamEnvironment::new(EnvironmentConfig::local(4));

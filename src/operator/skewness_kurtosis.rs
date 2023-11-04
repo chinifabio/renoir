@@ -130,4 +130,128 @@ where
             })
             .map(|v| v.unwrap())
     }
+
+    pub fn kurtosis_unbiased(self, skip_nan: bool) -> Stream<NoirData, impl Operator<NoirData>> {
+        self.fold_assoc(
+            (None, None, None, None, None, false),
+            move |acc, v| {
+                if !acc.5 {
+                    acc.5 = v.count_kumulant_4(
+                        &mut acc.0, &mut acc.1, &mut acc.2, &mut acc.3, &mut acc.4, skip_nan,
+                    )
+                }
+            },
+            move |acc, v| {
+                if !acc.5 {
+                    acc.5 = NoirData::global_count_kumulant_4(
+                        &mut acc.0,
+                        &mut acc.1,
+                        &mut acc.2,
+                        &mut acc.3,
+                        &mut acc.4,
+                        skip_nan,
+                        (
+                            v.0.unwrap(),
+                            v.1.unwrap(),
+                            v.2.unwrap(),
+                            v.3.unwrap(),
+                            v.4.unwrap(),
+                        ),
+                    )
+                }
+            },
+        )
+        .map(|v| {
+            let count = v.0.unwrap();
+            let s1 = v.1.unwrap();
+            let s2 = v.2.unwrap();
+            let s3 = v.3.unwrap();
+            let s4 = v.4.unwrap();
+
+            match (count, s1, s2, s3, s4) {
+                (
+                    NoirData::Row(count),
+                    NoirData::Row(s1),
+                    NoirData::Row(s2),
+                    NoirData::Row(s3),
+                    NoirData::Row(s4),
+                ) => {
+                    let mut kurt = Vec::with_capacity(count.len());
+                    for (i, v) in count.into_iter().enumerate() {
+                        if !v.is_na()
+                            && !s1[i].is_na()
+                            && !s2[i].is_na()
+                            && !s3[i].is_na()
+                            && !s4[i].is_na()
+                        {
+                            let v = f64::from(v);
+                            let s1 = f64::from(s1[i]);
+                            let s2 = f64::from(s2[i]);
+                            let s3 = f64::from(s3[i]);
+                            let s4 = f64::from(s4[i]);
+
+                            let k4 = (-6.0 * s1.powi(4) + 12.0 * v * s1.powi(2) * s2
+                                - 3.0 * v * (v - 1.0) * s2.powi(2)
+                                - 4.0 * v * (v + 1.0) * s1 * s3
+                                + v.powi(2) * (v + 1.0) * s4)
+                                / (v * (v - 1.0) * (v - 2.0) * (v - 3.0));
+                            let k2 = (v * s2 - s1.powi(2)) / (v * (v - 1.0));
+
+                            kurt.push(crate::data_type::NoirType::Float32(
+                                (k4 / k2.powi(2)) as f32,
+                            ));
+                        } else if v.is_nan()
+                            || s1[i].is_nan()
+                            || s2[i].is_nan()
+                            || s3[i].is_nan()
+                            || s4[i].is_nan()
+                        {
+                            kurt.push(crate::data_type::NoirType::NaN())
+                        } else {
+                            kurt.push(crate::data_type::NoirType::None())
+                        }
+                    }
+
+                    NoirData::Row(kurt)
+                }
+                (
+                    NoirData::NoirType(count),
+                    NoirData::NoirType(s1),
+                    NoirData::NoirType(s2),
+                    NoirData::NoirType(s3),
+                    NoirData::NoirType(s4),
+                ) => {
+                    if !count.is_na() && !s1.is_na() && !s2.is_na() && !s3.is_na() && !s4.is_na() {
+                        let count = f64::from(count);
+                        let s1 = f64::from(s1);
+                        let s2 = f64::from(s2);
+                        let s3 = f64::from(s3);
+                        let s4 = f64::from(s4);
+
+                        let k4 = (-6.0 * s1.powi(4) + 12.0 * count * s1.powi(2) * s2
+                            - 3.0 * count * (count - 1.0) * s2.powi(2)
+                            - 4.0 * count * (count + 1.0) * s1 * s3
+                            + count.powi(2) * (count + 1.0) * s4)
+                            / (count * (count - 1.0) * (count - 2.0) * (count - 3.0));
+
+                        let k2 = (count * s2 - s1.powi(2)) / (count * (count - 1.0));
+
+                        NoirData::NoirType(crate::data_type::NoirType::Float32(
+                            (k4 / k2.powi(2)) as f32,
+                        ))
+                    } else if count.is_nan()
+                        || s1.is_nan()
+                        || s2.is_nan()
+                        || s3.is_nan()
+                        || s4.is_nan()
+                    {
+                        NoirData::NoirType(crate::data_type::NoirType::NaN())
+                    } else {
+                        NoirData::NoirType(crate::data_type::NoirType::None())
+                    }
+                }
+                _ => panic!("Fatal error in Kurtosis"),
+            }
+        })
+    }
 }

@@ -18,10 +18,10 @@ use crate::{
 mod async_stream;
 mod channel;
 mod csv;
+pub mod csv_fast;
 mod file;
 mod iterator;
 mod parallel_iterator;
-pub mod csv_fast;
 
 /// This trait marks all the operators that can be used as sinks.
 pub trait Source<Out: Data>: Operator<Out> {

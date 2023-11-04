@@ -12,7 +12,7 @@ use crate::operator::{Operator, StreamElement};
 use crate::scheduler::ExecutionMetadata;
 use crate::Stream;
 
-use super::{LimitedReader, CsvOptions};
+use super::{CsvOptions, LimitedReader};
 
 /// Source that reads and parses a CSV file to NoirData rows.
 ///
@@ -331,7 +331,7 @@ impl Operator<NoirData> for RowCsvSource {
                     } else {
                         StreamElement::Item(NoirData::NoirType(NoirType::None()))
                     }
-                }else{
+                } else {
                     let mut data: Vec<NoirType> = Vec::with_capacity(self.record.len());
                     for field in self.record.iter() {
                         if field.is_empty() {
@@ -481,9 +481,7 @@ mod tests {
                 assert_eq!(
                     res,
                     (0..num_records)
-                        .map(|x| NoirData::NoirType(
-                            NoirType::from(x)
-                        ))
+                        .map(|x| NoirData::NoirType(NoirType::from(x)))
                         .collect_vec()
                 );
             }

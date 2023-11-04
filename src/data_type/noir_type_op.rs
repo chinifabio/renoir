@@ -137,6 +137,19 @@ impl Mul<f32> for NoirType {
     }
 }
 
+impl Mul<NoirType> for i32 {
+    type Output = NoirType;
+
+    fn mul(self, rhs: NoirType) -> Self::Output {
+        match rhs {
+            NoirType::Int32(a) => NoirType::Int32(a * self),
+            NoirType::Float32(a) => NoirType::Float32(a * self as f32),
+            NoirType::NaN() => panic!("Found NaN!"),
+            NoirType::None() => panic!("Found None!"),
+        }
+    }
+}
+
 impl Mul<i32> for NoirType {
     type Output = NoirType;
 
@@ -256,6 +269,19 @@ impl Pow<i32> for NoirType {
         match self {
             NoirType::Int32(a) => NoirType::Float32((a as f32).powi(exp)),
             NoirType::Float32(a) => NoirType::Float32(a.powi(exp)),
+            NoirType::NaN() => panic!("Found NaN!"),
+            NoirType::None() => panic!("Found None!"),
+        }
+    }
+}
+
+impl Add<i32> for NoirType {
+    type Output = NoirType;
+
+    fn add(self, rhs: i32) -> Self::Output {
+        match self {
+            NoirType::Int32(a) => NoirType::Int32(a + rhs),
+            NoirType::Float32(a) => NoirType::Float32(a + rhs as f32),
             NoirType::NaN() => panic!("Found NaN!"),
             NoirType::None() => panic!("Found None!"),
         }
