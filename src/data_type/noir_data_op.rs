@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fmt::Display};
+use std::{collections::HashMap, fmt::Display, ops::Index, usize};
 
 use average::{Estimate, Quantile};
 use quantiles::ckms::CKMS;
@@ -1018,6 +1018,23 @@ impl From<NoirDataCsv> for NoirData {
         match value {
             NoirDataCsv::Row(row) => NoirData::Row(row),
             NoirDataCsv::NoirType(v) => NoirData::NoirType(v),
+        }
+    }
+}
+
+impl Index<usize> for NoirData {
+    type Output = NoirType;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        match self {
+            NoirData::Row(row) => &row[index],
+            NoirData::NoirType(a) => {
+                if index == 0 {
+                    a
+                } else {
+                    panic!("Index {} out of bounds for {}!", index, self)
+                }
+            },
         }
     }
 }

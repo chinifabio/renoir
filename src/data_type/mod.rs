@@ -9,10 +9,11 @@ mod noir_type_op;
 /// It can be either an Int32 or a Float32.
 /// NaN defines a value that cannot be used in any calculation and the operators should be able to handle it.
 /// None defines a missing value.
-#[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Copy)]
+#[derive(Clone, Deserialize, Serialize, Debug, Copy)]
 pub enum NoirType {
     Int32(i32),
     Float32(f32),
+    Bool(bool),
     NaN(),
     None(),
 }

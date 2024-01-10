@@ -150,6 +150,7 @@ pub(crate) mod stream;
 #[cfg(test)]
 pub(crate) mod test;
 pub(crate) mod worker;
+pub mod optimization;
 
 pub type CoordUInt = u64;
 

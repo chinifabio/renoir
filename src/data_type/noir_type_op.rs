@@ -2,7 +2,8 @@ use core::panic;
 use std::cmp::Eq;
 use std::f32;
 use std::fmt::Display;
-use std::ops::{Add, AddAssign, Div, DivAssign, Mul, Neg, Sub, SubAssign};
+use std::hash::Hash;
+use std::ops::{Add, AddAssign, BitXor, Div, DivAssign, Mul, Neg, Not, Rem, Sub, SubAssign};
 
 use sha2::digest::typenum::Pow;
 
@@ -15,6 +16,7 @@ impl NoirType {
         let res = match self {
             NoirType::Int32(a) => NoirType::Float32((a as f32).sqrt()),
             NoirType::Float32(a) => NoirType::Float32(a.sqrt()),
+            NoirType::Bool(_a) => panic!("Found Bool!"),
             NoirType::NaN() => panic!("Found NaN!"),
             NoirType::None() => panic!("Found None!"),
         };
@@ -23,6 +25,56 @@ impl NoirType {
             NoirType::NaN()
         } else {
             res
+        }
+    }
+
+    pub fn floor(self) -> NoirType {
+        match self {
+            NoirType::Int32(a) => NoirType::Int32(a),
+            NoirType::Float32(a) => NoirType::Float32(a.floor()),
+            NoirType::Bool(_a) => panic!("Found Bool!"),
+            NoirType::NaN() => panic!("Found NaN!"),
+            NoirType::None() => panic!("Found None!"),
+        }
+    }
+
+    pub fn ceil(self) -> NoirType {
+        match self {
+            NoirType::Int32(a) => NoirType::Int32(a),
+            NoirType::Float32(a) => NoirType::Float32(a.ceil()),
+            NoirType::Bool(_a) => panic!("Found Bool!"),
+            NoirType::NaN() => panic!("Found NaN!"),
+            NoirType::None() => panic!("Found None!"),
+        }
+    }
+
+    pub fn round(self) -> NoirType {
+        match self {
+            NoirType::Int32(a) => NoirType::Int32(a),
+            NoirType::Float32(a) => NoirType::Float32(a.round()),
+            NoirType::Bool(_a) => panic!("Found Bool!"),
+            NoirType::NaN() => panic!("Found NaN!"),
+            NoirType::None() => panic!("Found None!"),
+        }
+    }
+
+    pub fn modulo(self, n: i32) -> NoirType {
+        match self {
+            NoirType::Int32(a) => NoirType::Int32(a % n),
+            NoirType::Float32(a) => NoirType::Float32(a % n as f32),
+            NoirType::Bool(_a) => panic!("Found Bool!"),
+            NoirType::NaN() => panic!("Found NaN!"),
+            NoirType::None() => panic!("Found None!"),
+        }
+    }
+
+    pub fn abs(self) -> NoirType {
+        match self {
+            NoirType::Int32(a) => NoirType::Int32(a.abs()),
+            NoirType::Float32(a) => NoirType::Float32(a.abs()),
+            NoirType::Bool(_a) => panic!("Found Bool!"),
+            NoirType::NaN() => panic!("Found NaN!"),
+            NoirType::None() => panic!("Found None!"),
         }
     }
 
@@ -84,6 +136,18 @@ impl From<f32> for NoirType {
     }
 }
 
+impl Hash for NoirType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        match self {
+            NoirType::Int32(i) => i.hash(state),
+            NoirType::Float32(f) => f.to_bits().hash(state),
+            NoirType::Bool(b) => b.hash(state),
+            NoirType::NaN() => (),
+            NoirType::None() => (),
+        }
+    }
+}
+
 impl From<NoirData> for NoirType {
     fn from(val: NoirData) -> Self {
         match val {
@@ -98,6 +162,13 @@ impl From<NoirType> for f64 {
         match value {
             NoirType::Int32(i) => i as f64,
             NoirType::Float32(f) => f as f64,
+            NoirType::Bool(b) => {
+                if b {
+                    1.0
+                } else {
+                    0.0
+                }
+            }
             NoirType::NaN() => f64::NAN,
             NoirType::None() => f64::NAN,
         }
@@ -125,6 +196,7 @@ impl Mul<f32> for NoirType {
         let res = match self {
             NoirType::Int32(a) => NoirType::Float32((a as f32) * rhs),
             NoirType::Float32(a) => NoirType::Float32(a * rhs),
+            NoirType::Bool(a) => NoirType::Float32(if a { rhs } else { 0.0 }),
             NoirType::NaN() => panic!("Found NaN!"),
             NoirType::None() => panic!("Found None!"),
         };
@@ -144,6 +216,7 @@ impl Mul<NoirType> for i32 {
         match rhs {
             NoirType::Int32(a) => NoirType::Int32(a * self),
             NoirType::Float32(a) => NoirType::Float32(a * self as f32),
+            NoirType::Bool(a) => NoirType::Int32(if a { self } else { 0 }),
             NoirType::NaN() => panic!("Found NaN!"),
             NoirType::None() => panic!("Found None!"),
         }
@@ -157,6 +230,7 @@ impl Mul<i32> for NoirType {
         match self {
             NoirType::Int32(a) => NoirType::Int32(a * rhs),
             NoirType::Float32(a) => NoirType::Float32(a * rhs as f32),
+            NoirType::Bool(a) => NoirType::Int32(if a { rhs } else { 0 }),
             NoirType::NaN() => panic!("Found NaN!"),
             NoirType::None() => panic!("Found None!"),
         }
@@ -168,6 +242,7 @@ impl DivAssign<usize> for NoirType {
         match self {
             NoirType::Int32(a) => *a /= rhs as i32,
             NoirType::Float32(a) => *a /= rhs as f32,
+            NoirType::Bool(_a) => panic!("Found Bool!"),
             NoirType::NaN() => panic!("Found NaN!"),
             NoirType::None() => panic!("Found None!"),
         }
@@ -231,6 +306,7 @@ impl Div<usize> for NoirType {
         let res = match self {
             NoirType::Int32(a) => NoirType::Float32((a as f32) / (rhs as f32)),
             NoirType::Float32(a) => NoirType::Float32(a / (rhs as f32)),
+            NoirType::Bool(_a) => panic!("Found Bool!"),
             NoirType::NaN() => panic!("Found NaN!"),
             NoirType::None() => panic!("Found None!"),
         };
@@ -250,6 +326,27 @@ impl Div<f32> for NoirType {
         let res = match self {
             NoirType::Int32(a) => NoirType::Float32((a as f32) / rhs),
             NoirType::Float32(a) => NoirType::Float32(a / rhs),
+            NoirType::Bool(_a) => panic!("Found Bool!"),
+            NoirType::NaN() => panic!("Found NaN!"),
+            NoirType::None() => panic!("Found None!"),
+        };
+
+        if res == NoirType::Float32(f32::NAN) {
+            NoirType::NaN()
+        } else {
+            res
+        }
+    }
+}
+
+impl Div<f64> for NoirType {
+    type Output = NoirType;
+
+    fn div(self, rhs: f64) -> Self::Output {
+        let res = match self {
+            NoirType::Int32(a) => NoirType::Float32((a as f32) / rhs as f32),
+            NoirType::Float32(a) => NoirType::Float32(a / rhs as f32),
+            NoirType::Bool(_a) => panic!("Found Bool!"),
             NoirType::NaN() => panic!("Found NaN!"),
             NoirType::None() => panic!("Found None!"),
         };
@@ -269,6 +366,7 @@ impl Pow<i32> for NoirType {
         match self {
             NoirType::Int32(a) => NoirType::Float32((a as f32).powi(exp)),
             NoirType::Float32(a) => NoirType::Float32(a.powi(exp)),
+            NoirType::Bool(_a) => panic!("Found Bool!"),
             NoirType::NaN() => panic!("Found NaN!"),
             NoirType::None() => panic!("Found None!"),
         }
@@ -282,6 +380,7 @@ impl Add<i32> for NoirType {
         match self {
             NoirType::Int32(a) => NoirType::Int32(a + rhs),
             NoirType::Float32(a) => NoirType::Float32(a + rhs as f32),
+            NoirType::Bool(_a) => panic!("Found Bool!"),
             NoirType::NaN() => panic!("Found NaN!"),
             NoirType::None() => panic!("Found None!"),
         }
@@ -373,6 +472,7 @@ impl Sub<i32> for NoirType {
         match self {
             NoirType::Int32(a) => NoirType::Int32(a - rhs),
             NoirType::Float32(a) => NoirType::Float32(a - rhs as f32),
+            NoirType::Bool(_a) => panic!("Found Bool!"),
             NoirType::NaN() => panic!("Found NaN!"),
             NoirType::None() => panic!("Found None!"),
         }
@@ -386,6 +486,7 @@ impl Neg for NoirType {
         match self {
             NoirType::Int32(a) => NoirType::Int32(-a),
             NoirType::Float32(a) => NoirType::Float32(-a),
+            NoirType::Bool(a) => NoirType::Bool(!a),
             NoirType::NaN() => panic!("Found NaN!"),
             NoirType::None() => panic!("Found None!"),
         }
@@ -417,13 +518,79 @@ impl Ord for NoirType {
     }
 }
 
+impl PartialEq for NoirType {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Int32(l0), Self::Int32(r0)) => l0 == r0,
+            (Self::Float32(l0), Self::Float32(r0)) => l0 == r0,
+            (Self::Bool(l0), Self::Bool(r0)) => l0 == r0,
+            (Self::NaN(), Self::NaN()) => false,
+            (Self::None(), Self::None()) => true,
+            (Self::Int32(l0), Self::Float32(r0)) => l0 == &(*r0 as i32),
+            (Self::Float32(l0), Self::Int32(r0)) => &(*l0 as i32) == r0,
+            _ => core::mem::discriminant(self) == core::mem::discriminant(other),
+        }
+    }
+}
+
 impl Eq for NoirType {}
+
+impl From<NoirType> for bool {
+    fn from(value: NoirType) -> Self {
+        match value {
+            NoirType::Int32(i) => i != 0,
+            NoirType::Float32(f) => f != 0.0,
+            NoirType::Bool(b) => b,
+            NoirType::NaN() => false,
+            NoirType::None() => false,
+        }
+    }
+}
+
+impl Not for NoirType {
+    type Output = NoirType;
+
+    fn not(self) -> Self::Output {
+        match self {
+            NoirType::Int32(i) => NoirType::Bool(i == 0),
+            NoirType::Float32(f) => NoirType::Bool(f == 0.0),
+            NoirType::Bool(b) => NoirType::Bool(!b),
+            NoirType::NaN() => NoirType::Bool(true),
+            NoirType::None() => NoirType::Bool(true),
+        }
+    }
+}
+
+impl Rem for NoirType {
+    type Output = NoirType;
+
+    fn rem(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (NoirType::Int32(a), NoirType::Int32(b)) => NoirType::Int32(a % b),
+            (NoirType::Float32(a), NoirType::Int32(b)) => NoirType::Float32(a % b as f32),
+            (_, _) => panic!("NaN, None or Float! ({} % {})", self, rhs),
+        }
+    }
+}
+
+impl BitXor for NoirType {
+    type Output = NoirType;
+
+    fn bitxor(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (NoirType::Int32(a), NoirType::Int32(b)) => NoirType::Int32(a ^ b),
+            (NoirType::Bool(a), NoirType::Bool(b)) => NoirType::Bool(a ^ b),
+            (_, _) => panic!("Operation not supported! ({} ^ {})", self, rhs),
+        }
+    }
+}
 
 impl Display for NoirType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             NoirType::Int32(i) => write!(f, "{}", i),
             NoirType::Float32(i) => write!(f, "{}", i),
+            NoirType::Bool(a) => write!(f, "{}", a),
             NoirType::NaN() => write!(f, "NaN"),
             NoirType::None() => write!(f, "None"),
         }
