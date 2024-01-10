@@ -135,8 +135,10 @@ use crate::network::Coord;
 use crate::profiler::ProfilerResult;
 
 pub(crate) mod block;
+pub mod box_op;
 pub(crate) mod channel;
 pub mod config;
+pub mod data_type;
 pub(crate) mod environment;
 pub(crate) mod network;
 pub mod operator;

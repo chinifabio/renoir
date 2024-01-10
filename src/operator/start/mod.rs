@@ -21,7 +21,7 @@ mod simple;
 mod watermark_frontier;
 
 /// Trait that abstract the receiving part of the `Start`.
-pub(crate) trait StartReceiver: Clone {
+pub trait StartReceiver: Clone {
     type Out;
     /// Setup the internal state of the receiver.
     fn setup(&mut self, metadata: &mut ExecutionMetadata);
@@ -65,7 +65,7 @@ pub(crate) type SimpleStartOperator<Out> = Start<SimpleStartReceiver<Out>>;
 /// is followed. Note that the timestamps of the messages are not sorted, it's only guaranteed that
 /// when a watermark is emitted, all the previous messages are already been emitted (in some order).
 #[derive(Debug)]
-pub(crate) struct Start<Receiver: StartReceiver + Send> {
+pub struct Start<Receiver: StartReceiver + Send> {
     /// Execution metadata of this block.
     max_delay: Option<Duration>,
 

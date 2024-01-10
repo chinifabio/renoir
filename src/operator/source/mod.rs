@@ -1,6 +1,7 @@
 //! Utility traits and structures related to the source operators.
 
 pub use self::csv::*;
+pub use self::csv_fast::*;
 #[cfg(feature = "tokio")]
 pub use async_stream::*;
 pub use channel::*;
@@ -14,6 +15,7 @@ use crate::{block::Replication, operator::Operator};
 mod async_stream;
 mod channel;
 mod csv;
+pub mod csv_fast;
 mod file;
 mod iterator;
 mod parallel_iterator;

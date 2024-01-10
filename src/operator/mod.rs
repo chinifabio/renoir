@@ -3,6 +3,7 @@
 //! The actual operator list can be found from the implemented methods of [`Stream`](crate::Stream),
 //! [`KeyedStream`](crate::KeyedStream), [`WindowedStream`](crate::WindowedStream)
 
+use std::collections::VecDeque;
 use std::fmt::Display;
 use std::hash::Hash;
 use std::ops::{AddAssign, Div};
@@ -25,6 +26,7 @@ use crate::scheduler::ExecutionMetadata;
 use crate::stream::KeyedItem;
 use crate::{BatchMode, KeyedStream, Stream};
 
+use self::fold_batch::FoldBatch;
 #[cfg(feature = "async-tokio")]
 use self::map_async::MapAsync;
 use self::map_memo::MapMemo;
@@ -61,12 +63,15 @@ use self::{
 #[cfg(feature = "timestamp")]
 mod add_timestamps;
 mod batch_mode;
+mod covariance;
 pub(crate) mod end;
+mod entropy;
 mod filter;
 mod filter_map;
 mod flat_map;
 mod flatten;
 mod fold;
+mod fold_batch;
 mod inspect;
 #[cfg(feature = "timestamp")]
 mod interval_join;
@@ -78,15 +83,25 @@ mod map;
 #[cfg(feature = "async-tokio")]
 mod map_async;
 mod map_memo;
+mod max;
+mod mean;
+mod median_exact;
 mod merge;
+mod min;
+mod missing_data;
+mod mode;
+mod pearson;
+mod quantile_approx;
 mod reorder;
 mod replication;
 mod rich_map;
 mod rich_map_custom;
 mod route;
 pub mod sink;
+mod skewness_kurtosis;
 pub mod source;
 mod start;
+mod variance;
 pub mod window;
 mod zip;
 
@@ -773,6 +788,40 @@ where
         self.add_operator(|prev| Fold::new(prev, init.clone(), local))
             .replication(Replication::One)
             .add_operator(|prev| Fold::new(prev, init, global))
+    }
+
+    pub fn fold_batch<O, F>(
+        self,
+        init: O,
+        f: F,
+        batch_size: usize,
+    ) -> Stream<impl Operator<Out = O>>
+    where
+        Op::Out: ExchangeData,
+        F: Fn(&mut O, Vec<Op::Out>) + Send + Clone + 'static,
+        O: Data,
+    {
+        self.replication(Replication::One)
+            .add_operator(|prev| FoldBatch::new(prev, init, f, batch_size))
+    }
+
+    pub fn fold_batch_assoc<O, F, G>(
+        self,
+        init: O,
+        local: F,
+        global: G,
+        local_batch_size: usize,
+        global_batch_size: usize,
+    ) -> Stream<impl Operator<Out = O>>
+    where
+        Op::Out: ExchangeData,
+        F: Fn(&mut O, Vec<Op::Out>) + Send + Clone + 'static,
+        G: Fn(&mut O, Vec<O>) + Send + Clone + 'static,
+        O: ExchangeData,
+    {
+        self.add_operator(|prev| FoldBatch::new(prev, init.clone(), local, local_batch_size))
+            .replication(Replication::One)
+            .add_operator(|prev| FoldBatch::new(prev, init, global, global_batch_size))
     }
 
     /// Perform the folding operation separately for each key.
@@ -1481,7 +1530,7 @@ where
     ///
     /// **Note**: this operator is pretty advanced, some operators may need to be fully replicated
     /// and will fail otherwise.
-    pub fn replication(self, replication: Replication) -> Stream<impl Operator<Out = Op::Out>> {
+    pub fn replication(self, replication: Replication) -> Stream<SimpleStartOperator<Op::Out>> {
         let mut new_stream = self.split_block(End::new, NextStrategy::only_one());
         new_stream
             .block
@@ -1586,6 +1635,65 @@ where
                     (None, None) => None,
                 }
             },
+        )
+        .map(|value| value.unwrap())
+    }
+
+    pub fn reduce_batch<F>(self, f: F, batch_size: usize) -> Stream<impl Operator<Out = I>>
+    where
+        F: Fn(I, Vec<I>) -> I + Send + Clone + 'static,
+    {
+        self.fold_batch(
+            None,
+            move |acc, b| {
+                *acc = Some(if let Some(a) = acc.take() {
+                    f(a, b)
+                } else {
+                    let mut queue = VecDeque::from(b);
+                    let start = queue.pop_front().unwrap();
+                    f(start, queue.into())
+                })
+            },
+            batch_size,
+        )
+        .map(|value| value.unwrap())
+    }
+
+    pub fn reduce_batch_assoc<F>(
+        self,
+        f: F,
+        local_batch_size: usize,
+        global_batch_size: usize,
+    ) -> Stream<impl Operator<Out = I>>
+    where
+        F: Fn(I, Vec<I>) -> I + Send + Clone + 'static,
+    {
+        let f2 = f.clone();
+
+        self.fold_batch_assoc(
+            None,
+            move |acc, b| {
+                *acc = Some(if let Some(a) = acc.take() {
+                    f(a, b)
+                } else {
+                    let mut queue = VecDeque::from(b);
+                    let start = queue.pop_front().unwrap();
+                    f(start, queue.into())
+                })
+            },
+            move |acc1, acc2| {
+                let mut vec2 = Vec::with_capacity(global_batch_size);
+                acc2.into_iter().for_each(|a| vec2.push(a.unwrap()));
+                *acc1 = Some(if let Some(a) = acc1.take() {
+                    f2(a, vec2)
+                } else {
+                    let mut queue = VecDeque::from(vec2);
+                    let start = queue.pop_front().unwrap();
+                    f2(start, queue.into())
+                })
+            },
+            local_batch_size,
+            global_batch_size,
         )
         .map(|value| value.unwrap())
     }

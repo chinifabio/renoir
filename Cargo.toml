@@ -83,6 +83,9 @@ glidesort = "0.1.2"
 indexmap = "2.1.0"
 tracing = { version = "0.1.40", features = ["log"] }
 quick_cache = "0.4.0"
+dyn-clone = "1.0.11"
+quantiles = { version = "0.7.1", features = ["serde_support"] }
+average = { version = "0.14.1", features = ["serde1"]}
 
 [dev-dependencies]
 # for the tests
@@ -141,6 +144,9 @@ name = "batch_mode"
 harness = false
 [[bench]]
 name = "nexmark"
+harness = false
+[[bench]]
+name = "csv"
 harness = false
 
 [profile.release]
