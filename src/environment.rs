@@ -45,7 +45,7 @@ pub(crate) struct StreamEnvironmentInner {
 /// TODO: example usage
 pub struct StreamEnvironment {
     /// Reference to the actual content of the environment.
-    inner: Arc<Mutex<StreamEnvironmentInner>>,
+    pub(crate) inner: Arc<Mutex<StreamEnvironmentInner>>,
 }
 
 impl Default for StreamEnvironment {

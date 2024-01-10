@@ -4,9 +4,9 @@ use dyn_clone::DynClone;
 
 use crate::{
     block::BlockStructure,
-    data_type::NoirData,
+    data_type::{NoirData, NoirType},
     operator::{Data, Operator, StreamElement},
-    ExecutionMetadata, Stream,
+    ExecutionMetadata, KeyedStream, Stream,
 };
 
 pub(crate) trait DynOperator<T: Data>: DynClone {
@@ -92,6 +92,16 @@ where
 {
     #[allow(dead_code)]
     pub fn into_box(self) -> Stream<BoxedOperator<NoirData>> {
+        self.add_operator(|prev| BoxedOperator::new(prev))
+    }
+}
+
+impl<Op> KeyedStream<Op>
+where
+    Op: Operator<Out = (NoirType, NoirData)> + 'static,
+{
+    #[allow(dead_code)]
+    pub fn into_box(self) -> KeyedStream<BoxedOperator<(NoirType, NoirData)>> {
         self.add_operator(|prev| BoxedOperator::new(prev))
     }
 }

@@ -12,6 +12,7 @@ use crate::block::{BlockStructure, OperatorKind, OperatorStructure, Replication}
 use crate::data_type::{NoirData, NoirDataCsv};
 use crate::operator::source::Source;
 use crate::operator::{Data, Operator, StreamElement};
+use crate::optimization::dsl::expressions::Expr;
 use crate::scheduler::ExecutionMetadata;
 use crate::Stream;
 
@@ -65,6 +66,10 @@ pub(super) struct CsvOptions {
     pub(super) trim: Trim,
     /// Whether the CSV file has headers.
     pub(super) has_headers: bool,
+    /// Expression representing a filter on the source
+    pub(super) filter_at_source: Option<Expr>,
+    /// Expressions representing projections on the source
+    pub(super) projections_at_source: Option<Vec<usize>>,
 }
 
 impl Default for CsvOptions {
@@ -80,6 +85,8 @@ impl Default for CsvOptions {
             terminator: Terminator::CRLF,
             trim: Trim::None,
             has_headers: true,
+            filter_at_source: None,
+            projections_at_source: None,
         }
     }
 }
@@ -525,14 +532,7 @@ mod tests {
             for terminator in &["\n", "\r\n"] {
                 let file = NamedTempFile::new().unwrap();
                 for i in 0..num_records {
-                    write!(
-                        file.as_file(),
-                        "{},,{}{}",
-                        i,
-                        i as f32 + 0.5,
-                        terminator
-                    )
-                    .unwrap();
+                    write!(file.as_file(), "{},,{}{}", i, i as f32 + 0.5, terminator).unwrap();
                 }
 
                 let mut env = StreamEnvironment::new(EnvironmentConfig::local(4));

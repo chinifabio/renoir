@@ -142,6 +142,7 @@ pub mod data_type;
 pub(crate) mod environment;
 pub(crate) mod network;
 pub mod operator;
+pub mod optimization;
 mod profiler;
 #[cfg(feature = "ssh")]
 pub(crate) mod runner;
@@ -150,7 +151,6 @@ pub(crate) mod stream;
 #[cfg(test)]
 pub(crate) mod test;
 pub(crate) mod worker;
-pub mod optimization;
 
 pub type CoordUInt = u64;
 

@@ -1034,7 +1034,7 @@ impl Index<usize> for NoirData {
                 } else {
                     panic!("Index {} out of bounds for {}!", index, self)
                 }
-            },
+            }
         }
     }
 }

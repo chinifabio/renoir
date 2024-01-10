@@ -9,6 +9,7 @@ use crate::block::{BlockStructure, OperatorKind, OperatorStructure, Replication}
 use crate::data_type::{NoirData, NoirType};
 use crate::operator::source::Source;
 use crate::operator::{Operator, StreamElement};
+use crate::optimization::dsl::expressions::Expr;
 use crate::scheduler::ExecutionMetadata;
 use crate::Stream;
 
@@ -194,6 +195,16 @@ impl RowCsvSource {
         self.replication = replication;
         self
     }
+
+    pub(crate) fn filter_at_source(mut self, predicate: Option<Expr>) -> Self {
+        self.options.filter_at_source = predicate;
+        self
+    }
+
+    pub(crate) fn project_at_source(mut self, projections: Option<Vec<usize>>) -> Self {
+        self.options.projections_at_source = projections;
+        self
+    }
 }
 
 impl Source for RowCsvSource {
@@ -204,7 +215,6 @@ impl Source for RowCsvSource {
 
 impl Operator for RowCsvSource {
     type Out = NoirData;
-
     fn setup(&mut self, metadata: &mut ExecutionMetadata) {
         let global_id = metadata.global_id;
         let instances = metadata.replicas.len();
@@ -312,49 +322,76 @@ impl Operator for RowCsvSource {
     }
 
     fn next(&mut self) -> StreamElement<NoirData> {
-        if self.terminated {
-            return StreamElement::Terminate;
-        }
-        let csv_reader = self
-            .csv_reader
-            .as_mut()
-            .expect("CsvSource was not initialized");
+        loop {
+            if self.terminated {
+                return StreamElement::Terminate;
+            }
+            let csv_reader = self
+                .csv_reader
+                .as_mut()
+                .expect("CsvSource was not initialized");
 
-        match csv_reader.read_record(&mut self.record) {
-            Ok(true) => {
-                if self.record.len() == 1 {
-                    let field = self.record.get(0).unwrap();
-                    if field.is_empty() {
-                        StreamElement::Item(NoirData::NoirType(NoirType::None()))
-                    } else if let Ok(int_value) = field.parse::<i32>() {
-                        StreamElement::Item(NoirData::NoirType(NoirType::Int32(int_value)))
-                    } else if let Ok(float_value) = field.parse::<f32>() {
-                        StreamElement::Item(NoirData::NoirType(NoirType::Float32(float_value)))
-                    } else {
-                        StreamElement::Item(NoirData::NoirType(NoirType::None()))
-                    }
-                } else {
-                    let mut data: Vec<NoirType> = Vec::with_capacity(self.record.len());
-                    for field in self.record.iter() {
+            let data = match csv_reader.read_record(&mut self.record) {
+                Ok(true) => {
+                    if self.record.len() == 1 {
+                        let field = self.record.get(0).unwrap();
                         if field.is_empty() {
-                            data.push(NoirType::None());
+                            Some(NoirData::NoirType(NoirType::None()))
                         } else if let Ok(int_value) = field.parse::<i32>() {
-                            data.push(NoirType::Int32(int_value));
+                            Some(NoirData::NoirType(NoirType::Int32(int_value)))
                         } else if let Ok(float_value) = field.parse::<f32>() {
-                            data.push(NoirType::Float32(float_value));
+                            Some(NoirData::NoirType(NoirType::Float32(float_value)))
                         } else {
-                            data.push(NoirType::None());
+                            Some(NoirData::NoirType(NoirType::None()))
                         }
-                    }
+                    } else {
+                        let mut data: Vec<NoirType> = Vec::with_capacity(self.record.len());
 
-                    StreamElement::Item(NoirData::Row(data))
+                        if let Some(projections) = &self.options.projections_at_source {
+                            for index in projections {
+                                let field = self.record.get(*index).unwrap();
+                                if field.is_empty() {
+                                    data.push(NoirType::None());
+                                } else if let Ok(int_value) = field.parse::<i32>() {
+                                    data.push(NoirType::Int32(int_value));
+                                } else if let Ok(float_value) = field.parse::<f32>() {
+                                    data.push(NoirType::Float32(float_value));
+                                } else {
+                                    data.push(NoirType::None());
+                                }
+                            }
+                        } else {
+                            for field in self.record.iter() {
+                                if field.is_empty() {
+                                    data.push(NoirType::None());
+                                } else if let Ok(int_value) = field.parse::<i32>() {
+                                    data.push(NoirType::Int32(int_value));
+                                } else if let Ok(float_value) = field.parse::<f32>() {
+                                    data.push(NoirType::Float32(float_value));
+                                } else {
+                                    data.push(NoirType::None());
+                                }
+                            }
+                        }
+
+                        Some(NoirData::Row(data))
+                    }
                 }
+                Ok(false) => {
+                    self.terminated = true;
+                    None
+                }
+                Err(e) => panic!("Error while reading CSV file: {:?}", e),
+            };
+            match (data, &self.options.filter_at_source) {
+                (Some(item), Some(filter)) => {
+                    if filter.evaluate(&item).into() {
+                        return StreamElement::Item(item);
+                    }
+                }
+                (Some(item), None) => return StreamElement::Item(item),
+                _ => return StreamElement::FlushAndRestart,
             }
-            Ok(false) => {
-                self.terminated = true;
-                StreamElement::FlushAndRestart
-            }
-            Err(e) => panic!("Error while reading CSV file: {:?}", e),
         }
     }
 
@@ -384,7 +421,10 @@ impl Clone for RowCsvSource {
 
 impl crate::StreamEnvironment {
     /// Convenience method, creates a `CsvSource` and makes a stream using `StreamEnvironment::stream`
-    pub fn stream_csv_noirdata(&mut self, path: impl Into<PathBuf>) -> Stream<RowCsvSource> {
+    pub fn stream_csv_noirdata(
+        &mut self,
+        path: impl Into<PathBuf>,
+    ) -> Stream<impl Operator<Out = NoirData>> {
         let source = RowCsvSource::new(path);
         self.stream(source)
     }

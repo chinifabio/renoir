@@ -12,6 +12,7 @@ use crate::operator::window::WindowDescription;
 use crate::operator::Start;
 use crate::operator::{Data, ExchangeData, KeyerFn, Operator};
 use crate::operator::{DataKey, SimpleStartOperator};
+use crate::optimization::logical_plan::LogicPlan;
 use crate::scheduler::BlockId;
 
 /// A Stream represents a chain of operators that work on a flow of data. The type of the elements
@@ -98,6 +99,12 @@ where
     pub(crate) inner: KeyedStream<Op>,
     pub(crate) descr: WinDescr,
     pub(crate) _win_out: PhantomData<O>,
+}
+
+/// TODO documentation
+pub struct OptStream {
+    pub(crate) inner: Arc<Mutex<StreamEnvironmentInner>>,
+    pub(crate) logic_plan: LogicPlan,
 }
 
 impl<Op> Stream<Op>

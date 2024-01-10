@@ -23,6 +23,7 @@ pub enum ExprOp {
     Ceil,
     Abs,
     Sqrt,
+    Round,
 }
 
 pub type ExprRef = Box<Expr>;
@@ -48,34 +49,31 @@ impl Display for Expr {
         match self {
             Expr::NthColumn(n) => write!(f, "col({})", n),
             Expr::Literal(value) => write!(f, "{}", value),
-            Expr::BinaryExpr { left, op, right } => {
-                match op {
-                    ExprOp::Plus => write!(f, "({} + {})", left, right),
-                    ExprOp::Minus => write!(f, "({} - {})", left, right),
-                    ExprOp::Multiply => write!(f, "({} * {})", left, right),
-                    ExprOp::Divide => write!(f, "({} / {})", left, right),
-                    ExprOp::Eq => write!(f, "({} == {})", left, right),
-                    ExprOp::And => write!(f, "({} && {})", left, right),
-                    ExprOp::NotEq => write!(f, "({} != {})", left, right),
-                    ExprOp::Lt => write!(f, "({} < {})", left, right),
-                    ExprOp::LtEq => write!(f, "({} <= {})", left, right),
-                    ExprOp::Gt => write!(f, "({} > {})", left, right),
-                    ExprOp::GtEq => write!(f, "({} >= {})", left, right),
-                    ExprOp::Or => write!(f, "({} || {})", left, right),
-                    ExprOp::Xor => write!(f, "({} ^ {})", left, right),
-                    ExprOp::Mod => write!(f, "({} % {})", left, right),
-                    _ => panic!("Unsupported operator"),
-                }
-            }
-            Expr::UnaryExpr { op, expr } => {
-                match op {
-                    ExprOp::Floor => write!(f, "floor({})", expr),
-                    ExprOp::Ceil => write!(f, "ceil({})", expr),
-                    ExprOp::Sqrt => write!(f, "sqrt({})", expr),
-                    ExprOp::Abs => write!(f, "abs({})", expr),
-                    _ => panic!("Unsupported operator"),
-                }
-            }
+            Expr::BinaryExpr { left, op, right } => match op {
+                ExprOp::Plus => write!(f, "({} + {})", left, right),
+                ExprOp::Minus => write!(f, "({} - {})", left, right),
+                ExprOp::Multiply => write!(f, "({} * {})", left, right),
+                ExprOp::Divide => write!(f, "({} / {})", left, right),
+                ExprOp::Eq => write!(f, "({} == {})", left, right),
+                ExprOp::And => write!(f, "({} && {})", left, right),
+                ExprOp::NotEq => write!(f, "({} != {})", left, right),
+                ExprOp::Lt => write!(f, "({} < {})", left, right),
+                ExprOp::LtEq => write!(f, "({} <= {})", left, right),
+                ExprOp::Gt => write!(f, "({} > {})", left, right),
+                ExprOp::GtEq => write!(f, "({} >= {})", left, right),
+                ExprOp::Or => write!(f, "({} || {})", left, right),
+                ExprOp::Xor => write!(f, "({} ^ {})", left, right),
+                ExprOp::Mod => write!(f, "({} % {})", left, right),
+                _ => panic!("Unsupported operator"),
+            },
+            Expr::UnaryExpr { op, expr } => match op {
+                ExprOp::Floor => write!(f, "floor({})", expr),
+                ExprOp::Ceil => write!(f, "ceil({})", expr),
+                ExprOp::Sqrt => write!(f, "sqrt({})", expr),
+                ExprOp::Abs => write!(f, "abs({})", expr),
+                ExprOp::Round => write!(f, "round({})", expr),
+                _ => panic!("Unsupported operator"),
+            },
             Expr::Empty => write!(f, "empty"),
         }
     }
@@ -96,6 +94,9 @@ impl Expr {
 
     pub fn abs(self) -> Expr {
         unary_expr(ExprOp::Abs, self)
+    }
+    pub fn round(self) -> Expr {
+        unary_expr(ExprOp::Round, self)
     }
 
     pub fn modulo(self, rhs: Expr) -> Expr {
@@ -170,6 +171,7 @@ impl Expr {
                     ExprOp::Ceil => data.ceil(),
                     ExprOp::Sqrt => data.sqrt(),
                     ExprOp::Abs => data.abs(),
+                    ExprOp::Round => data.round(),
                     _ => panic!("Unsupported operator"),
                 }
             }

@@ -67,6 +67,7 @@ mod covariance;
 pub(crate) mod end;
 mod entropy;
 mod filter;
+pub mod filter_expr;
 mod filter_map;
 mod flat_map;
 mod flatten;
@@ -77,7 +78,8 @@ mod inspect;
 mod interval_join;
 pub mod iteration;
 pub mod join;
-mod key_by;
+pub(crate) mod key_by;
+pub mod keyed_filter_expr;
 mod keyed_fold;
 mod map;
 #[cfg(feature = "async-tokio")]
