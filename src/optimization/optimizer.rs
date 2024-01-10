@@ -1,4 +1,4 @@
-use super::{logical_plan::LogicPlan, predicate_pushdown::PredicatePushdown};
+use super::{logical_plan::LogicPlan, predicate_pushdown::PredicatePushdown, projection_pushdown::ProjectionPushdown};
 
 #[derive(Debug)]
 pub(crate) enum OptimizerError {
@@ -41,10 +41,6 @@ impl Default for OptimizationOptions {
     }
 }
 
-// TODO: creare type `OptimizerResult = (LogicPlan, bool)` dove bool indica se è stato fatto un cambiamento
-// creare un trait `Optimizer` con un metodo `optimize` che ritorna `OptimizerResult`
-// implementare il trait per `ProjectionPushdown` e `PredicatePushdown`
-// creare un ordine logico di ottimizzazioni e loopare fino a che non ci sono più cambiamenti
 impl LogicPlanOptimizer {
     pub fn new(plan: LogicPlan) -> Self {
         Self { plan }
@@ -59,6 +55,10 @@ impl LogicPlanOptimizer {
         options: OptimizationOptions,
     ) -> Result<LogicPlan, OptimizerError> {
         let mut plan = self.plan;
+
+        if options.projection_pushdown {
+            plan = ProjectionPushdown::new(&plan).optimize()?;
+        }
 
         if options.predicate_pushdown {
             plan = PredicatePushdown::new(&plan).optimize()?;

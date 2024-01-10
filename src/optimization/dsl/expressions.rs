@@ -139,6 +139,28 @@ impl Expr {
         binary_expr(self, ExprOp::GtEq, rhs)
     }
 
+    pub(crate) fn extract_dependencies(&self) -> Vec<usize> {
+        let mut dependencies = vec![];
+        let mut stack = vec![self];
+        while let Some(current) = stack.pop() {
+            match current {
+                Expr::NthColumn(n) => {
+                    dependencies.push(*n);
+                }
+                Expr::Literal(_) => (),
+                Expr::BinaryExpr { left, op: _, right } => {
+                    stack.push(left);
+                    stack.push(right);
+                }
+                Expr::UnaryExpr { op: _, expr } => {
+                    stack.push(expr);
+                }
+                Expr::Empty => (),
+            }
+        }
+        dependencies
+    }
+
     pub fn evaluate(&self, item: &NoirData) -> NoirType {
         match self {
             Expr::Literal(value) => *value,
