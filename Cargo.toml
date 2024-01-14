@@ -148,6 +148,9 @@ harness = false
 [[bench]]
 name = "csv"
 harness = false
+[[bench]]
+name = "vanilla_vs_optimized"
+harness = false
 
 [profile.release]
 lto = true

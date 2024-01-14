@@ -136,9 +136,9 @@ impl<'a> OptimizationRule for ProjectionPushdown<'a> {
 #[cfg(test)]
 pub mod test {
 
-    use crate::optimization::optimizer::OptimizationRule;
     use crate::optimization::dsl::expressions::*;
     use crate::optimization::logical_plan::LogicPlan;
+    use crate::optimization::optimizer::OptimizationRule;
     use crate::optimization::projection_pushdown::ProjectionPushdown;
 
     fn create_scan() -> LogicPlan {
@@ -151,9 +151,7 @@ pub mod test {
 
     #[test]
     fn simple_pushdown() {
-        let target = create_scan()
-            .select(&[col(0), col(1)])
-            .collect_vec();
+        let target = create_scan().select(&[col(0), col(1)]).collect_vec();
 
         let optimized = ProjectionPushdown::new(&target).optimize().unwrap();
 
@@ -165,7 +163,7 @@ pub mod test {
                     predicate: None,
                     projections: Some(vec![0, 1]),
                 }),
-            })
+            }),
         };
 
         assert_eq!(expected, optimized);
@@ -191,7 +189,7 @@ pub mod test {
                         projections: Some(vec![0, 1, 3]),
                     }),
                 }),
-            })
+            }),
         };
 
         assert_eq!(expected, optimized);

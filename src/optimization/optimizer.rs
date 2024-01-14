@@ -1,4 +1,7 @@
-use super::{logical_plan::LogicPlan, predicate_pushdown::PredicatePushdown, projection_pushdown::ProjectionPushdown};
+use super::{
+    logical_plan::LogicPlan, predicate_pushdown::PredicatePushdown,
+    projection_pushdown::ProjectionPushdown,
+};
 
 #[derive(Debug)]
 pub(crate) enum OptimizerError {
