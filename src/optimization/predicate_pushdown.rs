@@ -9,9 +9,7 @@ use super::{
     optimizer::{OptimizationRule, OptimizerError, OptimizerResult},
 };
 
-pub(crate) struct PredicatePushdown<'a> {
-    plan: &'a LogicPlan,
-}
+pub(crate) struct PredicatePushdown {}
 
 #[derive(Debug, PartialEq)]
 struct PredicateWrapper {
@@ -44,7 +42,7 @@ impl PredicateWrapper {
     }
 
     fn is_available(&self, i: u32) -> bool {
-        self.predicate.is_some() && !self.is_locked() && self.level < i
+        self.predicate.is_some() && !self.is_locked() && self.level <= i
     }
 
     fn take(&mut self, i: u32) -> Self {
@@ -55,15 +53,37 @@ impl PredicateWrapper {
             locked_at: None,
         }
     }
-}
 
-impl<'a> PredicatePushdown<'a> {
-    pub(crate) fn new(plan: &'a LogicPlan) -> Self {
-        Self { plan }
+    fn is_left(&self, level: u32, left_len: usize) -> bool {
+        if self.is_available(level) {
+            return self
+                .predicate
+                .as_ref()
+                .unwrap()
+                .extract_dependencies()
+                .iter()
+                .all(|d| *d < left_len);
+        }
+        false
     }
 
+    fn is_right(&self, level: u32, left_len: usize) -> bool {
+        if self.is_available(level) {
+            return self
+                .predicate
+                .as_ref()
+                .unwrap()
+                .extract_dependencies()
+                .iter()
+                .all(|d| *d >= left_len);
+        }
+        false
+    }
+}
+
+impl PredicatePushdown {
     fn pushdown(
-        plan: &LogicPlan,
+        plan: LogicPlan,
         accumulator: &mut Vec<PredicateWrapper>,
         i: u32,
     ) -> Result<LogicPlan, OptimizerError> {
@@ -72,6 +92,7 @@ impl<'a> PredicatePushdown<'a> {
                 path,
                 predicate,
                 projections,
+                schema,
             } => {
                 let new_predicate = match (predicate.to_owned(), Self::take_action(accumulator, i))
                 {
@@ -83,27 +104,34 @@ impl<'a> PredicatePushdown<'a> {
                 Ok(LogicPlan::TableScan {
                     path: path.to_path_buf(),
                     predicate: new_predicate,
-                    projections: projections.clone(),
+                    projections,
+                    schema,
                 })
             }
-            // TODO controllare due filter consecutivi
             LogicPlan::Filter { predicate, input } => {
-                let previous = accumulator
+                // Takes ownership of the upstream predicates
+                let upstream_predicates = accumulator
                     .iter_mut()
                     .filter(|p| p.is_available(i))
                     .map(|p| p.take(i))
                     .collect_vec();
-                let pieces = Self::separate(predicate, i);
+
+                // Separates the predicate in the current level into its components
+                // a < b & c > d => [a < b, c > d]
+                let predicate_components = Self::separate(predicate, i);
+
+                // Pushes the upstream predicates and the predicate components into the accumulator
                 let start = accumulator.len();
-                let len = pieces.len() + previous.len();
-                accumulator.extend(pieces);
-                accumulator.extend(previous);
-                let new_input = Self::pushdown(input, accumulator, i + 1)?;
-                let new_predicate = accumulator[start..len + start]
-                    .iter_mut()
-                    .filter(|p| p.is_available(i))
-                    .map(|p| p.predicate.take().unwrap())
-                    .reduce(|acc, item| acc.and(item));
+                let len = predicate_components.len() + upstream_predicates.len();
+                accumulator.extend(predicate_components);
+                accumulator.extend(upstream_predicates);
+
+                // Recursively pushdown the input
+                let new_input = Self::pushdown(*input, accumulator, i + 1)?;
+
+                // Recover the pushed predicates: if the predicate is locked, it means that it has been
+                // pushed down to a lower level, so it is not available anymore
+                let new_predicate = Self::take_action(&mut accumulator[start..(start + len)], i);
                 match new_predicate {
                     Some(predicate) => Ok(LogicPlan::Filter {
                         predicate,
@@ -113,15 +141,15 @@ impl<'a> PredicatePushdown<'a> {
                 }
             }
             LogicPlan::Select { columns, input } => {
-                // per semplificare, non controllo quali predicati possano scendere ancora.
-                // TODO: guardare cosa può scendere ancora
+                // TODO devo controllare se tutte le dipendenze del filter sono colonne semplici.
+                // se lo sono allora posso rimappare le dipendenze e porare su il filtro
                 accumulator.iter_mut().for_each(|p| p.lock(i));
-                let mut new_input = Self::pushdown(input, accumulator, i + 1)?;
+                let mut new_input = Self::pushdown(*input, accumulator, i + 1)?;
                 accumulator.iter_mut().for_each(|p| p.unlock(i));
                 match Self::take_action(accumulator, i) {
                     Some(predicate) => {
                         new_input = LogicPlan::Select {
-                            columns: columns.clone(),
+                            columns,
                             input: Box::new(new_input),
                         };
                         Ok(LogicPlan::Filter {
@@ -130,42 +158,76 @@ impl<'a> PredicatePushdown<'a> {
                         })
                     }
                     None => Ok(LogicPlan::Select {
-                        columns: columns.clone(),
+                        columns,
                         input: Box::new(new_input),
                     }),
                 }
             }
             LogicPlan::DropColumns { input, columns } => {
                 // TODO come select
-                let new_input = Self::pushdown(input, accumulator, i + 1)?;
+                let new_input = Self::pushdown(*input, accumulator, i + 1)?;
                 Ok(LogicPlan::DropColumns {
                     input: Box::new(new_input),
-                    columns: columns.clone(),
+                    columns,
                 })
             }
             LogicPlan::CollectVec { input } => {
-                let new_input = Self::pushdown(input, accumulator, i + 1)?;
+                let new_input = Self::pushdown(*input, accumulator, i + 1)?;
                 Ok(LogicPlan::CollectVec {
                     input: Box::new(new_input),
                 })
             }
             LogicPlan::Shuffle { input } => {
-                let new_input = Self::pushdown(input, accumulator, i + 1)?;
+                let new_input = Self::pushdown(*input, accumulator, i + 1)?;
                 Ok(LogicPlan::Shuffle {
                     input: Box::new(new_input),
                 })
             }
             LogicPlan::GroupBy { key, input } => {
-                let new_input = Self::pushdown(input, accumulator, i + 1)?;
+                let new_input = Self::pushdown(*input, accumulator, i + 1)?;
                 Ok(LogicPlan::GroupBy {
-                    key: key.clone(),
+                    key,
                     input: Box::new(new_input),
                 })
             }
             LogicPlan::DropKey { input } => {
-                let new_input = Self::pushdown(input, accumulator, i + 1)?;
+                let new_input = Self::pushdown(*input, accumulator, i + 1)?;
                 Ok(LogicPlan::DropKey {
                     input: Box::new(new_input),
+                })
+            }
+            LogicPlan::Join {
+                input_left,
+                input_right,
+                left_on,
+                right_on,
+                join_type,
+            } => {
+                // Divide the predicates in the accumulator into two groups: those that depend only on the left
+                // input and those that depend only on the right input
+                let left_header_len = input_left.schema().columns.len();
+                let mut left_accumulator = accumulator
+                    .iter_mut()
+                    .filter(|p| p.is_left(i, left_header_len))
+                    .map(|p| p.take(i))
+                    .collect_vec();
+                let mut right_accumulator = accumulator
+                    .iter_mut()
+                    .filter(|p| p.is_right(i, left_header_len))
+                    .map(|p| p.take(i))
+                    .collect_vec();
+
+                // Pushdown the left and right inputs
+                let new_input_left = Self::pushdown(*input_left, &mut left_accumulator, i + 1)?;
+                let new_input_right = Self::pushdown(*input_right, &mut right_accumulator, i + 1)?;
+
+                // No need to recover the pushed predicates, since they surely are taken  by upstream operators
+                Ok(LogicPlan::Join {
+                    input_left: Box::new(new_input_left),
+                    input_right: Box::new(new_input_right),
+                    left_on,
+                    right_on,
+                    join_type,
                 })
             }
         }
@@ -179,7 +241,7 @@ impl<'a> PredicatePushdown<'a> {
             .reduce(|acc, item| acc.and(item))
     }
 
-    fn separate(input: &Expr, i: u32) -> Vec<PredicateWrapper> {
+    fn separate(input: Expr, i: u32) -> Vec<PredicateWrapper> {
         let mut stack = Vec::new();
         let mut iter = Some(input);
 
@@ -190,8 +252,8 @@ impl<'a> PredicatePushdown<'a> {
                     right,
                     op: ExprOp::And,
                 } => {
-                    iter = Some(left);
-                    stack.push(&(**right));
+                    iter = Some(*left);
+                    stack.push(*right);
                 }
                 _ => {
                     iter = None;
@@ -202,14 +264,14 @@ impl<'a> PredicatePushdown<'a> {
 
         stack
             .into_iter()
-            .map(|p| PredicateWrapper::new(p.clone(), i))
+            .map(|p| PredicateWrapper::new(p, i))
             .collect()
     }
 }
 
-impl<'a> OptimizationRule for PredicatePushdown<'a> {
-    fn optimize(&self) -> OptimizerResult {
-        Self::pushdown(self.plan, &mut vec![], 0)
+impl OptimizationRule for PredicatePushdown {
+    fn optimize(plan: LogicPlan) -> OptimizerResult {
+        Self::pushdown(plan, &mut vec![], 0)
     }
 }
 
@@ -224,7 +286,7 @@ pub mod test {
     #[test]
     fn test_separate() {
         let expr = (col(0) + col(1)).eq(i(0)) & col(0).neq(f(0.0)) & col(1);
-        let pieces = PredicatePushdown::separate(&expr, 0);
+        let pieces = PredicatePushdown::separate(expr, 0);
         let expected = vec![
             PredicateWrapper::new(col(1), 0),
             PredicateWrapper::new(col(0).neq(f(0.0)), 0),
@@ -236,7 +298,7 @@ pub mod test {
     #[test]
     fn test_separate_2() {
         let expr = (col(0) + col(1)).eq(i(0)) & col(0).neq(f(0.0)) | col(1) & col(2).eq(i(0));
-        let mut pieces = PredicatePushdown::separate(&expr, 0);
+        let mut pieces = PredicatePushdown::separate(expr.clone(), 0);
         assert_eq!(expr, pieces[0].predicate.take().unwrap());
     }
 
@@ -269,6 +331,7 @@ pub mod test {
             path: "test.csv".into(),
             predicate: None,
             projections: None,
+            schema: None,
         }
     }
 
@@ -276,13 +339,14 @@ pub mod test {
     fn simple_pushdown() {
         let target_plan = create_scan().filter(col(0).gt(i(0))).collect_vec();
 
-        let optimized = PredicatePushdown::new(&target_plan).optimize().unwrap();
+        let optimized = PredicatePushdown::optimize(target_plan).unwrap();
 
         let exprected = LogicPlan::CollectVec {
             input: Box::new(LogicPlan::TableScan {
                 path: "test.csv".into(),
                 predicate: Some(col(0).gt(i(0))),
                 projections: None,
+                schema: None,
             }),
         };
 
@@ -296,13 +360,14 @@ pub mod test {
             .filter(col(1).lt(i(0)))
             .collect_vec();
 
-        let optimized = PredicatePushdown::new(&target_plan).optimize().unwrap();
+        let optimized = PredicatePushdown::optimize(target_plan).unwrap();
 
         let exprected = LogicPlan::CollectVec {
             input: Box::new(LogicPlan::TableScan {
                 path: "test.csv".into(),
                 predicate: Some(col(0).gt(i(0)) & col(1).lt(i(0))),
                 projections: None,
+                schema: None,
             }),
         };
 
@@ -317,13 +382,14 @@ pub mod test {
             .filter(col(2).eq(i(0)))
             .collect_vec();
 
-        let optimized = PredicatePushdown::new(&target_plan).optimize().unwrap();
+        let optimized = PredicatePushdown::optimize(target_plan).unwrap();
 
         let exprected = LogicPlan::CollectVec {
             input: Box::new(LogicPlan::TableScan {
                 path: "test.csv".into(),
                 predicate: Some(col(0).gt(i(0)) & col(1).lt(i(0)) & col(2).eq(i(0))),
                 projections: None,
+                schema: None,
             }),
         };
 
@@ -338,7 +404,7 @@ pub mod test {
             .filter(col(1).lt(i(0)))
             .collect_vec();
 
-        let optimized = PredicatePushdown::new(&target_plan).optimize().unwrap();
+        let optimized = PredicatePushdown::optimize(target_plan).unwrap();
 
         let exprected = LogicPlan::CollectVec {
             input: Box::new(LogicPlan::GroupBy {
@@ -347,6 +413,7 @@ pub mod test {
                     path: "test.csv".into(),
                     predicate: Some(col(0).gt(i(0)) & col(1).lt(i(0))),
                     projections: None,
+                    schema: None,
                 }),
             }),
         };
@@ -362,7 +429,7 @@ pub mod test {
             .filter(col(1).lt(i(0)))
             .collect_vec();
 
-        let optimized = PredicatePushdown::new(&target_plan).optimize().unwrap();
+        let optimized = PredicatePushdown::optimize(target_plan).unwrap();
 
         let exprected = LogicPlan::CollectVec {
             input: Box::new(LogicPlan::Filter {
@@ -373,6 +440,7 @@ pub mod test {
                         path: "test.csv".into(),
                         predicate: Some(col(0).gt(i(0))),
                         projections: None,
+                        schema: None,
                     }),
                 }),
             }),

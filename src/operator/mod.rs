@@ -79,7 +79,6 @@ mod interval_join;
 pub mod iteration;
 pub mod join;
 pub(crate) mod key_by;
-pub mod keyed_filter_expr;
 mod keyed_fold;
 mod map;
 #[cfg(feature = "async-tokio")]

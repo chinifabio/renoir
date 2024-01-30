@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main};
 use criterion::{BenchmarkId, Criterion, Throughput};
-use noir_compute::data_type::{NoirData, NoirType};
+use noir_compute::data_type::{NoirData, NoirType, NoirTypeRef, Schema};
 use noir_compute::optimization::dsl::expressions::*;
 use noir_compute::StreamEnvironment;
 
@@ -12,20 +12,20 @@ use common::*;
 use rand::rngs::ThreadRng;
 use rand::RngCore;
 
-fn vanilla_vs_optimized_bench(c: &mut Criterion) {
-    let mut g1 = c.benchmark_group("Vanilla vs Optimized (Build time)");
-    g1.sample_size(25);
-    g1.measurement_time(Duration::from_secs(60));
-    g1.warm_up_time(Duration::from_secs(5));
+fn vanilla_vs_optimized_build(c: &mut Criterion) {
+    let mut build_time_group = c.benchmark_group("Vanilla vs Optimized (Build time)");
+    build_time_group.sample_size(25);
+    build_time_group.measurement_time(Duration::from_secs(60));
+    build_time_group.warm_up_time(Duration::from_secs(5));
 
     for n_row in &[1000, 10000, 100000] {
         for n_col in &[10, 100, 1000] {
             let source_file = PathBuf::from(format!("test_csv/{}_{}.csv", n_row, n_col));
             let size = source_file.metadata().unwrap().len();
             let input = format!("{}x{}", n_row, n_col);
-            g1.throughput(Throughput::Bytes(size));
+            build_time_group.throughput(Throughput::Bytes(size));
 
-            g1.bench_with_input(
+            build_time_group.bench_with_input(
                 BenchmarkId::new("Vanilla group-by", &input),
                 &source_file,
                 |b, path| {
@@ -38,27 +38,26 @@ fn vanilla_vs_optimized_bench(c: &mut Criterion) {
                             .filter(|(_, item)| (item[0] / item[1]).round() == NoirType::Int32(1))
                             .into_box()
                             .collect_vec();
-                        env.execute_blocking()
                     });
                 },
             );
 
-            g1.bench_with_input(
+            build_time_group.bench_with_input(
                 BenchmarkId::new("Optimized group-by", &input),
                 &source_file,
                 |b, path| {
                     b.iter(|| {
                         let mut env = StreamEnvironment::default();
-                        env.optimized_csv_stream(path.to_path_buf())
+                        env.stream_csv_optimized(path.to_path_buf())
+                            .with_schema(Schema::same_type(*n_col, NoirTypeRef::Int32))
                             .group_by(col(0).floor())
                             .filter((col(0) / col(1)).round().eq(i(1)))
                             .collect_vec();
-                        env.execute_blocking()
                     });
                 },
             );
 
-            g1.bench_with_input(
+            build_time_group.bench_with_input(
                 BenchmarkId::new("Vanilla sum", &input),
                 &source_file,
                 |b, path| {
@@ -71,43 +70,82 @@ fn vanilla_vs_optimized_bench(c: &mut Criterion) {
                             .map(|item| NoirData::NoirType(item[0] + item[*n_col - 1]))
                             .into_box()
                             .collect_vec();
-                        env.execute_blocking()
                     });
                 },
             );
 
-            g1.bench_with_input(
+            build_time_group.bench_with_input(
                 BenchmarkId::new("Optimized sum", &input),
                 &source_file,
                 |b, path| {
                     b.iter(|| {
                         let mut env = StreamEnvironment::default();
-                        env.optimized_csv_stream(path.to_path_buf())
+                        env.stream_csv_optimized(path.to_path_buf())
+                            .with_schema(Schema::same_type(*n_col, NoirTypeRef::Int32))
                             .filter(col(0).modulo(i(10)).eq(col(*n_col - 1).modulo(i(10))))
                             .select(&[col(0) + col(*n_col - 1)])
                             .collect_vec();
-                        env.execute_blocking()
+                    });
+                },
+            );
+
+            build_time_group.bench_with_input(
+                BenchmarkId::new("Vanilla join", &input),
+                &source_file,
+                |b, path| {
+                    b.iter(|| {
+                        let mut env = StreamEnvironment::default();
+                        let left = env.stream_csv_noirdata(path.to_path_buf()).into_box();
+                        let right = env.stream_csv_noirdata(path.to_path_buf()).into_box();
+                        left.join(
+                            right,
+                            |item| vec![item[0], item[1]],
+                            |item| vec![item[0], item[1]],
+                        )
+                        .filter(|(_, (item_left, item_right))| item_left[2] != item_right[2])
+                        .collect_vec();
+                    });
+                },
+            );
+
+            build_time_group.bench_with_input(
+                BenchmarkId::new("Optimized join", &input),
+                &source_file,
+                |b, path| {
+                    b.iter(|| {
+                        let mut env = StreamEnvironment::default();
+                        let left = env
+                            .stream_csv_optimized(path.to_path_buf())
+                            .with_schema(Schema::same_type(*n_col, NoirTypeRef::Int32));
+                        let right = env
+                            .stream_csv_optimized(path.to_path_buf())
+                            .with_schema(Schema::same_type(*n_col, NoirTypeRef::Int32));
+                        left.join(right, &[col(0), col(1)], &[col(0), col(1)])
+                            .filter(col(2).neq(col(n_col + 2)))
+                            .collect_vec();
                     });
                 },
             );
         }
     }
 
-    g1.finish();
+    build_time_group.finish();
+}
 
-    let mut g2 = c.benchmark_group("Vanilla vs Optimized (Execution time)");
-    g2.sample_size(25);
-    g2.measurement_time(Duration::from_secs(60));
-    g2.warm_up_time(Duration::from_secs(5));
+fn vanilla_vs_optimized_execution(c: &mut Criterion) {
+    let mut execution_time_group = c.benchmark_group("Vanilla vs Optimized (Execution time)");
+    execution_time_group.sample_size(25);
+    execution_time_group.measurement_time(Duration::from_secs(60));
+    execution_time_group.warm_up_time(Duration::from_secs(5));
 
     for n_row in &[1000, 10000, 100000] {
         for n_col in &[10, 100, 1000] {
             let source_file = PathBuf::from(format!("test_csv/{}_{}.csv", n_row, n_col));
             let size = source_file.metadata().unwrap().len();
             let input = format!("{}x{}", n_row, n_col);
-            g2.throughput(Throughput::Bytes(size));
+            execution_time_group.throughput(Throughput::Bytes(size));
 
-            g2.bench_with_input(
+            execution_time_group.bench_with_input(
                 BenchmarkId::new("Vanilla group-by", &input),
                 &source_file,
                 |b, path| {
@@ -123,12 +161,13 @@ fn vanilla_vs_optimized_bench(c: &mut Criterion) {
                 },
             );
 
-            g2.bench_with_input(
+            execution_time_group.bench_with_input(
                 BenchmarkId::new("Optimized group-by", &input),
                 &source_file,
                 |b, path| {
                     noir_bench_default(b, |env| {
-                        env.optimized_csv_stream(path.to_path_buf())
+                        env.stream_csv_optimized(path.to_path_buf())
+                            .with_schema(Schema::same_type(*n_col, NoirTypeRef::Int32))
                             .group_by(col(0).floor())
                             .filter((col(0) / col(1)).round().eq(i(1)))
                             .collect_vec();
@@ -136,7 +175,7 @@ fn vanilla_vs_optimized_bench(c: &mut Criterion) {
                 },
             );
 
-            g2.bench_with_input(
+            execution_time_group.bench_with_input(
                 BenchmarkId::new("Vanilla sum", &input),
                 &source_file,
                 |b, path| {
@@ -152,14 +191,53 @@ fn vanilla_vs_optimized_bench(c: &mut Criterion) {
                 },
             );
 
-            g2.bench_with_input(
+            execution_time_group.bench_with_input(
                 BenchmarkId::new("Optimized sum", &input),
                 &source_file,
                 |b, path| {
                     noir_bench_default(b, |env| {
-                        env.optimized_csv_stream(path.to_path_buf())
+                        env.stream_csv_optimized(path.to_path_buf())
+                            .with_schema(Schema::same_type(*n_col, NoirTypeRef::Int32))
                             .filter(col(0).modulo(i(10)).eq(col(*n_col - 1).modulo(i(10))))
                             .select(&[col(0) + col(*n_col - 1)])
+                            .collect_vec();
+                    });
+                },
+            );
+
+            if !input.eq("100000x1000") {
+                execution_time_group.bench_with_input(
+                    BenchmarkId::new("Vanilla join", &input),
+                    &source_file,
+                    |b, path| {
+                        noir_bench_default(b, |env| {
+                            let left = env.stream_csv_noirdata(path.to_path_buf()).into_box();
+                            let right = env.stream_csv_noirdata(path.to_path_buf()).into_box();
+                            left.join(
+                                right,
+                                |item| vec![item[0], item[1]],
+                                |item| vec![item[0], item[1]],
+                            )
+                            .filter(|(_, (item_left, item_right))| item_left[2] != item_right[2])
+                            .collect_vec();
+                        });
+                    },
+                );
+            }
+
+            execution_time_group.bench_with_input(
+                BenchmarkId::new("Optimized join", &input),
+                &source_file,
+                |b, path| {
+                    noir_bench_default(b, |env| {
+                        let left = env
+                            .stream_csv_optimized(path.to_path_buf())
+                            .with_schema(Schema::same_type(*n_col, NoirTypeRef::Int32));
+                        let right = env
+                            .stream_csv_optimized(path.to_path_buf())
+                            .with_schema(Schema::same_type(*n_col, NoirTypeRef::Int32));
+                        left.join(right, &[col(0), col(1)], &[col(0), col(1)])
+                            .filter(col(2).neq(col(n_col + 2)))
                             .collect_vec();
                     });
                 },
@@ -167,7 +245,7 @@ fn vanilla_vs_optimized_bench(c: &mut Criterion) {
         }
     }
 
-    g2.finish();
+    execution_time_group.finish();
 }
 
 fn random_row(rng: &mut ThreadRng) -> NoirData {
@@ -221,5 +299,10 @@ fn expr_vs_closures(c: &mut Criterion) {
     g.finish();
 }
 
-criterion_group!(benches, vanilla_vs_optimized_bench, expr_vs_closures);
+criterion_group!(
+    benches,
+    vanilla_vs_optimized_build,
+    vanilla_vs_optimized_execution,
+    expr_vs_closures
+);
 criterion_main!(benches);

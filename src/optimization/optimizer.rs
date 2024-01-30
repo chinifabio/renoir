@@ -21,12 +21,10 @@ impl std::fmt::Display for OptimizerError {
 pub(crate) type OptimizerResult = Result<LogicPlan, OptimizerError>;
 
 pub(crate) trait OptimizationRule {
-    fn optimize(&self) -> OptimizerResult;
+    fn optimize(plan: LogicPlan) -> OptimizerResult;
 }
 
-pub(crate) struct LogicPlanOptimizer {
-    plan: LogicPlan,
-}
+pub(crate) struct LogicPlanOptimizer {}
 
 pub struct OptimizationOptions {
     projection_pushdown: bool,
@@ -39,32 +37,30 @@ impl Default for OptimizationOptions {
         Self {
             projection_pushdown: true,
             predicate_pushdown: true,
-            expression_rewrite: true,
+            expression_rewrite: false,
         }
     }
 }
 
 impl LogicPlanOptimizer {
-    pub fn new(plan: LogicPlan) -> Self {
-        Self { plan }
-    }
-
-    pub fn optimize(self) -> Result<LogicPlan, OptimizerError> {
-        self.optmize_with_options(OptimizationOptions::default())
+    pub fn optimize(plan: LogicPlan) -> Result<LogicPlan, OptimizerError> {
+        Self::optmize_with_options(plan, OptimizationOptions::default())
     }
 
     pub fn optmize_with_options(
-        self,
+        mut plan: LogicPlan,
         options: OptimizationOptions,
     ) -> Result<LogicPlan, OptimizerError> {
-        let mut plan = self.plan;
-
         if options.projection_pushdown {
-            plan = ProjectionPushdown::new(&plan).optimize()?;
+            plan = ProjectionPushdown::optimize(plan)?;
         }
 
         if options.predicate_pushdown {
-            plan = PredicatePushdown::new(&plan).optimize()?;
+            plan = PredicatePushdown::optimize(plan)?;
+        }
+
+        if options.expression_rewrite {
+            todo!()
         }
 
         Ok(plan)

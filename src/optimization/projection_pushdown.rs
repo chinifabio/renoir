@@ -1,5 +1,3 @@
-use itertools::Itertools;
-
 use crate::optimization::dsl::expressions::Expr;
 
 use super::{
@@ -7,46 +5,53 @@ use super::{
     optimizer::{OptimizationRule, OptimizerError},
 };
 
-pub(crate) struct ProjectionPushdown<'a> {
-    plan: &'a LogicPlan,
-}
+pub(crate) struct ProjectionPushdown {}
 
-impl<'a> ProjectionPushdown<'a> {
-    pub(crate) fn new(plan: &'a LogicPlan) -> Self {
-        Self { plan }
-    }
-
+impl ProjectionPushdown {
     fn pushdown(
-        plan: &LogicPlan,
-        accumulator: &mut Vec<usize>,
+        plan: LogicPlan,
+        accumulator: &mut Vec<(usize, usize)>,
     ) -> Result<LogicPlan, OptimizerError> {
         match plan {
             LogicPlan::TableScan {
                 path,
                 predicate,
                 projections,
+                schema,
             } => {
-                if projections.is_some() {
-                    Self::accumulate_dependencies(accumulator, projections.clone().unwrap());
+                if let Some(projections) = projections {
+                    Self::accumulate_dependencies(accumulator, projections);
                 }
+                let new_projections = accumulator.iter().map(|(_, x)| *x).collect();
+
+                // compute the mapping: the columns x become the indices i of x in the
+                // accumulator
+                accumulator
+                    .iter_mut()
+                    .enumerate()
+                    .for_each(|(i, (_, x))| *x = i);
+
                 Ok(LogicPlan::TableScan {
                     path: path.to_path_buf(),
-                    predicate: predicate.clone(),
-                    projections: Some(accumulator.clone()),
+                    predicate,
+                    projections: Some(new_projections),
+                    schema,
                 })
             }
             LogicPlan::Select { columns, input } => {
-                let mut new_accumulator = columns
-                    .iter()
-                    .flat_map(|e| e.extract_dependencies())
-                    .unique()
-                    .collect_vec();
+                let mut new_accumulator = Vec::new();
+                for item in &columns {
+                    Self::accumulate_dependencies(
+                        &mut new_accumulator,
+                        item.extract_dependencies(),
+                    );
+                }
 
-                let new_input = Self::pushdown(input, &mut new_accumulator)?;
+                let new_input = Self::pushdown(*input, &mut new_accumulator)?;
                 let new_columns = columns
-                    .iter()
+                    .into_iter()
                     .map(|item| Self::replace_dependencies(item, &new_accumulator))
-                    .collect_vec();
+                    .collect();
 
                 Ok(LogicPlan::Select {
                     columns: new_columns,
@@ -62,7 +67,7 @@ impl<'a> ProjectionPushdown<'a> {
             LogicPlan::Filter { predicate, input } => {
                 Self::accumulate_dependencies(accumulator, predicate.extract_dependencies());
 
-                let new_input = Self::pushdown(input, accumulator)?;
+                let new_input = Self::pushdown(*input, accumulator)?;
                 let new_predicate = Self::replace_dependencies(predicate, accumulator);
 
                 Ok(LogicPlan::Filter {
@@ -71,14 +76,14 @@ impl<'a> ProjectionPushdown<'a> {
                 })
             }
             LogicPlan::Shuffle { input } => {
-                let new_input = Self::pushdown(input, accumulator)?;
+                let new_input = Self::pushdown(*input, accumulator)?;
                 Ok(LogicPlan::Shuffle {
                     input: Box::new(new_input),
                 })
             }
             LogicPlan::GroupBy { key, input } => {
                 Self::accumulate_dependencies(accumulator, key.extract_dependencies());
-                let new_input = Self::pushdown(input, accumulator)?;
+                let new_input = Self::pushdown(*input, accumulator)?;
                 let new_key = Self::replace_dependencies(key, accumulator);
                 Ok(LogicPlan::GroupBy {
                     key: new_key,
@@ -86,58 +91,142 @@ impl<'a> ProjectionPushdown<'a> {
                 })
             }
             LogicPlan::DropKey { input } => {
-                let new_input = Self::pushdown(input, accumulator)?;
+                let new_input = Self::pushdown(*input, accumulator)?;
                 Ok(LogicPlan::DropKey {
                     input: Box::new(new_input),
                 })
             }
             LogicPlan::CollectVec { input } => {
-                let new_input = Self::pushdown(input, accumulator)?;
+                let new_input = Self::pushdown(*input, accumulator)?;
                 Ok(LogicPlan::CollectVec {
                     input: Box::new(new_input),
+                })
+            }
+            LogicPlan::Join {
+                input_left,
+                input_right,
+                left_on,
+                right_on,
+                join_type,
+            } => {
+                // Get the length of the header of the left input
+                let left_header_len = input_left.schema().columns.len();
+
+                // Initialize accumulators for the left and right inputs
+                let mut left_accumulator = Vec::new();
+                let mut right_accumulator = Vec::new();
+
+                // Distribute the indices in the accumulator to the left and right accumulators
+                for (i, _) in accumulator.drain(..) {
+                    if i < left_header_len {
+                        left_accumulator.push((i, i));
+                    } else {
+                        let j = i - left_header_len;
+                        right_accumulator.push((j, j));
+                    }
+                }
+
+                // Extract dependencies from the left and right inputs and accumulate them
+                for item in &left_on {
+                    Self::accumulate_dependencies(
+                        &mut left_accumulator,
+                        item.extract_dependencies(),
+                    );
+                }
+
+                for item in &right_on {
+                    Self::accumulate_dependencies(
+                        &mut right_accumulator,
+                        item.extract_dependencies(),
+                    );
+                }
+
+                // Push down the accumulators to the left and right inputs
+                let new_input_left = Self::pushdown(*input_left, &mut left_accumulator)?;
+                let new_input_right = Self::pushdown(*input_right, &mut right_accumulator)?;
+
+                // Replace dependencies in the left and right inputs
+                let new_left_on = left_on
+                    .into_iter()
+                    .map(|item| Self::replace_dependencies(item, &left_accumulator))
+                    .collect();
+                let new_right_on = right_on
+                    .into_iter()
+                    .map(|item| Self::replace_dependencies(item, &right_accumulator))
+                    .collect();
+
+                // Merge the left and right accumulators back into the main accumulator
+                accumulator.extend(left_accumulator);
+                let accumulator_len = accumulator.len();
+                accumulator.extend(
+                    right_accumulator
+                        .into_iter()
+                        .map(|(a, b)| (a + left_header_len, b + accumulator_len)),
+                );
+
+                // Return a new Join logic plan
+                Ok(LogicPlan::Join {
+                    input_left: Box::new(new_input_left),
+                    input_right: Box::new(new_input_right),
+                    left_on: new_left_on,
+                    right_on: new_right_on,
+                    join_type,
                 })
             }
         }
     }
 
-    fn accumulate_dependencies(accumulator: &mut Vec<usize>, items: Vec<usize>) {
-        accumulator.extend(items);
+    fn accumulate_dependencies(accumulator: &mut Vec<(usize, usize)>, items: Vec<usize>) {
+        accumulator.extend(items.into_iter().map(|x| (x, x)));
         accumulator.sort();
         accumulator.dedup();
     }
 
-    fn replace_dependencies(item: &Expr, new_accumulator: &[usize]) -> Expr {
+    /// Replace the dependencies in an expression with the new indices
+    /// provided by the accumulator
+    ///
+    /// Filter(col(3).eq(col(2))) with accumulator [1, 2, 3] becomes Filter(col(2).eq(col(1)))
+    /// because the accumulator contains the mapping [
+    ///     (2, 1),
+    ///     (3, 2),
+    /// ]
+    fn replace_dependencies(item: Expr, accumulator: &[(usize, usize)]) -> Expr {
         match item {
             Expr::NthColumn(index) => {
-                let new_index = new_accumulator.iter().position(|&x| x == *index).unwrap();
+                let new_index = accumulator
+                    .iter()
+                    .find(|(old_index, _)| *old_index == index)
+                    .unwrap()
+                    .1;
                 Expr::NthColumn(new_index)
             }
-            Expr::Literal(_) => item.clone(),
+            Expr::Literal(_) => item,
             Expr::BinaryExpr { left, op, right } => Expr::BinaryExpr {
-                left: Box::new(Self::replace_dependencies(left, new_accumulator)),
-                op: *op,
-                right: Box::new(Self::replace_dependencies(right, new_accumulator)),
+                left: Box::new(Self::replace_dependencies(*left, accumulator)),
+                op,
+                right: Box::new(Self::replace_dependencies(*right, accumulator)),
             },
             Expr::UnaryExpr { op, expr } => Expr::UnaryExpr {
-                op: *op,
-                expr: Box::new(Self::replace_dependencies(expr, new_accumulator)),
+                op,
+                expr: Box::new(Self::replace_dependencies(*expr, accumulator)),
             },
             Expr::Empty => panic!("Empty expression"),
         }
     }
 }
 
-impl<'a> OptimizationRule for ProjectionPushdown<'a> {
-    fn optimize(&self) -> Result<LogicPlan, OptimizerError> {
-        Self::pushdown(self.plan, &mut vec![])
+impl OptimizationRule for ProjectionPushdown {
+    fn optimize(plan: LogicPlan) -> Result<LogicPlan, OptimizerError> {
+        Self::pushdown(plan, &mut vec![])
     }
 }
 
 #[cfg(test)]
 pub mod test {
 
+    use crate::data_type::{NoirTypeRef, Schema};
     use crate::optimization::dsl::expressions::*;
-    use crate::optimization::logical_plan::LogicPlan;
+    use crate::optimization::logical_plan::{JoinType, LogicPlan};
     use crate::optimization::optimizer::OptimizationRule;
     use crate::optimization::projection_pushdown::ProjectionPushdown;
 
@@ -146,14 +235,15 @@ pub mod test {
             path: "test.csv".into(),
             predicate: None,
             projections: None,
+            schema: Some(Schema::same_type(10, NoirTypeRef::Int32)),
         }
     }
 
     #[test]
     fn simple_pushdown() {
-        let target = create_scan().select(&[col(0), col(1)]).collect_vec();
+        let target = create_scan().select(&[col(2), col(3)]).collect_vec();
 
-        let optimized = ProjectionPushdown::new(&target).optimize().unwrap();
+        let optimized = ProjectionPushdown::optimize(target).unwrap();
 
         let expected = LogicPlan::CollectVec {
             input: Box::new(LogicPlan::Select {
@@ -161,7 +251,8 @@ pub mod test {
                 input: Box::new(LogicPlan::TableScan {
                     path: "test.csv".into(),
                     predicate: None,
-                    projections: Some(vec![0, 1]),
+                    projections: Some(vec![2, 3]),
+                    schema: Some(Schema::same_type(10, NoirTypeRef::Int32)),
                 }),
             }),
         };
@@ -176,7 +267,7 @@ pub mod test {
             .select(&[col(0), col(1)])
             .collect_vec();
 
-        let optimized = ProjectionPushdown::new(&target).optimize().unwrap();
+        let optimized = ProjectionPushdown::optimize(target).unwrap();
 
         let expected = LogicPlan::CollectVec {
             input: Box::new(LogicPlan::Select {
@@ -187,7 +278,152 @@ pub mod test {
                         path: "test.csv".into(),
                         predicate: None,
                         projections: Some(vec![0, 1, 3]),
+                        schema: Some(Schema::same_type(10, NoirTypeRef::Int32)),
                     }),
+                }),
+            }),
+        };
+
+        assert_eq!(expected, optimized);
+    }
+
+    #[test]
+    fn multiple_accumulator() {
+        let target = create_scan() // -> [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+            .filter(col(4).eq(i(0)))
+            .select(&[col(1), col(2), col(3)]) // -> [0, 1, 2, 3]
+            .filter(col(3).eq(i(0)))
+            .select(&[col(1), col(2)]) // -> [0, 1]
+            .collect_vec();
+
+        let optimized = ProjectionPushdown::optimize(target).unwrap();
+
+        let expected = LogicPlan::CollectVec {
+            input: Box::new(LogicPlan::Select {
+                columns: vec![col(1), col(2)],
+                input: Box::new(LogicPlan::Filter {
+                    predicate: col(3).eq(i(0)),
+                    input: Box::new(LogicPlan::Select {
+                        columns: vec![col(0), col(1), col(2)],
+                        input: Box::new(LogicPlan::Filter {
+                            predicate: col(3).eq(i(0)),
+                            input: Box::new(LogicPlan::TableScan {
+                                path: "test.csv".into(),
+                                predicate: None,
+                                projections: Some(vec![1, 2, 3, 4]),
+                                schema: Some(Schema::same_type(10, NoirTypeRef::Int32)),
+                            }),
+                        }),
+                    }),
+                }),
+            }),
+        };
+
+        assert_eq!(expected, optimized);
+    }
+
+    #[test]
+    fn double_select() {
+        let target = create_scan()
+            .select(&[col(3), col(4), col(5)])
+            .select(&[col(1), col(2)])
+            .collect_vec();
+
+        let optimized = ProjectionPushdown::optimize(target).unwrap();
+
+        let expected = LogicPlan::CollectVec {
+            input: Box::new(LogicPlan::Select {
+                columns: vec![col(1), col(2)],
+                input: Box::new(LogicPlan::Select {
+                    columns: vec![col(0), col(1), col(2)],
+                    input: Box::new(LogicPlan::TableScan {
+                        path: "test.csv".into(),
+                        predicate: None,
+                        projections: Some(vec![3, 4, 5]),
+                        schema: Some(Schema::same_type(10, NoirTypeRef::Int32)),
+                    }),
+                }),
+            }),
+        };
+
+        assert_eq!(expected, optimized);
+    }
+
+    #[test]
+    fn pushdow_join() {
+        let a = create_scan();
+        let b = create_scan().select([col(8), col(9)]);
+        let target = a
+            .join(
+                b,
+                [col(0).modulo(i(7))],
+                [col(0).modulo(i(11))],
+                JoinType::Inner,
+            )
+            .filter(col(0).eq(col(5)))
+            .collect_vec();
+
+        let optimized = ProjectionPushdown::optimize(target).unwrap();
+
+        let expected = LogicPlan::CollectVec {
+            input: Box::new(LogicPlan::Filter {
+                predicate: col(0).eq(col(1)),
+                input: Box::new(LogicPlan::Join {
+                    input_left: Box::new(LogicPlan::TableScan {
+                        path: "test.csv".into(),
+                        predicate: None,
+                        projections: Some(vec![0, 5]),
+                        schema: Some(Schema::same_type(10, NoirTypeRef::Int32)),
+                    }),
+                    input_right: Box::new(LogicPlan::Select {
+                        columns: vec![col(0), col(1)],
+                        input: Box::new(LogicPlan::TableScan {
+                            path: "test.csv".into(),
+                            predicate: None,
+                            projections: Some(vec![8, 9]),
+                            schema: Some(Schema::same_type(10, NoirTypeRef::Int32)),
+                        }),
+                    }),
+                    left_on: vec![col(0).modulo(i(7))],
+                    right_on: vec![col(0).modulo(i(11))],
+                    join_type: JoinType::Inner,
+                }),
+            }),
+        };
+
+        assert_eq!(expected, optimized);
+    }
+
+    #[test]
+    fn another_join() {
+        let a = create_scan();
+        let b = create_scan();
+        let target = a
+            .join(b, [col(0), col(1)], [col(0), col(1)], JoinType::Inner)
+            .filter(col(2).eq(col(12)))
+            .collect_vec();
+
+        let optimized = ProjectionPushdown::optimize(target).unwrap();
+
+        let expected = LogicPlan::CollectVec {
+            input: Box::new(LogicPlan::Filter {
+                predicate: col(2).eq(col(5)),
+                input: Box::new(LogicPlan::Join {
+                    input_left: Box::new(LogicPlan::TableScan {
+                        path: "test.csv".into(),
+                        predicate: None,
+                        projections: Some(vec![0, 1, 2]),
+                        schema: Some(Schema::same_type(10, NoirTypeRef::Int32)),
+                    }),
+                    input_right: Box::new(LogicPlan::TableScan {
+                        path: "test.csv".into(),
+                        predicate: None,
+                        projections: Some(vec![0, 1, 2]),
+                        schema: Some(Schema::same_type(10, NoirTypeRef::Int32)),
+                    }),
+                    left_on: vec![col(0), col(1)],
+                    right_on: vec![col(0), col(1)],
+                    join_type: JoinType::Inner,
                 }),
             }),
         };

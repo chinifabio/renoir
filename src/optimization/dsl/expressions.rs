@@ -1,7 +1,7 @@
 use core::panic;
 use std::fmt::{Debug, Display};
 
-use crate::data_type::{NoirData, NoirType};
+use crate::{data_type::NoirType, optimization::physical_plan::CsvRow};
 
 #[derive(Clone, PartialEq, Eq, Debug, Copy, Hash)]
 pub enum ExprOp {
@@ -155,16 +155,16 @@ impl Expr {
                 Expr::UnaryExpr { op: _, expr } => {
                     stack.push(expr);
                 }
-                Expr::Empty => (),
+                Expr::Empty => panic!("Empty expression"),
             }
         }
         dependencies
     }
 
-    pub fn evaluate(&self, item: &NoirData) -> NoirType {
+    pub fn evaluate<K, V>(&self, item: &impl CsvRow<Key = K, Value = V>) -> NoirType {
         match self {
             Expr::Literal(value) => *value,
-            Expr::NthColumn(n) => item[*n],
+            Expr::NthColumn(n) => item.get(*n),
             Expr::BinaryExpr { left, op, right } => {
                 let left = left.evaluate(item);
                 let right = right.evaluate(item);
@@ -235,4 +235,52 @@ pub fn f(value: f32) -> Expr {
 
 pub fn b(value: bool) -> Expr {
     Expr::Literal(NoirType::Bool(value))
+}
+
+#[cfg(test)]
+pub mod test {
+    use std::vec;
+
+    use crate::data_type::{NoirData, NoirType};
+
+    use super::*;
+
+    #[test]
+    fn test_expr() {
+        let data = NoirData::Row(vec![
+            NoirType::Int32(1),
+            NoirType::Int32(2),
+            NoirType::Int32(3),
+        ]);
+
+        let expr = col(0) + i(1);
+        assert_eq!(expr.evaluate(&data), NoirType::Int32(2));
+
+        let expr = col(0) - i(1);
+        assert_eq!(expr.evaluate(&data), NoirType::Int32(0));
+
+        let expr = col(0) * i(2);
+        assert_eq!(expr.evaluate(&data), NoirType::Int32(2));
+
+        let expr = col(0) / i(2);
+        assert_eq!(expr.evaluate(&data), NoirType::Int32(0));
+
+        let expr = col(0) % i(2);
+        assert_eq!(expr.evaluate(&data), NoirType::Int32(1));
+
+        let expr = col(0) ^ i(2);
+        assert_eq!(expr.evaluate(&data), NoirType::Int32(3));
+
+        let expr = col(0).eq(i(1));
+        assert_eq!(expr.evaluate(&data), NoirType::Bool(true));
+
+        let expr = col(0).neq(i(1));
+        assert_eq!(expr.evaluate(&data), NoirType::Bool(false));
+
+        let expr = col(0).eq(i(0));
+        assert_eq!(expr.evaluate(&data), NoirType::Bool(false));
+
+        let expr = col(0).neq(i(0));
+        assert_eq!(expr.evaluate(&data), NoirType::Bool(true));
+    }
 }

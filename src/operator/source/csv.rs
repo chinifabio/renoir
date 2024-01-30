@@ -9,7 +9,7 @@ use csv::{ByteRecord, Reader, ReaderBuilder, Terminator, Trim};
 use serde::Deserialize;
 
 use crate::block::{BlockStructure, OperatorKind, OperatorStructure, Replication};
-use crate::data_type::{NoirData, NoirDataCsv};
+use crate::data_type::{NoirData, NoirDataCsv, Schema};
 use crate::operator::source::Source;
 use crate::operator::{Data, Operator, StreamElement};
 use crate::optimization::dsl::expressions::Expr;
@@ -45,7 +45,7 @@ impl<R: Read> Read for LimitedReader<R> {
 
 /// Options for the CSV parser.
 #[derive(Clone)]
-pub(super) struct CsvOptions {
+pub struct CsvOptions {
     /// Byte used to mark a line as a comment.
     pub(super) comment: Option<u8>,
     /// Field delimiter.
@@ -70,6 +70,8 @@ pub(super) struct CsvOptions {
     pub(super) filter_at_source: Option<Expr>,
     /// Expressions representing projections on the source
     pub(super) projections_at_source: Option<Vec<usize>>,
+    /// The schema of the source
+    pub(super) schema: Option<Schema>,
 }
 
 impl Default for CsvOptions {
@@ -87,6 +89,7 @@ impl Default for CsvOptions {
             has_headers: true,
             filter_at_source: None,
             projections_at_source: None,
+            schema: None,
         }
     }
 }

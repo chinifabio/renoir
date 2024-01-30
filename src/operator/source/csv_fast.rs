@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use csv::{Reader, ReaderBuilder, Terminator, Trim};
 
 use crate::block::{BlockStructure, OperatorKind, OperatorStructure, Replication};
-use crate::data_type::{NoirData, NoirType};
+use crate::data_type::{NoirData, NoirType, NoirTypeRef, Schema};
 use crate::operator::source::Source;
 use crate::operator::{Operator, StreamElement};
 use crate::optimization::dsl::expressions::Expr;
@@ -205,6 +205,11 @@ impl RowCsvSource {
         self.options.projections_at_source = projections;
         self
     }
+
+    pub(crate) fn with_schema(mut self, schema: Option<Schema>) -> Self {
+        self.options.schema = schema;
+        self
+    }
 }
 
 impl Source for RowCsvSource {
@@ -216,6 +221,7 @@ impl Source for RowCsvSource {
 impl Operator for RowCsvSource {
     type Out = NoirData;
     fn setup(&mut self, metadata: &mut ExecutionMetadata) {
+        info!("CsvSource: setup from {}", metadata.global_id);
         let global_id = metadata.global_id;
         let instances = metadata.replicas.len();
 
@@ -332,51 +338,10 @@ impl Operator for RowCsvSource {
                 .expect("CsvSource was not initialized");
 
             let data = match csv_reader.read_record(&mut self.record) {
-                Ok(true) => {
-                    if self.record.len() == 1 {
-                        let field = self.record.get(0).unwrap();
-                        if field.is_empty() {
-                            Some(NoirData::NoirType(NoirType::None()))
-                        } else if let Ok(int_value) = field.parse::<i32>() {
-                            Some(NoirData::NoirType(NoirType::Int32(int_value)))
-                        } else if let Ok(float_value) = field.parse::<f32>() {
-                            Some(NoirData::NoirType(NoirType::Float32(float_value)))
-                        } else {
-                            Some(NoirData::NoirType(NoirType::None()))
-                        }
-                    } else {
-                        let mut data: Vec<NoirType> = Vec::with_capacity(self.record.len());
-
-                        if let Some(projections) = &self.options.projections_at_source {
-                            for index in projections {
-                                let field = self.record.get(*index).unwrap();
-                                if field.is_empty() {
-                                    data.push(NoirType::None());
-                                } else if let Ok(int_value) = field.parse::<i32>() {
-                                    data.push(NoirType::Int32(int_value));
-                                } else if let Ok(float_value) = field.parse::<f32>() {
-                                    data.push(NoirType::Float32(float_value));
-                                } else {
-                                    data.push(NoirType::None());
-                                }
-                            }
-                        } else {
-                            for field in self.record.iter() {
-                                if field.is_empty() {
-                                    data.push(NoirType::None());
-                                } else if let Ok(int_value) = field.parse::<i32>() {
-                                    data.push(NoirType::Int32(int_value));
-                                } else if let Ok(float_value) = field.parse::<f32>() {
-                                    data.push(NoirType::Float32(float_value));
-                                } else {
-                                    data.push(NoirType::None());
-                                }
-                            }
-                        }
-
-                        Some(NoirData::Row(data))
-                    }
-                }
+                Ok(true) => match &self.options.schema {
+                    Some(schema) => self.handle_record_with_schema(schema),
+                    None => self.handle_record_without_schema(),
+                },
                 Ok(false) => {
                     self.terminated = true;
                     None
@@ -399,6 +364,142 @@ impl Operator for RowCsvSource {
         let mut operator = OperatorStructure::new::<NoirData, _>("RowCsvSource");
         operator.kind = OperatorKind::Source;
         BlockStructure::default().add_operator(operator)
+    }
+}
+
+impl RowCsvSource {
+    fn handle_record_without_schema(&self) -> Option<NoirData> {
+        if self.record.len() == 1 {
+            let field = self.record.get(0).unwrap();
+            if field.is_empty() {
+                return Some(NoirData::NoirType(NoirType::None()));
+            } else if let Ok(int_value) = field.parse::<i32>() {
+                return Some(NoirData::NoirType(NoirType::Int32(int_value)));
+            } else if let Ok(float_value) = field.parse::<f32>() {
+                return Some(NoirData::NoirType(NoirType::Float32(float_value)));
+            } else {
+                return Some(NoirData::NoirType(NoirType::None()));
+            }
+        }
+
+        if let Some(projections) = &self.options.projections_at_source {
+            let mut data: Vec<NoirType> = Vec::with_capacity(self.record.len() - projections.len());
+            for index in projections {
+                let field = self.record.get(*index).unwrap();
+                if field.is_empty() {
+                    data.push(NoirType::None());
+                } else if let Ok(int_value) = field.parse::<i32>() {
+                    data.push(NoirType::Int32(int_value));
+                } else if let Ok(float_value) = field.parse::<f32>() {
+                    data.push(NoirType::Float32(float_value));
+                } else {
+                    data.push(NoirType::None());
+                }
+            }
+            return Some(NoirData::Row(data));
+        }
+
+        let mut data: Vec<NoirType> = Vec::with_capacity(self.record.len());
+        for field in self.record.iter() {
+            if field.is_empty() {
+                data.push(NoirType::None());
+            } else if let Ok(int_value) = field.parse::<i32>() {
+                data.push(NoirType::Int32(int_value));
+            } else if let Ok(float_value) = field.parse::<f32>() {
+                data.push(NoirType::Float32(float_value));
+            } else {
+                data.push(NoirType::None());
+            }
+        }
+        Some(NoirData::Row(data))
+    }
+
+    fn handle_record_with_schema(&self, schema: &Schema) -> Option<NoirData> {
+        if self.record.len() != schema.columns.len() {
+            panic!(
+                "CsvSource: record length ({}) does not match schema length ({})",
+                self.record.len(),
+                schema.columns.len()
+            );
+        }
+
+        if self.record.len() == 1 {
+            let field = self.record.get(0).unwrap();
+            if field.is_empty() {
+                return Some(NoirData::NoirType(NoirType::None()));
+            }
+            match schema.columns[0] {
+                NoirTypeRef::Int32 => {
+                    return field
+                        .parse::<i32>()
+                        .map(|v| NoirData::NoirType(NoirType::Int32(v)))
+                        .ok()
+                }
+                NoirTypeRef::Float32 => {
+                    return field
+                        .parse::<f32>()
+                        .map(|v| NoirData::NoirType(NoirType::Float32(v)))
+                        .ok()
+                }
+                _ => return Some(NoirData::NoirType(NoirType::None())),
+            }
+        }
+
+        if let Some(projections) = &self.options.projections_at_source {
+            let mut data = Vec::with_capacity(self.record.len() - schema.columns.len());
+            for index in projections {
+                match schema.columns[*index] {
+                    NoirTypeRef::Int32 => {
+                        let f = self.record.get(*index).unwrap();
+                        if f.is_empty() {
+                            data.push(NoirType::None());
+                        } else if let Ok(int_value) = f.parse::<i32>() {
+                            data.push(NoirType::Int32(int_value));
+                        } else {
+                            data.push(NoirType::None());
+                        }
+                    }
+                    NoirTypeRef::Float32 => {
+                        let f = self.record.get(*index).unwrap();
+                        if f.is_empty() {
+                            data.push(NoirType::None());
+                        } else if let Ok(float_value) = f.parse::<f32>() {
+                            data.push(NoirType::Float32(float_value));
+                        } else {
+                            data.push(NoirType::None());
+                        }
+                    }
+                    _ => return Some(NoirData::NoirType(NoirType::None())),
+                }
+            }
+            return Some(NoirData::Row(data));
+        }
+
+        let mut data: Vec<NoirType> = Vec::with_capacity(self.record.len());
+        for (field, column) in self.record.iter().zip(schema.columns.iter()) {
+            match column {
+                NoirTypeRef::Int32 => {
+                    if field.is_empty() {
+                        data.push(NoirType::None());
+                    } else if let Ok(int_value) = field.parse::<i32>() {
+                        data.push(NoirType::Int32(int_value));
+                    } else {
+                        data.push(NoirType::None());
+                    }
+                }
+                NoirTypeRef::Float32 => {
+                    if field.is_empty() {
+                        data.push(NoirType::None());
+                    } else if let Ok(float_value) = field.parse::<f32>() {
+                        data.push(NoirType::Float32(float_value));
+                    } else {
+                        data.push(NoirType::None());
+                    }
+                }
+                _ => return Some(NoirData::NoirType(NoirType::None())),
+            }
+        }
+        Some(NoirData::Row(data))
     }
 }
 

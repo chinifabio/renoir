@@ -1,16 +1,19 @@
+use core::panic;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::path::PathBuf;
-use std::sync::Arc;
 
-use parking_lot::Mutex;
-
-use crate::environment::StreamEnvironmentInner;
-use crate::operator::source::RowCsvSource;
+use crate::data_type::Schema;
 
 use super::dsl::expressions::*;
 use super::optimizer::*;
-use super::stream_wrapper::StreamType;
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum JoinType {
+    Inner,
+    Left,
+    Outer,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum LogicPlan {
@@ -18,6 +21,7 @@ pub enum LogicPlan {
         path: PathBuf,
         predicate: Option<Expr>,
         projections: Option<Vec<usize>>,
+        schema: Option<Schema>,
     },
     Filter {
         predicate: Expr,
@@ -44,6 +48,23 @@ pub enum LogicPlan {
         input: Box<LogicPlan>,
         columns: Vec<usize>,
     },
+    Join {
+        input_left: Box<LogicPlan>,
+        input_right: Box<LogicPlan>,
+        left_on: Vec<Expr>,
+        right_on: Vec<Expr>,
+        join_type: JoinType,
+    },
+}
+
+impl Display for JoinType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            JoinType::Inner => write!(f, "Inner"),
+            JoinType::Left => write!(f, "Left"),
+            JoinType::Outer => write!(f, "Full"),
+        }
+    }
 }
 
 impl Display for LogicPlan {
@@ -53,6 +74,7 @@ impl Display for LogicPlan {
                 path,
                 predicate,
                 projections,
+                ..
             } => {
                 write!(
                     f,
@@ -83,17 +105,27 @@ impl Display for LogicPlan {
             LogicPlan::DropColumns { input, columns } => {
                 write!(f, "{} -> DropColumns({:?})", input, columns)
             }
+            LogicPlan::Join {
+                input_left,
+                input_right,
+                left_on,
+                right_on,
+                join_type,
+            } => {
+                write!(
+                    f,
+                    "{}\n{}\n\t-> {}Join({:?}, {:?})",
+                    input_left, input_right, join_type, left_on, right_on
+                )
+            }
         }
     }
 }
 
 impl LogicPlan {
     pub(crate) fn optimize(self) -> LogicPlan {
-        match LogicPlanOptimizer::new(self).optimize() {
-            Ok(plan) => {
-                // println!("Optimized plan: {}", plan);
-                plan
-            }
+        match LogicPlanOptimizer::optimize(self) {
+            Ok(plan) => plan,
             Err(err) => panic!("Error during optimization -> {}", err),
         }
     }
@@ -124,9 +156,9 @@ impl LogicPlan {
         }
     }
 
-    pub(crate) fn select(self, columns: &[Expr]) -> LogicPlan {
+    pub(crate) fn select<E: AsRef<[Expr]>>(self, columns: E) -> LogicPlan {
         LogicPlan::Select {
-            columns: columns.to_vec(),
+            columns: columns.as_ref().to_vec(),
             input: Box::new(self),
         }
     }
@@ -137,37 +169,64 @@ impl LogicPlan {
         }
     }
 
-    pub(crate) fn drop(&self, cols: Vec<usize>) -> LogicPlan {
+    pub(crate) fn drop(self, cols: Vec<usize>) -> LogicPlan {
         LogicPlan::DropColumns {
-            input: Box::new(self.clone()),
+            input: Box::new(self),
             columns: cols,
         }
     }
 
-    pub(crate) fn to_stream(&self, env: Arc<Mutex<StreamEnvironmentInner>>) -> StreamType {
+    pub(crate) fn join<E: AsRef<[Expr]>>(
+        self,
+        other: LogicPlan,
+        left_on: E,
+        right_on: E,
+        join_type: JoinType,
+    ) -> LogicPlan {
+        LogicPlan::Join {
+            input_left: Box::new(self),
+            input_right: Box::new(other),
+            left_on: left_on.as_ref().to_vec(),
+            right_on: right_on.as_ref().to_vec(),
+            join_type,
+        }
+    }
+
+    fn extract_header_final(schema: &Option<Schema>, projections: &Option<Vec<usize>>) -> Schema {
+        match (schema, projections) {
+            (Some(schema), Some(projections)) => Schema {
+                columns: projections
+                    .clone()
+                    .into_iter()
+                    .map(|i| schema.columns[i])
+                    .collect(),
+            },
+            (Some(schema), None) => schema.clone(),
+            _ => panic!(
+                "Schema not found. You should set the schema as first operation after the source."
+            ),
+        }
+    }
+
+    pub(crate) fn schema(&self) -> Schema {
         match self {
             LogicPlan::TableScan {
-                path,
-                predicate,
+                schema,
                 projections,
-            } => {
-                let source = RowCsvSource::new(path)
-                    .filter_at_source(predicate.clone())
-                    .project_at_source(projections.clone());
-                let stream = StreamEnvironmentInner::stream(env, source).into_box();
-                StreamType::Stream(stream)
-            }
-            LogicPlan::Filter { predicate, input } => {
-                input.to_stream(env).filter_expr(predicate.clone())
-            }
-            LogicPlan::Select { columns, input } => input.to_stream(env).select(columns.clone()),
-            LogicPlan::Shuffle { input } => input.to_stream(env).shuffle(),
-            LogicPlan::GroupBy { key, input } => input.to_stream(env).group_by_expr(key.clone()),
-            LogicPlan::DropKey { input } => input.to_stream(env).drop_key(),
-            LogicPlan::CollectVec { input } => input.to_stream(env).collect_vec(),
-            LogicPlan::DropColumns { input, columns } => {
-                input.to_stream(env).drop_columns(columns.clone())
-            }
+                ..
+            } => Self::extract_header_final(schema, projections),
+            LogicPlan::Filter { input, .. } => input.schema(),
+            LogicPlan::Select { input, .. } => input.schema(),
+            LogicPlan::Shuffle { input } => input.schema(),
+            LogicPlan::GroupBy { input, .. } => input.schema(),
+            LogicPlan::DropKey { input } => input.schema(),
+            LogicPlan::CollectVec { input } => input.schema(),
+            LogicPlan::DropColumns { input, .. } => input.schema(),
+            LogicPlan::Join {
+                input_left,
+                input_right,
+                ..
+            } => input_left.schema().merge(input_right.schema()),
         }
     }
 }
