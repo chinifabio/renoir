@@ -19,9 +19,7 @@ use crate::{
 
 use super::logical_plan::{JoinType, LogicPlan};
 
-// creare i vary type per CsvRow e poi aggiungere sopra il derive serialize e poi seguire https://github.com/dtolnay/typetag
 pub trait CsvRow: KeyedItem + ExchangeData + Debug {
-    // TODO: change this to return option
     fn get(&self, index: usize) -> NoirType;
 }
 
@@ -55,46 +53,43 @@ impl CsvRow for (NoirType, NoirData) {
     }
 }
 
-impl CsvRow for (NoirData, (NoirData, NoirData)) {
-    fn get(&self, index: usize) -> NoirType {
-        let left_len = self.1 .0.len();
-        if index < left_len {
-            self.1 .0[index]
-        } else {
-            self.1 .1[index - left_len]
-        }
-    }
-}
+// impl CsvRow for (NoirData, (NoirData, NoirData)) {
+//     fn get(&self, index: usize) -> NoirType {
+//         let left_len = self.1 .0.len();
+//         if index < left_len {
+//             self.1 .0[index]
+//         } else {
+//             self.1 .1[index - left_len]
+//         }
+//     }
+// }
 
-impl CsvRow for (NoirData, (NoirData, Option<NoirData>)) {
-    fn get(&self, index: usize) -> NoirType {
-        let left_len = self.1 .0.len();
-        if index < left_len {
-            self.1 .0[index]
-        } else {
-            self.1 .1.as_ref().unwrap()[index - left_len]
-        }
-    }
-}
+// impl CsvRow for (NoirData, (NoirData, Option<NoirData>)) {
+//     fn get(&self, index: usize) -> NoirType {
+//         let left_len = self.1 .0.len();
+//         if index < left_len {
+//             self.1 .0[index]
+//         } else {
+//             self.1 .1.as_ref().unwrap()[index - left_len]
+//         }
+//     }
+// }
 
-impl CsvRow for (NoirData, (Option<NoirData>, Option<NoirData>)) {
-    fn get(&self, index: usize) -> NoirType {
-        let left_len = self.1 .0.as_ref().unwrap().len();
-        if index < left_len {
-            self.1 .0.as_ref().unwrap()[index]
-        } else {
-            self.1 .1.as_ref().unwrap()[index - left_len]
-        }
-    }
-}
+// impl CsvRow for (NoirData, (Option<NoirData>, Option<NoirData>)) {
+//     fn get(&self, index: usize) -> NoirType {
+//         let left_len = self.1 .0.as_ref().unwrap().len();
+//         if index < left_len {
+//             self.1 .0.as_ref().unwrap()[index]
+//         } else {
+//             self.1 .1.as_ref().unwrap()[index - left_len]
+//         }
+//     }
+// }
 
 #[allow(clippy::type_complexity)]
 pub(crate) enum StreamType {
     Stream(Stream<BoxedOperator<NoirData>>),
     KeyedStream(KeyedStream<BoxedOperator<(NoirType, NoirData)>>),
-    InnerJoinStream(KeyedStream<BoxedOperator<(NoirData, (NoirData, NoirData))>>),
-    LeftJoinStream(KeyedStream<BoxedOperator<(NoirData, (NoirData, Option<NoirData>))>>),
-    OuterJoinStream(KeyedStream<BoxedOperator<(NoirData, (Option<NoirData>, Option<NoirData>))>>),
     StreamOutput(StreamOutput<Vec<NoirData>>),
 }
 
@@ -103,9 +98,6 @@ impl Display for StreamType {
         match self {
             StreamType::Stream(_) => write!(f, "Stream"),
             StreamType::KeyedStream(_) => write!(f, "KeyedStream"),
-            StreamType::InnerJoinStream(_) => write!(f, "InnerJoinStream"),
-            StreamType::LeftJoinStream(_) => write!(f, "LeftJoinStream"),
-            StreamType::OuterJoinStream(_) => write!(f, "OuterJoinStream"),
             StreamType::StreamOutput(_) => write!(f, "StreamOutput"),
         }
     }
@@ -134,10 +126,7 @@ pub(crate) fn to_stream(
         LogicPlan::Shuffle { input } => to_stream(*input, env).shuffle(),
         LogicPlan::GroupBy { key, input } => to_stream(*input, env).group_by_expr(key),
         LogicPlan::DropKey { input } => to_stream(*input, env).drop_key(),
-        LogicPlan::CollectVec { input } => {
-            let schema = input.schema();
-            to_stream(*input, env).collect_vec(schema)
-        }
+        LogicPlan::CollectVec { input } => to_stream(*input, env).collect_vec(),
         LogicPlan::DropColumns { input, columns } => to_stream(*input, env).drop_columns(columns),
         LogicPlan::Join {
             input_left,
@@ -151,12 +140,14 @@ pub(crate) fn to_stream(
                 to_stream(*input_left, env).inner_join(rhs, left_on, right_on)
             }
             JoinType::Left => {
+                let schema = input_left.schema().merge(input_right.schema());
                 let rhs = to_stream(*input_right, env.clone());
-                to_stream(*input_left, env).left_join(rhs, left_on, right_on)
+                to_stream(*input_left, env).left_join(rhs, left_on, right_on, schema)
             }
             JoinType::Outer => {
+                let schema = input_left.schema().merge(input_right.schema());
                 let rhs = to_stream(*input_right, env.clone());
-                to_stream(*input_left, env).outer_join(rhs, left_on, right_on)
+                to_stream(*input_left, env).outer_join(rhs, left_on, right_on, schema)
             }
         },
     }
@@ -171,15 +162,6 @@ impl StreamType {
             StreamType::KeyedStream(stream) => {
                 StreamType::KeyedStream(stream.filter_expr(predicate).into_box())
             }
-            StreamType::InnerJoinStream(stream) => {
-                StreamType::InnerJoinStream(stream.filter_expr(predicate).into_box())
-            }
-            StreamType::LeftJoinStream(stream) => {
-                StreamType::LeftJoinStream(stream.filter_expr(predicate).into_box())
-            }
-            StreamType::OuterJoinStream(stream) => {
-                StreamType::OuterJoinStream(stream.filter_expr(predicate).into_box())
-            }
             _ => panic!("Cannot filter on a {}", self),
         }
     }
@@ -189,15 +171,6 @@ impl StreamType {
             StreamType::Stream(stream) => StreamType::Stream(stream.shuffle().into_box()),
             StreamType::KeyedStream(stream) => {
                 StreamType::KeyedStream(stream.shuffle().to_keyed().into_box())
-            }
-            StreamType::InnerJoinStream(stream) => {
-                StreamType::InnerJoinStream(stream.shuffle().to_keyed().into_box())
-            }
-            StreamType::LeftJoinStream(stream) => {
-                StreamType::LeftJoinStream(stream.shuffle().to_keyed().into_box())
-            }
-            StreamType::OuterJoinStream(stream) => {
-                StreamType::OuterJoinStream(stream.shuffle().to_keyed().into_box())
             }
             _ => panic!("Cannot shuffle on a {}", self),
         }
@@ -215,9 +188,6 @@ impl StreamType {
     pub(crate) fn drop_key(self) -> Self {
         match self {
             StreamType::KeyedStream(stream) => StreamType::Stream(stream.drop_key().into_box()),
-            StreamType::InnerJoinStream(_) => todo!(),
-            StreamType::LeftJoinStream(_) => todo!(),
-            StreamType::OuterJoinStream(_) => todo!(),
             _ => panic!("Cannot drop key on a {}", self),
         }
     }
@@ -252,9 +222,6 @@ impl StreamType {
                 });
                 StreamType::KeyedStream(stream.into_box())
             }
-            StreamType::InnerJoinStream(_) => todo!(),
-            StreamType::LeftJoinStream(_) => todo!(),
-            StreamType::OuterJoinStream(_) => todo!(),
             _ => panic!("Cannot select on a {}", self),
         }
     }
@@ -263,39 +230,15 @@ impl StreamType {
         match self {
             StreamType::Stream(stream) => StreamType::Stream(stream.drop_columns(clone).into_box()),
             StreamType::KeyedStream(_) => todo!(),
-            StreamType::InnerJoinStream(_) => todo!(),
-            StreamType::LeftJoinStream(_) => todo!(),
-            StreamType::OuterJoinStream(_) => todo!(),
             _ => panic!("Cannot drop columns on a {}", self),
         }
     }
 
-    pub(crate) fn collect_vec(self, schema: Schema) -> Self {
+    pub(crate) fn collect_vec(self) -> Self {
         match self {
             StreamType::Stream(stream) => StreamType::StreamOutput(stream.collect_vec()),
             StreamType::KeyedStream(stream) => {
                 StreamType::StreamOutput(stream.drop_key().collect_vec())
-            }
-            StreamType::InnerJoinStream(stream) => {
-                StreamType::StreamOutput(stream.unkey().map(unwrap_inner_join).collect_vec())
-            }
-            StreamType::LeftJoinStream(stream) => {
-                let item_len = schema.columns.len();
-                StreamType::StreamOutput(
-                    stream
-                        .unkey()
-                        .map(move |item| unwrap_left_join(item, item_len))
-                        .collect_vec(),
-                )
-            }
-            StreamType::OuterJoinStream(stream) => {
-                let item_len = schema.columns.len();
-                StreamType::StreamOutput(
-                    stream
-                        .unkey()
-                        .map(move |item| unwrap_outer_join(item, item_len))
-                        .collect_vec(),
-                )
             }
             _ => panic!("Cannot collect vec on a {}", self),
         }
@@ -322,40 +265,60 @@ impl StreamType {
                         move |item| Self::keyer(item, &left_on),
                         move |item| Self::keyer(item, &right_on),
                     )
+                    .unkey()
+                    .map(unwrap_inner_join)
                     .into_box();
-                StreamType::InnerJoinStream(stream)
+                StreamType::Stream(stream)
             }
             (lhs, rhs) => panic!("Cannot join {} with {}", lhs, rhs),
         }
     }
 
-    pub(crate) fn left_join(self, rhs: Self, left_on: Vec<Expr>, right_on: Vec<Expr>) -> Self {
+    pub(crate) fn left_join(
+        self,
+        rhs: Self,
+        left_on: Vec<Expr>,
+        right_on: Vec<Expr>,
+        schema: Schema,
+    ) -> Self {
         match (self, rhs) {
             (StreamType::Stream(lhs), StreamType::Stream(rhs)) => {
+                let item_len = schema.columns.len();
                 let stream = lhs
                     .left_join(
                         rhs,
                         move |item| Self::keyer(item, &left_on),
                         move |item| Self::keyer(item, &right_on),
                     )
+                    .unkey()
+                    .map(move |item| unwrap_left_join(item, item_len))
                     .into_box();
-                StreamType::LeftJoinStream(stream)
+                StreamType::Stream(stream)
             }
             (lhs, rhs) => panic!("Cannot join {} with {}", lhs, rhs),
         }
     }
 
-    pub(crate) fn outer_join(self, rhs: Self, left_on: Vec<Expr>, right_on: Vec<Expr>) -> Self {
+    pub(crate) fn outer_join(
+        self,
+        rhs: Self,
+        left_on: Vec<Expr>,
+        right_on: Vec<Expr>,
+        schema: Schema,
+    ) -> Self {
         match (self, rhs) {
             (StreamType::Stream(lhs), StreamType::Stream(rhs)) => {
+                let item_len = schema.columns.len();
                 let stream = lhs
                     .outer_join(
                         rhs,
                         move |item| Self::keyer(item, &left_on),
                         move |item| Self::keyer(item, &right_on),
                     )
+                    .unkey()
+                    .map(move |item| unwrap_outer_join(item, item_len))
                     .into_box();
-                StreamType::OuterJoinStream(stream)
+                StreamType::Stream(stream)
             }
             (lhs, rhs) => panic!("Cannot join {} with {}", lhs, rhs),
         }
@@ -369,6 +332,11 @@ impl StreamType {
     }
 }
 
+/// Unwrap an inner join, the left and right side are always Some
+///
+/// # Arguments
+///
+/// * `item` - The item to unwrap
 fn unwrap_inner_join(item: (NoirData, (NoirData, NoirData))) -> NoirData {
     let left = item.1 .0;
     let right = item.1 .1;
@@ -378,6 +346,12 @@ fn unwrap_inner_join(item: (NoirData, (NoirData, NoirData))) -> NoirData {
     NoirData::Row(data)
 }
 
+/// Unwrap a left join, if the right side is None then fill the row with (item_len - left.len()) Nones
+///
+/// # Arguments
+///
+/// * `item` - The item to unwrap
+/// * `item_len` - The length of the item
 fn unwrap_left_join(item: (NoirData, (NoirData, Option<NoirData>)), item_len: usize) -> NoirData {
     let left = item.1 .0;
     match item.1 .1 {
@@ -398,6 +372,13 @@ fn unwrap_left_join(item: (NoirData, (NoirData, Option<NoirData>)), item_len: us
     }
 }
 
+/// Unwrap a outer join, if the right side is None then fill the row with (item_len - left.len()) Nones.
+/// If the left side is None then fill the row with (item_len - right.len()) Nones.
+///
+/// # Arguments
+///
+/// * `item` - The item to unwrap
+/// * `item_len` - The length of the item
 fn unwrap_outer_join(
     item: (NoirData, (Option<NoirData>, Option<NoirData>)),
     item_len: usize,
@@ -425,6 +406,6 @@ fn unwrap_outer_join(
             data.extend(right.row());
             NoirData::Row(data)
         }
-        (None, None) => NoirData::NoirType(NoirType::None()),
+        _ => unreachable!("Outer join item should never have both sides None"),
     }
 }

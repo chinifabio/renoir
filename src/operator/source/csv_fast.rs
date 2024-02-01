@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use csv::{Reader, ReaderBuilder, Terminator, Trim};
 
 use crate::block::{BlockStructure, OperatorKind, OperatorStructure, Replication};
-use crate::data_type::{NoirData, NoirType, NoirTypeRef, Schema};
+use crate::data_type::{NoirData, NoirType, NoirTypeKind, Schema};
 use crate::operator::source::Source;
 use crate::operator::{Operator, StreamElement};
 use crate::optimization::dsl::expressions::Expr;
@@ -429,13 +429,13 @@ impl RowCsvSource {
                 return Some(NoirData::NoirType(NoirType::None()));
             }
             match schema.columns[0] {
-                NoirTypeRef::Int32 => {
+                NoirTypeKind::Int32 => {
                     return field
                         .parse::<i32>()
                         .map(|v| NoirData::NoirType(NoirType::Int32(v)))
                         .ok()
                 }
-                NoirTypeRef::Float32 => {
+                NoirTypeKind::Float32 => {
                     return field
                         .parse::<f32>()
                         .map(|v| NoirData::NoirType(NoirType::Float32(v)))
@@ -449,7 +449,7 @@ impl RowCsvSource {
             let mut data = Vec::with_capacity(self.record.len() - schema.columns.len());
             for index in projections {
                 match schema.columns[*index] {
-                    NoirTypeRef::Int32 => {
+                    NoirTypeKind::Int32 => {
                         let f = self.record.get(*index).unwrap();
                         if f.is_empty() {
                             data.push(NoirType::None());
@@ -459,7 +459,7 @@ impl RowCsvSource {
                             data.push(NoirType::None());
                         }
                     }
-                    NoirTypeRef::Float32 => {
+                    NoirTypeKind::Float32 => {
                         let f = self.record.get(*index).unwrap();
                         if f.is_empty() {
                             data.push(NoirType::None());
@@ -478,7 +478,7 @@ impl RowCsvSource {
         let mut data: Vec<NoirType> = Vec::with_capacity(self.record.len());
         for (field, column) in self.record.iter().zip(schema.columns.iter()) {
             match column {
-                NoirTypeRef::Int32 => {
+                NoirTypeKind::Int32 => {
                     if field.is_empty() {
                         data.push(NoirType::None());
                     } else if let Ok(int_value) = field.parse::<i32>() {
@@ -487,7 +487,7 @@ impl RowCsvSource {
                         data.push(NoirType::None());
                     }
                 }
-                NoirTypeRef::Float32 => {
+                NoirTypeKind::Float32 => {
                     if field.is_empty() {
                         data.push(NoirType::None());
                     } else if let Ok(float_value) = field.parse::<f32>() {

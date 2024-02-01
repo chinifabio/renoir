@@ -94,11 +94,8 @@ pub mod test {
         NoirData::Row(row)
     }
 
-    fn random_inner_join_row(rng: &mut ThreadRng) -> (NoirData, (NoirData, NoirData)) {
-        (
-            NoirData::NoirType(NoirType::None()),
-            (random_row(rng), random_row(rng)),
-        )
+    fn random_keyed_row(rng: &mut ThreadRng) -> (NoirType, NoirData) {
+        (NoirType::None(), random_row(rng))
     }
 
     fn test_predicate<T: CsvRow + std::cmp::PartialEq>(
@@ -147,28 +144,22 @@ pub mod test {
     }
 
     #[test]
-    fn test_filter_stream_with_inner_join() {
+    fn test_filter_stream_with_keyed() {
         let mut rng = rand::thread_rng();
         test_predicate(
-            (0..100)
-                .map(|_| random_inner_join_row(&mut rng))
-                .collect_vec(),
-            |row| row.1 .0[1] % NoirType::Int32(10) == NoirType::Int32(0),
+            (0..100).map(|_| random_keyed_row(&mut rng)).collect_vec(),
+            |(_, data)| data[1] % NoirType::Int32(10) == NoirType::Int32(0),
             col(1).modulo(i(10)).eq(i(0)),
         );
         test_predicate(
-            (0..100)
-                .map(|_| random_inner_join_row(&mut rng))
-                .collect_vec(),
-            |row| row.1 .1[0] == row.1 .0[0],
-            col(5).eq(col(0)),
+            (0..100).map(|_| random_keyed_row(&mut rng)).collect_vec(),
+            |(_, data)| data[4] == data[0],
+            col(4).eq(col(0)),
         );
         test_predicate(
-            (0..100)
-                .map(|_| random_inner_join_row(&mut rng))
-                .collect_vec(),
-            |row| row.1 .1[0] != row.1 .0[0],
-            col(5).neq(col(0)),
+            (0..100).map(|_| random_keyed_row(&mut rng)).collect_vec(),
+            |(_, data)| data[4] != data[0],
+            col(4).neq(col(0)),
         );
     }
 }

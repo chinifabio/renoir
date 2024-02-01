@@ -224,7 +224,7 @@ impl OptimizationRule for ProjectionPushdown {
 #[cfg(test)]
 pub mod test {
 
-    use crate::data_type::{NoirTypeRef, Schema};
+    use crate::data_type::{NoirTypeKind, Schema};
     use crate::optimization::dsl::expressions::*;
     use crate::optimization::logical_plan::{JoinType, LogicPlan};
     use crate::optimization::optimizer::OptimizationRule;
@@ -235,7 +235,7 @@ pub mod test {
             path: "test.csv".into(),
             predicate: None,
             projections: None,
-            schema: Some(Schema::same_type(10, NoirTypeRef::Int32)),
+            schema: Some(Schema::same_type(10, NoirTypeKind::Int32)),
         }
     }
 
@@ -252,7 +252,7 @@ pub mod test {
                     path: "test.csv".into(),
                     predicate: None,
                     projections: Some(vec![2, 3]),
-                    schema: Some(Schema::same_type(10, NoirTypeRef::Int32)),
+                    schema: Some(Schema::same_type(10, NoirTypeKind::Int32)),
                 }),
             }),
         };
@@ -278,7 +278,7 @@ pub mod test {
                         path: "test.csv".into(),
                         predicate: None,
                         projections: Some(vec![0, 1, 3]),
-                        schema: Some(Schema::same_type(10, NoirTypeRef::Int32)),
+                        schema: Some(Schema::same_type(10, NoirTypeKind::Int32)),
                     }),
                 }),
             }),
@@ -311,7 +311,7 @@ pub mod test {
                                 path: "test.csv".into(),
                                 predicate: None,
                                 projections: Some(vec![1, 2, 3, 4]),
-                                schema: Some(Schema::same_type(10, NoirTypeRef::Int32)),
+                                schema: Some(Schema::same_type(10, NoirTypeKind::Int32)),
                             }),
                         }),
                     }),
@@ -340,7 +340,7 @@ pub mod test {
                         path: "test.csv".into(),
                         predicate: None,
                         projections: Some(vec![3, 4, 5]),
-                        schema: Some(Schema::same_type(10, NoirTypeRef::Int32)),
+                        schema: Some(Schema::same_type(10, NoirTypeKind::Int32)),
                     }),
                 }),
             }),
@@ -373,7 +373,7 @@ pub mod test {
                         path: "test.csv".into(),
                         predicate: None,
                         projections: Some(vec![0, 5]),
-                        schema: Some(Schema::same_type(10, NoirTypeRef::Int32)),
+                        schema: Some(Schema::same_type(10, NoirTypeKind::Int32)),
                     }),
                     input_right: Box::new(LogicPlan::Select {
                         columns: vec![col(0), col(1)],
@@ -381,7 +381,7 @@ pub mod test {
                             path: "test.csv".into(),
                             predicate: None,
                             projections: Some(vec![8, 9]),
-                            schema: Some(Schema::same_type(10, NoirTypeRef::Int32)),
+                            schema: Some(Schema::same_type(10, NoirTypeKind::Int32)),
                         }),
                     }),
                     left_on: vec![col(0).modulo(i(7))],
@@ -413,13 +413,13 @@ pub mod test {
                         path: "test.csv".into(),
                         predicate: None,
                         projections: Some(vec![0, 1, 2]),
-                        schema: Some(Schema::same_type(10, NoirTypeRef::Int32)),
+                        schema: Some(Schema::same_type(10, NoirTypeKind::Int32)),
                     }),
                     input_right: Box::new(LogicPlan::TableScan {
                         path: "test.csv".into(),
                         predicate: None,
                         projections: Some(vec![0, 1, 2]),
-                        schema: Some(Schema::same_type(10, NoirTypeRef::Int32)),
+                        schema: Some(Schema::same_type(10, NoirTypeKind::Int32)),
                     }),
                     left_on: vec![col(0), col(1)],
                     right_on: vec![col(0), col(1)],

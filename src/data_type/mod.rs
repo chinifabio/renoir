@@ -22,7 +22,7 @@ pub enum NoirType {
 }
 
 #[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Eq, Hash, Copy)]
-pub enum NoirTypeRef {
+pub enum NoirTypeKind {
     Int32,
     Float32,
     Bool,
@@ -30,61 +30,9 @@ pub enum NoirTypeRef {
     None,
 }
 
-impl Display for NoirTypeRef {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            NoirTypeRef::Int32 => write!(f, "Int32"),
-            NoirTypeRef::Float32 => write!(f, "Float32"),
-            NoirTypeRef::Bool => write!(f, "Bool"),
-            NoirTypeRef::NaN => write!(f, "NaN"),
-            NoirTypeRef::None => write!(f, "None"),
-        }
-    }
-}
-
 #[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Eq, Hash)]
 pub struct Schema {
-    pub(crate) columns: Vec<NoirTypeRef>,
-}
-
-impl Schema {
-    pub fn new(columns: Vec<NoirTypeRef>) -> Self {
-        Self { columns }
-    }
-
-    pub fn same_type(n_columns: usize, t: NoirTypeRef) -> Self {
-        Self {
-            columns: (0..n_columns).map(|_| t).collect(),
-        }
-    }
-
-    pub fn infer_from_file(path: PathBuf) -> Self {
-        info!("Infering schema from file: {:?}", path);
-        let mut csv_reader = ReaderBuilder::new().from_path(path).unwrap();
-        let mut record = csv::StringRecord::new();
-        let _ = csv_reader.read_record(&mut record);
-        let columns = record
-            .iter()
-            .map(|item| {
-                if item.parse::<i32>().is_ok() {
-                    NoirTypeRef::Int32
-                } else if item.parse::<f32>().is_ok() {
-                    NoirTypeRef::Float32
-                } else if item.parse::<bool>().is_ok() {
-                    NoirTypeRef::Bool
-                } else {
-                    NoirTypeRef::None
-                }
-            })
-            .collect();
-        Self { columns }
-    }
-
-    pub(crate) fn merge(self, other: Schema) -> Schema {
-        Schema {
-            columns: [self.columns, other.columns].concat(),
-        }
-    }
+    pub(crate) columns: Vec<NoirTypeKind>,
 }
 
 /// NoirData is the data type that is used in Noir.
@@ -100,4 +48,56 @@ pub enum NoirData {
 pub enum NoirDataCsv {
     Row(Vec<NoirType>),
     NoirType(NoirType),
+}
+
+impl Display for NoirTypeKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NoirTypeKind::Int32 => write!(f, "Int32"),
+            NoirTypeKind::Float32 => write!(f, "Float32"),
+            NoirTypeKind::Bool => write!(f, "Bool"),
+            NoirTypeKind::NaN => write!(f, "NaN"),
+            NoirTypeKind::None => write!(f, "None"),
+        }
+    }
+}
+
+impl Schema {
+    pub fn new(columns: Vec<NoirTypeKind>) -> Self {
+        Self { columns }
+    }
+
+    pub fn same_type(n_columns: usize, t: NoirTypeKind) -> Self {
+        Self {
+            columns: (0..n_columns).map(|_| t).collect(),
+        }
+    }
+
+    pub fn infer_from_file(path: PathBuf) -> Self {
+        info!("Infering schema from file: {:?}", path);
+        let mut csv_reader = ReaderBuilder::new().from_path(path).unwrap();
+        let mut record = csv::StringRecord::new();
+        let _ = csv_reader.read_record(&mut record);
+        let columns = record
+            .iter()
+            .map(|item| {
+                if item.parse::<i32>().is_ok() {
+                    NoirTypeKind::Int32
+                } else if item.parse::<f32>().is_ok() {
+                    NoirTypeKind::Float32
+                } else if item.parse::<bool>().is_ok() {
+                    NoirTypeKind::Bool
+                } else {
+                    NoirTypeKind::None
+                }
+            })
+            .collect();
+        Self { columns }
+    }
+
+    pub(crate) fn merge(self, other: Schema) -> Schema {
+        Schema {
+            columns: [self.columns, other.columns].concat(),
+        }
+    }
 }
