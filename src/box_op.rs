@@ -4,8 +4,8 @@ use dyn_clone::DynClone;
 
 use crate::{
     block::BlockStructure,
-    operator::{Data, ExchangeData, Operator, StreamElement},
-    optimization::physical_plan::CsvRow,
+    data_type::StreamItem,
+    operator::{Data, Operator, StreamElement},
     ExecutionMetadata, KeyedStream, Stream,
 };
 
@@ -88,8 +88,7 @@ impl<T: Data> Operator for BoxedOperator<T> {
 
 impl<Op> Stream<Op>
 where
-    Op: Operator + 'static,
-    Op::Out: CsvRow + ExchangeData,
+    Op: Operator<Out = StreamItem> + 'static,
 {
     pub fn into_box(self) -> Stream<BoxedOperator<Op::Out>> {
         self.add_operator(|prev| BoxedOperator::new(prev))
@@ -98,8 +97,7 @@ where
 
 impl<Op> KeyedStream<Op>
 where
-    Op: Operator + 'static,
-    Op::Out: CsvRow + ExchangeData,
+    Op: Operator<Out = StreamItem> + 'static,
 {
     pub fn into_box(self) -> KeyedStream<BoxedOperator<Op::Out>> {
         self.add_operator(|prev| BoxedOperator::new(prev))

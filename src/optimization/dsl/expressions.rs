@@ -1,7 +1,7 @@
 use core::panic;
 use std::fmt::{Debug, Display};
 
-use crate::{data_type::NoirType, optimization::physical_plan::CsvRow};
+use crate::data_type::{NoirType, StreamItem};
 
 #[derive(Clone, PartialEq, Eq, Debug, Copy, Hash)]
 pub enum ExprOp {
@@ -161,10 +161,10 @@ impl Expr {
         dependencies
     }
 
-    pub fn evaluate<K, V>(&self, item: &impl CsvRow<Key = K, Value = V>) -> NoirType {
+    pub fn evaluate(&self, item: &StreamItem) -> NoirType {
         match self {
             Expr::Literal(value) => *value,
-            Expr::NthColumn(n) => item.get(*n),
+            Expr::NthColumn(n) => item[*n],
             Expr::BinaryExpr { left, op, right } => {
                 let left = left.evaluate(item);
                 let right = right.evaluate(item);
@@ -195,6 +195,30 @@ impl Expr {
                     ExprOp::Abs => data.abs(),
                     ExprOp::Round => data.round(),
                     _ => panic!("Unsupported operator"),
+                }
+            }
+            Expr::Empty => panic!("Empty expression"),
+        }
+    }
+
+    pub(crate) fn shift_left(&self, amount: usize) -> Expr {
+        match self {
+            Expr::NthColumn(n) => Expr::NthColumn(*n - amount),
+            Expr::Literal(value) => Expr::Literal(*value),
+            Expr::BinaryExpr { left, op, right } => {
+                let left = left.shift_left(amount);
+                let right = right.shift_left(amount);
+                Expr::BinaryExpr {
+                    left: Box::new(left),
+                    op: *op,
+                    right: Box::new(right),
+                }
+            }
+            Expr::UnaryExpr { op, expr } => {
+                let expr = expr.shift_left(amount);
+                Expr::UnaryExpr {
+                    op: *op,
+                    expr: Box::new(expr),
                 }
             }
             Expr::Empty => panic!("Empty expression"),
@@ -247,11 +271,12 @@ pub mod test {
 
     #[test]
     fn test_expr() {
-        let data = NoirData::Row(vec![
+        let data: StreamItem = NoirData::Row(vec![
             NoirType::Int32(1),
             NoirType::Int32(2),
             NoirType::Int32(3),
-        ]);
+        ])
+        .into();
 
         let expr = col(0) + i(1);
         assert_eq!(expr.evaluate(&data), NoirType::Int32(2));

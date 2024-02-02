@@ -1,12 +1,11 @@
 use std::path::PathBuf;
 
+use itertools::Itertools;
+
 use crate::{
-    block::NextStrategy,
-    data_type::{NoirData, NoirType, Schema},
-    operator::{
-        end::End, filter_expr::FilterExpr, key_by::KeyBy, sink::StreamOutput, Operator,
-        SimpleStartReceiver, Start,
-    },
+    box_op::BoxedOperator,
+    data_type::{Schema, StreamItem},
+    operator::{filter_expr::FilterExpr, sink::StreamOutput, Operator},
     optimization::dsl::expressions::Expr,
     stream::OptStream,
     KeyedStream, Stream,
@@ -14,37 +13,29 @@ use crate::{
 
 use super::{
     logical_plan::{JoinType, LogicPlan},
-    physical_plan::{to_stream, CsvRow},
+    physical_plan::to_stream,
 };
 
 impl<Op> Stream<Op>
 where
-    Op: Operator + 'static,
-    Op::Out: CsvRow,
+    Op: Operator<Out = StreamItem> + 'static,
 {
     pub fn filter_expr(self, expr: Expr) -> Stream<FilterExpr<Op>> {
         self.add_operator(|prev| FilterExpr::new(prev, expr))
     }
 
-    pub fn group_by_expr<T2: CsvRow>(
-        self,
-        keyer: Expr,
-    ) -> KeyedStream<
-        KeyBy<NoirType, impl Fn(&Op::Out) -> NoirType + Clone, Start<SimpleStartReceiver<Op::Out>>>,
-    > {
-        let keyer_closure = move |item: &Op::Out| keyer.evaluate(item);
-        let next_strategy = NextStrategy::group_by(keyer_closure.clone());
-        let stream = self
-            .split_block(End::new, next_strategy)
-            .add_operator(|prev| KeyBy::new(prev, keyer_closure));
-        KeyedStream(stream)
+    pub fn group_by_expr(self, keyer: Vec<Expr>) -> KeyedStream<BoxedOperator<StreamItem>> {
+        self.group_by(move |item: &StreamItem| keyer.iter().map(|k| k.evaluate(item)).collect_vec())
+            .unkey()
+            .map(|(k, v)| v.absorb_key(k))
+            .to_keyed()
+            .into_box()
     }
 }
 
 impl<Op> KeyedStream<Op>
 where
-    Op: Operator + 'static,
-    Op::Out: CsvRow,
+    Op: Operator<Out = StreamItem> + 'static,
 {
     pub fn filter_expr(self, expr: Expr) -> KeyedStream<FilterExpr<Op>> {
         self.add_operator(|prev| FilterExpr::new(prev, expr))
@@ -52,7 +43,7 @@ where
 }
 
 impl OptStream {
-    pub fn collect_vec(self) -> StreamOutput<Vec<NoirData>> {
+    pub fn collect_vec(self) -> StreamOutput<Vec<StreamItem>> {
         let optimized = self.logic_plan.collect_vec().optimize();
         info!("Optimized plan: {}", optimized);
         to_stream(optimized, self.inner).into_output()
@@ -72,7 +63,7 @@ impl OptStream {
         }
     }
 
-    pub fn group_by(self, key: Expr) -> Self {
+    pub fn group_by<E: AsRef<[Expr]>>(self, key: E) -> Self {
         OptStream {
             inner: self.inner,
             logic_plan: self.logic_plan.group_by(key),

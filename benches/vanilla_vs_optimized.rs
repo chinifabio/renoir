@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main};
 use criterion::{BenchmarkId, Criterion, Throughput};
-use noir_compute::data_type::{NoirData, NoirType, NoirTypeKind, Schema};
+use noir_compute::data_type::{NoirData, NoirType, NoirTypeKind, Schema, StreamItem};
 use noir_compute::optimization::dsl::expressions::*;
 
 mod common;
@@ -11,11 +11,15 @@ use common::*;
 use rand::rngs::ThreadRng;
 use rand::RngCore;
 
+const SAMPLE_SIZE: usize = 25;
+const WARM_UP_TIME: Duration = Duration::from_secs(5);
+const MEASUREMENT_TIME: Duration = Duration::from_secs(10);
+
 fn predicate_pushdown(c: &mut Criterion) {
     let mut group = c.benchmark_group("Predicate pushdown");
-    group.sample_size(25);
-    group.measurement_time(Duration::from_secs(60));
-    group.warm_up_time(Duration::from_secs(5));
+    group.sample_size(SAMPLE_SIZE);
+    group.measurement_time(MEASUREMENT_TIME);
+    group.warm_up_time(WARM_UP_TIME);
 
     let n_col = 100;
     for n_row in [1000, 10000, 100000] {
@@ -28,11 +32,8 @@ fn predicate_pushdown(c: &mut Criterion) {
             |b, path| {
                 noir_bench_default(b, |env| {
                     env.stream_csv_noirdata(path.to_path_buf())
-                        .into_box()
                         .filter(|item| item[0].modulo(10) == item[99].modulo(10))
-                        .into_box()
                         .map(|item| NoirData::NoirType(item[0] + item[99]))
-                        .into_box()
                         .collect_vec();
                 });
             },
@@ -58,11 +59,8 @@ fn predicate_pushdown(c: &mut Criterion) {
             |b, path| {
                 noir_bench_default(b, |env| {
                     env.stream_csv_noirdata(path.to_path_buf())
-                        .into_box()
                         .group_by(|item| item[0].floor())
-                        .into_box()
                         .filter(|(_, item)| (item[0] / item[1]).round() == NoirType::Int32(1))
-                        .into_box()
                         .collect_vec();
                 });
             },
@@ -75,7 +73,7 @@ fn predicate_pushdown(c: &mut Criterion) {
                 noir_bench_default(b, |env| {
                     env.stream_csv_optimized(path.to_path_buf())
                         .with_schema(Schema::same_type(n_col, NoirTypeKind::Int32))
-                        .group_by(col(0).floor())
+                        .group_by([col(0).floor()])
                         .filter((col(0) / col(1)).round().eq(i(1)))
                         .collect_vec();
                 });
@@ -87,8 +85,8 @@ fn predicate_pushdown(c: &mut Criterion) {
             &source_file,
             |b, path| {
                 noir_bench_default(b, |env| {
-                    let left = env.stream_csv_noirdata(path.to_path_buf()).into_box();
-                    let right = env.stream_csv_noirdata(path.to_path_buf()).into_box();
+                    let left = env.stream_csv_noirdata(path.to_path_buf());
+                    let right = env.stream_csv_noirdata(path.to_path_buf());
                     left.join(
                         right,
                         |item| vec![item[0], item[1]],
@@ -126,9 +124,9 @@ fn predicate_pushdown(c: &mut Criterion) {
 
 fn projection_pushdown(c: &mut Criterion) {
     let mut group = c.benchmark_group("Predicate pushdown");
-    group.sample_size(25);
-    group.measurement_time(Duration::from_secs(60));
-    group.warm_up_time(Duration::from_secs(5));
+    group.sample_size(SAMPLE_SIZE);
+    group.measurement_time(MEASUREMENT_TIME);
+    group.warm_up_time(WARM_UP_TIME);
 
     let n_row = 100000;
     for n_col in &[10, 100, 1000] {
@@ -141,11 +139,8 @@ fn projection_pushdown(c: &mut Criterion) {
             |b, path| {
                 noir_bench_default(b, |env| {
                     env.stream_csv_noirdata(path.to_path_buf())
-                        .into_box()
                         .filter(|item| item[0].modulo(10) == item[*n_col - 1].modulo(10))
-                        .into_box()
                         .map(|item| NoirData::NoirType(item[0] + item[*n_col - 1]))
-                        .into_box()
                         .collect_vec();
                 });
             },
@@ -171,11 +166,8 @@ fn projection_pushdown(c: &mut Criterion) {
             |b, path| {
                 noir_bench_default(b, |env| {
                     env.stream_csv_noirdata(path.to_path_buf())
-                        .into_box()
                         .group_by(|item| item[0].floor())
-                        .into_box()
                         .filter(|(_, item)| (item[0] / item[1]).round() == NoirType::Int32(1))
-                        .into_box()
                         .collect_vec();
                 });
             },
@@ -188,7 +180,7 @@ fn projection_pushdown(c: &mut Criterion) {
                 noir_bench_default(b, |env| {
                     env.stream_csv_optimized(path.to_path_buf())
                         .with_schema(Schema::same_type(*n_col, NoirTypeKind::Int32))
-                        .group_by(col(0).floor())
+                        .group_by([col(0).floor()])
                         .filter((col(0) / col(1)).round().eq(i(1)))
                         .collect_vec();
                 });
@@ -200,8 +192,8 @@ fn projection_pushdown(c: &mut Criterion) {
             &source_file,
             |b, path| {
                 noir_bench_default(b, |env| {
-                    let left = env.stream_csv_noirdata(path.to_path_buf()).into_box();
-                    let right = env.stream_csv_noirdata(path.to_path_buf()).into_box();
+                    let left = env.stream_csv_noirdata(path.to_path_buf());
+                    let right = env.stream_csv_noirdata(path.to_path_buf());
                     left.join(
                         right,
                         |item| vec![item[0], item[1]],
@@ -237,13 +229,13 @@ fn projection_pushdown(c: &mut Criterion) {
     group.finish();
 }
 
-fn random_row(rng: &mut ThreadRng) -> NoirData {
+fn random_row(rng: &mut ThreadRng) -> StreamItem {
     let col = 5;
     let mut row = Vec::with_capacity(col);
     for _ in 0..col {
         row.push(NoirType::Int32(rng.next_u32() as i32))
     }
-    NoirData::Row(row)
+    StreamItem::DataItem(NoirData::Row(row))
 }
 
 fn expr_vs_closures(c: &mut Criterion) {
@@ -260,14 +252,14 @@ fn expr_vs_closures(c: &mut Criterion) {
         })
         .collect();
 
-    let mut g = c.benchmark_group("Expr vs Closures (Execution time)");
-    g.sample_size(25);
-    g.measurement_time(Duration::from_secs(60));
-    g.warm_up_time(Duration::from_secs(5));
+    let mut group = c.benchmark_group("Expr vs Closures (Execution time)");
+    group.sample_size(SAMPLE_SIZE);
+    group.measurement_time(MEASUREMENT_TIME);
+    group.warm_up_time(WARM_UP_TIME);
 
     for (size, items) in inputs {
-        g.bench_with_input(BenchmarkId::new("Closure", size), &items, |b, items| {
-            let closure = |item: &NoirData| item[3].modulo(7) == NoirType::Int32(0);
+        group.bench_with_input(BenchmarkId::new("Closure", size), &items, |b, items| {
+            let closure = |item: &StreamItem| item[3].modulo(7) == NoirType::Int32(0);
             b.iter(move || {
                 for item in items.iter() {
                     closure(item);
@@ -275,7 +267,7 @@ fn expr_vs_closures(c: &mut Criterion) {
             });
         });
 
-        g.bench_with_input(BenchmarkId::new("Expression", size), &items, |b, items| {
+        group.bench_with_input(BenchmarkId::new("Expression", size), &items, |b, items| {
             let expr = col(3).modulo(i(7)).eq(i(0));
             b.iter(move || {
                 for item in items.iter() {
@@ -285,7 +277,7 @@ fn expr_vs_closures(c: &mut Criterion) {
         });
     }
 
-    g.finish();
+    group.finish();
 }
 
 criterion_group!(

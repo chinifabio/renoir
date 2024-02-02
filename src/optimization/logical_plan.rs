@@ -35,7 +35,7 @@ pub enum LogicPlan {
         input: Box<LogicPlan>,
     },
     GroupBy {
-        key: Expr,
+        key: Vec<Expr>,
         input: Box<LogicPlan>,
     },
     DropKey {
@@ -94,7 +94,7 @@ impl Display for LogicPlan {
                 write!(f, "{} -> Shuffle", input)
             }
             LogicPlan::GroupBy { key, input } => {
-                write!(f, "{} -> GroupBy({})", input, key)
+                write!(f, "{} -> GroupBy({:?})", input, key)
             }
             LogicPlan::DropKey { input } => {
                 write!(f, "{} -> DropKey", input)
@@ -143,9 +143,9 @@ impl LogicPlan {
         }
     }
 
-    pub(crate) fn group_by(self, key: Expr) -> LogicPlan {
+    pub(crate) fn group_by<E: AsRef<[Expr]>>(self, key: E) -> LogicPlan {
         LogicPlan::GroupBy {
-            key,
+            key: key.as_ref().to_vec(),
             input: Box::new(self),
         }
     }

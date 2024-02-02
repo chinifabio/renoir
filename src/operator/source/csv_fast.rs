@@ -6,7 +6,7 @@ use std::path::PathBuf;
 use csv::{Reader, ReaderBuilder, Terminator, Trim};
 
 use crate::block::{BlockStructure, OperatorKind, OperatorStructure, Replication};
-use crate::data_type::{NoirData, NoirType, NoirTypeKind, Schema};
+use crate::data_type::{NoirData, NoirType, NoirTypeKind, Schema, StreamItem};
 use crate::operator::source::Source;
 use crate::operator::{Operator, StreamElement};
 use crate::optimization::dsl::expressions::Expr;
@@ -219,7 +219,8 @@ impl Source for RowCsvSource {
 }
 
 impl Operator for RowCsvSource {
-    type Out = NoirData;
+    type Out = StreamItem;
+
     fn setup(&mut self, metadata: &mut ExecutionMetadata) {
         info!("CsvSource: setup from {}", metadata.global_id);
         let global_id = metadata.global_id;
@@ -327,7 +328,7 @@ impl Operator for RowCsvSource {
         self.csv_reader = Some(csv_reader);
     }
 
-    fn next(&mut self) -> StreamElement<NoirData> {
+    fn next(&mut self) -> StreamElement<StreamItem> {
         loop {
             if self.terminated {
                 return StreamElement::Terminate;
@@ -350,11 +351,12 @@ impl Operator for RowCsvSource {
             };
             match (data, &self.options.filter_at_source) {
                 (Some(item), Some(filter)) => {
+                    let item = StreamItem::DataItem(item);
                     if filter.evaluate(&item).into() {
                         return StreamElement::Item(item);
                     }
                 }
-                (Some(item), None) => return StreamElement::Item(item),
+                (Some(item), None) => return StreamElement::Item(StreamItem::DataItem(item)),
                 _ => return StreamElement::FlushAndRestart,
             }
         }
@@ -525,7 +527,7 @@ impl crate::StreamEnvironment {
     pub fn stream_csv_noirdata(
         &mut self,
         path: impl Into<PathBuf>,
-    ) -> Stream<impl Operator<Out = NoirData>> {
+    ) -> Stream<impl Operator<Out = StreamItem>> {
         let source = RowCsvSource::new(path);
         self.stream(source)
     }

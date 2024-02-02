@@ -1,7 +1,9 @@
-use std::{fmt::Display, path::PathBuf};
+use std::{fmt::Display, ops::Index, path::PathBuf};
 
 use csv::ReaderBuilder;
 use serde::{Deserialize, Serialize};
+
+use crate::stream::KeyedItem;
 
 mod greenwald_khanna;
 mod noir_data_op;
@@ -48,6 +50,143 @@ pub enum NoirData {
 pub enum NoirDataCsv {
     Row(Vec<NoirType>),
     NoirType(NoirType),
+}
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub enum StreamItem {
+    DataItem(NoirData),
+    JoinItem(NoirData, NoirData),
+    KeyedDataItem(Vec<NoirType>, NoirData),
+    KeyedJoinItem(Vec<NoirType>, NoirData, NoirData),
+}
+
+impl StreamItem {
+    pub(crate) fn absorb_key(self, k: Vec<NoirType>) -> StreamItem {
+        match self {
+            StreamItem::DataItem(data) => StreamItem::KeyedDataItem(k, data),
+            StreamItem::JoinItem(d1, d2) => StreamItem::KeyedJoinItem(k, d1, d2),
+            _ => panic!("Item already has a key"),
+        }
+    }
+
+    pub(crate) fn drop_key(self) -> StreamItem {
+        match self {
+            StreamItem::KeyedDataItem(_, v) => StreamItem::DataItem(v),
+            StreamItem::KeyedJoinItem(_, v1, v2) => StreamItem::JoinItem(v1, v2),
+            _ => panic!("Item has no key to drop"),
+        }
+    }
+}
+
+impl KeyedItem for StreamItem {
+    type Key = Vec<NoirType>;
+
+    type Value = NoirData;
+
+    fn key(&self) -> &Self::Key {
+        match self {
+            StreamItem::KeyedDataItem(k, _) => k,
+            StreamItem::KeyedJoinItem(k, _, _) => k,
+            _ => panic!("StreamItem has no key"),
+        }
+    }
+
+    fn value(&self) -> &Self::Value {
+        match self {
+            StreamItem::DataItem(v) => v,
+            StreamItem::JoinItem(_v1, _v2) => {
+                // let mut data = Vec::with_capacity(v1.len() + v2.len());
+                // data.extend(v1.row());
+                // data.extend(v2.row());
+                // &NoirData::Row(data)
+                panic!("For now, i can't return a reference to a joined data")
+            }
+            StreamItem::KeyedDataItem(_, v) => v,
+            StreamItem::KeyedJoinItem(_, _v1, _v2) => {
+                // let mut data = Vec::with_capacity(v1.len() + v2.len());
+                // data.extend(v1.row());
+                // data.extend(v2.row());
+                // &NoirData::Row(data)
+                panic!("For now, i can't return a reference to a joined data")
+            }
+        }
+    }
+
+    fn into_kv(self) -> (Self::Key, Self::Value) {
+        match self {
+            StreamItem::KeyedDataItem(k, v) => (k, v),
+            StreamItem::KeyedJoinItem(k, v1, v2) => {
+                let mut data = Vec::with_capacity(v1.len() + v2.len());
+                data.extend(v1.row());
+                data.extend(v2.row());
+                (k, NoirData::Row(data))
+            }
+            _ => panic!("StreamItem has no key"),
+        }
+    }
+}
+
+impl From<StreamItem> for NoirData {
+    fn from(item: StreamItem) -> Self {
+        match item {
+            StreamItem::DataItem(d) => d,
+            StreamItem::JoinItem(d1, d2) => {
+                let mut data = Vec::with_capacity(d1.len() + d2.len());
+                data.extend(d1.row());
+                data.extend(d2.row());
+                NoirData::Row(data)
+            }
+            StreamItem::KeyedDataItem(_, d) => d,
+            StreamItem::KeyedJoinItem(_, d1, d2) => {
+                let mut data = Vec::with_capacity(d1.len() + d2.len());
+                data.extend(d1.row());
+                data.extend(d2.row());
+                NoirData::Row(data)
+            }
+        }
+    }
+}
+
+impl From<NoirData> for StreamItem {
+    fn from(data: NoirData) -> Self {
+        StreamItem::DataItem(data)
+    }
+}
+
+impl From<(Vec<NoirType>, (StreamItem, StreamItem))> for StreamItem {
+    fn from(data: (Vec<NoirType>, (StreamItem, StreamItem))) -> Self {
+        StreamItem::KeyedJoinItem(data.0, data.1 .0.into(), data.1 .1.into())
+    }
+}
+
+impl From<(Vec<NoirType>, NoirData)> for StreamItem {
+    fn from(data: (Vec<NoirType>, NoirData)) -> Self {
+        StreamItem::KeyedDataItem(data.0, data.1)
+    }
+}
+
+impl Index<usize> for StreamItem {
+    type Output = NoirType;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        match self {
+            StreamItem::DataItem(d) => &d[index],
+            StreamItem::JoinItem(d1, d2) => {
+                if index < d1.len() {
+                    &d1[index]
+                } else {
+                    &d2[index - d1.len()]
+                }
+            }
+            StreamItem::KeyedDataItem(_, d) => &d[index],
+            StreamItem::KeyedJoinItem(_, d1, d2) => {
+                if index < d1.len() {
+                    &d1[index]
+                } else {
+                    &d2[index - d1.len()]
+                }
+            }
+        }
+    }
 }
 
 impl Display for NoirTypeKind {

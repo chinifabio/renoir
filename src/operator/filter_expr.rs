@@ -1,17 +1,15 @@
 use std::fmt::Display;
 
 use crate::block::{BlockStructure, OperatorStructure};
-use crate::data_type::NoirData;
+use crate::data_type::{NoirData, StreamItem};
 use crate::operator::{Operator, StreamElement};
 use crate::optimization::dsl::expressions::Expr;
-use crate::optimization::physical_plan::CsvRow;
 use crate::scheduler::ExecutionMetadata;
 
 #[derive(Clone)]
 pub struct FilterExpr<PreviousOperator>
 where
-    PreviousOperator: Operator + 'static,
-    PreviousOperator::Out: CsvRow,
+    PreviousOperator: Operator<Out = StreamItem> + 'static,
 {
     prev: PreviousOperator,
     expression: Expr,
@@ -19,8 +17,7 @@ where
 
 impl<PreviousOperator> Display for FilterExpr<PreviousOperator>
 where
-    PreviousOperator: Operator + 'static,
-    PreviousOperator::Out: CsvRow,
+    PreviousOperator: Operator<Out = StreamItem> + 'static,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -34,8 +31,7 @@ where
 
 impl<PreviousOperator> FilterExpr<PreviousOperator>
 where
-    PreviousOperator: Operator + 'static,
-    PreviousOperator::Out: CsvRow,
+    PreviousOperator: Operator<Out = StreamItem> + 'static,
 {
     pub fn new(prev: PreviousOperator, expression: Expr) -> Self {
         Self { prev, expression }
@@ -44,8 +40,7 @@ where
 
 impl<PreviousOperator> Operator for FilterExpr<PreviousOperator>
 where
-    PreviousOperator: Operator + 'static,
-    PreviousOperator::Out: CsvRow,
+    PreviousOperator: Operator<Out = StreamItem> + 'static,
 {
     type Out = PreviousOperator::Out;
 
@@ -77,30 +72,30 @@ pub mod test {
     use rand::{rngs::ThreadRng, Rng};
 
     use crate::{
-        data_type::{NoirData, NoirType},
+        data_type::{NoirData, NoirType, StreamItem},
         operator::{Operator, StreamElement},
-        optimization::{dsl::expressions::*, physical_plan::CsvRow},
+        optimization::dsl::expressions::*,
         test::FakeOperator,
     };
 
     use super::FilterExpr;
 
-    fn random_row(rng: &mut ThreadRng) -> NoirData {
+    fn random_row(rng: &mut ThreadRng) -> StreamItem {
         let col = 5;
         let mut row = Vec::with_capacity(col);
         for _ in 0..col {
             row.push(NoirType::Int32(rng.gen()))
         }
-        NoirData::Row(row)
+        StreamItem::DataItem(NoirData::Row(row))
     }
 
-    fn random_keyed_row(rng: &mut ThreadRng) -> (NoirType, NoirData) {
-        (NoirType::None(), random_row(rng))
+    fn random_keyed_row(rng: &mut ThreadRng) -> StreamItem {
+        StreamItem::KeyedDataItem(vec![NoirType::None()], NoirData::from(random_row(rng)))
     }
 
-    fn test_predicate<T: CsvRow + std::cmp::PartialEq>(
-        data: Vec<T>,
-        predicate_closure: impl Fn(&T) -> bool,
+    fn test_predicate(
+        data: Vec<StreamItem>,
+        predicate_closure: impl Fn(&StreamItem) -> bool,
         predicte_expression: Expr,
     ) {
         let expected = data
@@ -148,17 +143,17 @@ pub mod test {
         let mut rng = rand::thread_rng();
         test_predicate(
             (0..100).map(|_| random_keyed_row(&mut rng)).collect_vec(),
-            |(_, data)| data[1] % NoirType::Int32(10) == NoirType::Int32(0),
+            |data| data[1] % NoirType::Int32(10) == NoirType::Int32(0),
             col(1).modulo(i(10)).eq(i(0)),
         );
         test_predicate(
             (0..100).map(|_| random_keyed_row(&mut rng)).collect_vec(),
-            |(_, data)| data[4] == data[0],
+            |data| data[4] == data[0],
             col(4).eq(col(0)),
         );
         test_predicate(
             (0..100).map(|_| random_keyed_row(&mut rng)).collect_vec(),
-            |(_, data)| data[4] != data[0],
+            |data| data[4] != data[0],
             col(4).neq(col(0)),
         );
     }

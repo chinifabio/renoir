@@ -79,6 +79,15 @@ impl PredicateWrapper {
         }
         false
     }
+
+    fn shift_left(self, amount: usize) -> PredicateWrapper {
+        let predicate = self.predicate.unwrap().shift_left(amount);
+        PredicateWrapper {
+            predicate: Some(predicate),
+            level: self.level,
+            locked_at: self.locked_at,
+        }
+    }
 }
 
 impl PredicatePushdown {
@@ -215,6 +224,7 @@ impl PredicatePushdown {
                     .iter_mut()
                     .filter(|p| p.is_right(i, left_header_len))
                     .map(|p| p.take(i))
+                    .map(|p| p.shift_left(left_header_len))
                     .collect_vec();
 
                 // Pushdown the left and right inputs
@@ -278,8 +288,9 @@ impl OptimizationRule for PredicatePushdown {
 #[cfg(test)]
 pub mod test {
 
+    use crate::data_type::{NoirTypeKind, Schema};
     use crate::optimization::dsl::expressions::*;
-    use crate::optimization::logical_plan::LogicPlan;
+    use crate::optimization::logical_plan::{JoinType, LogicPlan};
     use crate::optimization::optimizer::OptimizationRule;
     use crate::optimization::predicate_pushdown::{PredicatePushdown, PredicateWrapper};
 
@@ -331,7 +342,7 @@ pub mod test {
             path: "test.csv".into(),
             predicate: None,
             projections: None,
-            schema: None,
+            schema: Some(Schema::same_type(10, NoirTypeKind::Int32)),
         }
     }
 
@@ -346,7 +357,7 @@ pub mod test {
                 path: "test.csv".into(),
                 predicate: Some(col(0).gt(i(0))),
                 projections: None,
-                schema: None,
+                schema: Some(Schema::same_type(10, NoirTypeKind::Int32)),
             }),
         };
 
@@ -367,7 +378,7 @@ pub mod test {
                 path: "test.csv".into(),
                 predicate: Some(col(0).gt(i(0)) & col(1).lt(i(0))),
                 projections: None,
-                schema: None,
+                schema: Some(Schema::same_type(10, NoirTypeKind::Int32)),
             }),
         };
 
@@ -389,7 +400,7 @@ pub mod test {
                 path: "test.csv".into(),
                 predicate: Some(col(0).gt(i(0)) & col(1).lt(i(0)) & col(2).eq(i(0))),
                 projections: None,
-                schema: None,
+                schema: Some(Schema::same_type(10, NoirTypeKind::Int32)),
             }),
         };
 
@@ -400,7 +411,7 @@ pub mod test {
     fn keyed_stream() {
         let target_plan = create_scan()
             .filter(col(0).gt(i(0)))
-            .group_by(col(1))
+            .group_by([col(1)])
             .filter(col(1).lt(i(0)))
             .collect_vec();
 
@@ -408,12 +419,12 @@ pub mod test {
 
         let exprected = LogicPlan::CollectVec {
             input: Box::new(LogicPlan::GroupBy {
-                key: col(1),
+                key: vec![col(1)],
                 input: Box::new(LogicPlan::TableScan {
                     path: "test.csv".into(),
                     predicate: Some(col(0).gt(i(0)) & col(1).lt(i(0))),
                     projections: None,
-                    schema: None,
+                    schema: Some(Schema::same_type(10, NoirTypeKind::Int32)),
                 }),
             }),
         };
@@ -440,9 +451,86 @@ pub mod test {
                         path: "test.csv".into(),
                         predicate: Some(col(0).gt(i(0))),
                         projections: None,
-                        schema: None,
+                        schema: Some(Schema::same_type(10, NoirTypeKind::Int32)),
                     }),
                 }),
+            }),
+        };
+
+        assert_eq!(optimized, exprected);
+    }
+
+    #[test]
+    fn filter_remain_after_join() {
+        let target = create_scan()
+            .join(
+                create_scan(),
+                &[col(0), col(1)],
+                &[col(0), col(1)],
+                JoinType::Inner,
+            )
+            .filter(col(2).eq(col(12)))
+            .collect_vec();
+
+        let optimized = PredicatePushdown::optimize(target).unwrap();
+
+        let exprected = LogicPlan::CollectVec {
+            input: Box::new(LogicPlan::Filter {
+                predicate: col(2).eq(col(12)),
+                input: Box::new(LogicPlan::Join {
+                    input_left: Box::new(LogicPlan::TableScan {
+                        path: "test.csv".into(),
+                        predicate: None,
+                        projections: None,
+                        schema: Some(Schema::same_type(10, NoirTypeKind::Int32)),
+                    }),
+                    input_right: Box::new(LogicPlan::TableScan {
+                        path: "test.csv".into(),
+                        predicate: None,
+                        projections: None,
+                        schema: Some(Schema::same_type(10, NoirTypeKind::Int32)),
+                    }),
+                    left_on: vec![col(0), col(1)],
+                    right_on: vec![col(0), col(1)],
+                    join_type: JoinType::Inner,
+                }),
+            }),
+        };
+
+        assert_eq!(optimized, exprected);
+    }
+
+    #[test]
+    fn split_filter_after_join() {
+        let target = create_scan()
+            .join(
+                create_scan(),
+                &[col(0), col(1)],
+                &[col(0), col(1)],
+                JoinType::Inner,
+            )
+            .filter(col(2).eq(i(10)).and(col(12).eq(i(10))))
+            .collect_vec();
+
+        let optimized = PredicatePushdown::optimize(target).unwrap();
+
+        let exprected = LogicPlan::CollectVec {
+            input: Box::new(LogicPlan::Join {
+                input_left: Box::new(LogicPlan::TableScan {
+                    path: "test.csv".into(),
+                    predicate: Some(col(2).eq(i(10))),
+                    projections: None,
+                    schema: Some(Schema::same_type(10, NoirTypeKind::Int32)),
+                }),
+                input_right: Box::new(LogicPlan::TableScan {
+                    path: "test.csv".into(),
+                    predicate: Some(col(2).eq(i(10))),
+                    projections: None,
+                    schema: Some(Schema::same_type(10, NoirTypeKind::Int32)),
+                }),
+                left_on: vec![col(0), col(1)],
+                right_on: vec![col(0), col(1)],
+                join_type: JoinType::Inner,
             }),
         };
 

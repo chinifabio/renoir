@@ -82,9 +82,14 @@ impl ProjectionPushdown {
                 })
             }
             LogicPlan::GroupBy { key, input } => {
-                Self::accumulate_dependencies(accumulator, key.extract_dependencies());
+                for item in &key {
+                    Self::accumulate_dependencies(accumulator, item.extract_dependencies());
+                }
                 let new_input = Self::pushdown(*input, accumulator)?;
-                let new_key = Self::replace_dependencies(key, accumulator);
+                let new_key = key
+                    .into_iter()
+                    .map(|item| Self::replace_dependencies(item, accumulator))
+                    .collect();
                 Ok(LogicPlan::GroupBy {
                     key: new_key,
                     input: Box::new(new_input),
