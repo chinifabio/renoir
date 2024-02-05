@@ -1,4 +1,8 @@
-use std::{fmt::Display, ops::Index, path::PathBuf};
+use std::{
+    fmt::Display,
+    ops::{Index, IndexMut},
+    path::PathBuf,
+};
 
 use csv::ReaderBuilder;
 use serde::{Deserialize, Serialize};
@@ -62,7 +66,7 @@ pub enum StreamItem {
 impl StreamItem {
     pub(crate) fn absorb_key(self, k: Vec<NoirType>) -> StreamItem {
         match self {
-            StreamItem::DataItem(data) => StreamItem::KeyedDataItem(k, data),
+            StreamItem::DataItem(d) => StreamItem::KeyedDataItem(k, d),
             StreamItem::JoinItem(d1, d2) => StreamItem::KeyedJoinItem(k, d1, d2),
             _ => panic!("Item already has a key"),
         }
@@ -73,6 +77,23 @@ impl StreamItem {
             StreamItem::KeyedDataItem(_, v) => StreamItem::DataItem(v),
             StreamItem::KeyedJoinItem(_, v1, v2) => StreamItem::JoinItem(v1, v2),
             _ => panic!("Item has no key to drop"),
+        }
+    }
+
+    pub(crate) fn get_key(&self) -> Option<Vec<NoirType>> {
+        match self {
+            StreamItem::KeyedDataItem(k, _) => Some(k.clone()),
+            StreamItem::KeyedJoinItem(k, _, _) => Some(k.clone()),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        match self {
+            StreamItem::DataItem(d) => d.len(),
+            StreamItem::JoinItem(d1, d2) => d1.len() + d2.len(),
+            StreamItem::KeyedDataItem(_, d) => d.len(),
+            StreamItem::KeyedJoinItem(_, d1, d2) => d1.len() + d2.len(),
         }
     }
 }
@@ -152,6 +173,16 @@ impl From<NoirData> for StreamItem {
     }
 }
 
+impl From<Vec<NoirType>> for StreamItem {
+    fn from(data: Vec<NoirType>) -> Self {
+        if data.len() == 1 {
+            StreamItem::DataItem(NoirData::NoirType(data[0]))
+        } else {
+            StreamItem::DataItem(NoirData::Row(data))
+        }
+    }
+}
+
 impl From<(Vec<NoirType>, (StreamItem, StreamItem))> for StreamItem {
     fn from(data: (Vec<NoirType>, (StreamItem, StreamItem))) -> Self {
         StreamItem::KeyedJoinItem(data.0, data.1 .0.into(), data.1 .1.into())
@@ -183,6 +214,29 @@ impl Index<usize> for StreamItem {
                     &d1[index]
                 } else {
                     &d2[index - d1.len()]
+                }
+            }
+        }
+    }
+}
+
+impl IndexMut<usize> for StreamItem {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        match self {
+            StreamItem::DataItem(d) => &mut d[index],
+            StreamItem::JoinItem(d1, d2) => {
+                if index < d1.len() {
+                    &mut d1[index]
+                } else {
+                    &mut d2[index - d1.len()]
+                }
+            }
+            StreamItem::KeyedDataItem(_, d) => &mut d[index],
+            StreamItem::KeyedJoinItem(_, d1, d2) => {
+                if index < d1.len() {
+                    &mut d1[index]
+                } else {
+                    &mut d2[index - d1.len()]
                 }
             }
         }

@@ -5,12 +5,21 @@ use std::marker::PhantomData;
 use crate::block::{BlockStructure, OperatorStructure};
 use crate::operator::{DataKey, Operator, StreamElement};
 use crate::scheduler::ExecutionMetadata;
+use crate::stream::KeyedItem;
 
 #[derive(Debug)]
 pub struct RichMap<K, I, O, F, OperatorChain>
 where
-    F: FnMut((&K, I)) -> O + Clone + Send,
-    OperatorChain: Operator<Out = (K, I)>,
+    F: FnMut(
+            (
+                &<OperatorChain::Out as KeyedItem>::Key,
+                <OperatorChain::Out as KeyedItem>::Value,
+            ),
+        ) -> O
+        + Clone
+        + Send,
+    OperatorChain: Operator,
+    OperatorChain::Out: KeyedItem<Key = K, Value = I>,
 {
     prev: OperatorChain,
     maps_fn: HashMap<K, F, crate::block::GroupHasherBuilder>,
@@ -21,8 +30,16 @@ where
 
 impl<K: DataKey, I, O, F: Clone, OperatorChain: Clone> Clone for RichMap<K, I, O, F, OperatorChain>
 where
-    F: FnMut((&K, I)) -> O + Clone + Send,
-    OperatorChain: Operator<Out = (K, I)>,
+    F: FnMut(
+            (
+                &<OperatorChain::Out as KeyedItem>::Key,
+                <OperatorChain::Out as KeyedItem>::Value,
+            ),
+        ) -> O
+        + Clone
+        + Send,
+    OperatorChain: Operator,
+    OperatorChain::Out: KeyedItem<Key = K, Value = I>,
 {
     fn clone(&self) -> Self {
         Self {
@@ -37,8 +54,16 @@ where
 
 impl<K: DataKey, I: Send, O: Send, F, OperatorChain> Display for RichMap<K, I, O, F, OperatorChain>
 where
-    F: FnMut((&K, I)) -> O + Clone + Send,
-    OperatorChain: Operator<Out = (K, I)>,
+    F: FnMut(
+            (
+                &<OperatorChain::Out as KeyedItem>::Key,
+                <OperatorChain::Out as KeyedItem>::Value,
+            ),
+        ) -> O
+        + Clone
+        + Send,
+    OperatorChain: Operator,
+    OperatorChain::Out: KeyedItem<Key = K, Value = I>,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -53,8 +78,16 @@ where
 
 impl<K: DataKey, I: Send, O: Send, F, OperatorChain> RichMap<K, I, O, F, OperatorChain>
 where
-    F: FnMut((&K, I)) -> O + Clone + Send,
-    OperatorChain: Operator<Out = (K, I)>,
+    F: FnMut(
+            (
+                &<OperatorChain::Out as KeyedItem>::Key,
+                <OperatorChain::Out as KeyedItem>::Value,
+            ),
+        ) -> O
+        + Clone
+        + Send,
+    OperatorChain: Operator,
+    OperatorChain::Out: KeyedItem<Key = K, Value = I>,
 {
     pub(super) fn new(prev: OperatorChain, f: F) -> Self {
         Self {
@@ -72,8 +105,16 @@ where
     K: DataKey,
     I: Send,
     O: Send,
-    F: FnMut((&K, I)) -> O + Clone + Send,
-    OperatorChain: Operator<Out = (K, I)>,
+    F: FnMut(
+            (
+                &<OperatorChain::Out as KeyedItem>::Key,
+                <OperatorChain::Out as KeyedItem>::Value,
+            ),
+        ) -> O
+        + Clone
+        + Send,
+    OperatorChain: Operator,
+    OperatorChain::Out: KeyedItem<Key = K, Value = I>,
 {
     type Out = (K, O);
 
@@ -87,7 +128,8 @@ where
         if matches!(element, StreamElement::FlushAndRestart) {
             // self.maps_fn.clear();
         }
-        element.map(|(key, value)| {
+        element.map(|item| {
+            let (key, value) = item.into_kv();
             let map_fn = if let Some(map_fn) = self.maps_fn.get_mut(&key) {
                 map_fn
             } else {

@@ -154,6 +154,7 @@ where
     // This is used to make `Flatten` behave differently when applied to `Stream` or `KeyedStream`
     // Takes `Out` as input, returns an `Iterator` with items of type `NewOut`
     #[derivative(Debug = "ignore")]
+    #[allow(clippy::type_complexity)]
     frontiter: Option<(
         <Op::Out as KeyedItem>::Key,
         <<Op::Out as KeyedItem>::Value as IntoIterator>::IntoIter,

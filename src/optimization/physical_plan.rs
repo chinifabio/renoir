@@ -131,9 +131,7 @@ impl StreamType {
 
     pub(crate) fn group_by_expr(self, key: Vec<Expr>) -> Self {
         match self {
-            StreamType::Stream(stream) => {
-                StreamType::KeyedStream(stream.group_by_expr(key).into_box())
-            }
+            StreamType::Stream(stream) => StreamType::KeyedStream(stream.group_by_expr(key)),
             _ => panic!("Cannot group by on a {}", self),
         }
     }
@@ -148,27 +146,61 @@ impl StreamType {
     }
 
     pub(crate) fn select(self, columns: Vec<Expr>) -> Self {
-        let mapping = move |item| {
-            let new_item_content = columns
-                .iter()
-                .map(|expr| expr.evaluate(&item))
-                .collect_vec();
-            if new_item_content.len() == 1 {
-                StreamItem::DataItem(NoirData::NoirType(
-                    new_item_content.into_iter().next().unwrap(),
-                ))
-            } else {
-                StreamItem::DataItem(NoirData::Row(new_item_content))
-            }
-        };
+        let projections = columns.clone();
         match self {
             StreamType::Stream(stream) => {
-                let stream = stream.map(mapping).into_box();
-                StreamType::Stream(stream)
+                let temp_stream = stream.map(move |item| {
+                    projections
+                        .iter()
+                        .map(|expr| expr.evaluate(&item))
+                        .collect_vec()
+                });
+                if columns.iter().any(|e| e.is_aggregator()) {
+                    let stream = temp_stream
+                        .reduce(move |mut accumulator, item| {
+                            for i in 0..accumulator.len() {
+                                accumulator[i] = columns[i].accumulate(accumulator[i], item[i]);
+                            }
+                            accumulator
+                        })
+                        .map(StreamItem::from)
+                        .into_box();
+                    StreamType::Stream(stream)
+                } else {
+                    StreamType::Stream(temp_stream.map(StreamItem::from).into_box())
+                }
             }
             StreamType::KeyedStream(stream) => {
-                let stream = stream.0.map(mapping).into_box();
-                StreamType::Stream(stream)
+                let temp_stream = stream
+                    .0
+                    .map(move |item| {
+                        let temp: Vec<NoirType> = projections
+                            .iter()
+                            .map(|expr| expr.evaluate(&item))
+                            .collect();
+                        let (key, _) = item.into_kv();
+                        StreamItem::from(temp).absorb_key(key)
+                    })
+                    .to_keyed();
+                if columns.iter().any(|e| e.is_aggregator()) {
+                    let stream = temp_stream
+                        .0
+                        .group_by_reduce(
+                            |item| item.get_key().unwrap(),
+                            move |acc, item| {
+                                for i in 0..acc.len() {
+                                    acc[i] = columns[i].accumulate(acc[i], item[i]);
+                                }
+                            },
+                        )
+                        .0
+                        .map(|(key, data)| data.drop_key().absorb_key(key))
+                        .to_keyed()
+                        .into_box();
+                    StreamType::KeyedStream(stream)
+                } else {
+                    StreamType::KeyedStream(temp_stream.into_box())
+                }
             }
             _ => panic!("Cannot select on a {}", self),
         }

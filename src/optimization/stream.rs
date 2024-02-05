@@ -1,7 +1,5 @@
 use std::path::PathBuf;
 
-use itertools::Itertools;
-
 use crate::{
     box_op::BoxedOperator,
     data_type::{Schema, StreamItem},
@@ -25,7 +23,7 @@ where
     }
 
     pub fn group_by_expr(self, keyer: Vec<Expr>) -> KeyedStream<BoxedOperator<StreamItem>> {
-        self.group_by(move |item: &StreamItem| keyer.iter().map(|k| k.evaluate(item)).collect_vec())
+        self.group_by(move |item: &StreamItem| keyer.iter().map(|k| k.evaluate(item)).collect())
             .unkey()
             .map(|(k, v)| v.absorb_key(k))
             .to_keyed()

@@ -215,6 +215,10 @@ impl ProjectionPushdown {
                 op,
                 expr: Box::new(Self::replace_dependencies(*expr, accumulator)),
             },
+            Expr::AggregateExpr { op, expr } => Expr::AggregateExpr {
+                op,
+                expr: Box::new(Self::replace_dependencies(*expr, accumulator)),
+            },
             Expr::Empty => panic!("Empty expression"),
         }
     }
@@ -429,6 +433,33 @@ pub mod test {
                     left_on: vec![col(0), col(1)],
                     right_on: vec![col(0), col(1)],
                     join_type: JoinType::Inner,
+                }),
+            }),
+        };
+
+        assert_eq!(expected, optimized);
+    }
+
+    #[test]
+    fn pushdown_groupby() {
+        let target = create_scan()
+            .group_by([col(0).modulo(i(2))])
+            .select([sum(col(1))])
+            .collect_vec();
+
+        let optimized = ProjectionPushdown::optimize(target).unwrap();
+
+        let expected = LogicPlan::CollectVec {
+            input: Box::new(LogicPlan::Select {
+                columns: vec![sum(col(1))],
+                input: Box::new(LogicPlan::GroupBy {
+                    key: vec![col(0).modulo(i(2))],
+                    input: Box::new(LogicPlan::TableScan {
+                        path: "test.csv".into(),
+                        predicate: None,
+                        projections: Some(vec![0, 1]),
+                        schema: Some(Schema::same_type(10, NoirTypeKind::Int32)),
+                    }),
                 }),
             }),
         };

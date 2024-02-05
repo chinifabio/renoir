@@ -1,4 +1,9 @@
-use std::{collections::HashMap, fmt::Display, ops::Index, usize};
+use std::{
+    collections::HashMap,
+    fmt::Display,
+    ops::{Index, IndexMut},
+    usize,
+};
 
 use average::{Estimate, Quantile};
 use quantiles::ckms::CKMS;
@@ -1032,7 +1037,25 @@ impl Index<usize> for NoirData {
                 if index == 0 {
                     a
                 } else {
-                    panic!("Index {} out of bounds for {}!", index, self)
+                    panic!(
+                        "NOIR DATA: Index {} out of bounds for single col [{}]!",
+                        index, self
+                    )
+                }
+            }
+        }
+    }
+}
+
+impl IndexMut<usize> for NoirData {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        match self {
+            NoirData::Row(row) => &mut row[index],
+            NoirData::NoirType(a) => {
+                if index == 0 {
+                    a
+                } else {
+                    panic!("NOIR DATA: Index {} out of bounds for single col!", index)
                 }
             }
         }
