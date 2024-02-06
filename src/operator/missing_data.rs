@@ -1,9 +1,10 @@
 use std::{collections::VecDeque, fmt::Display};
 
+use crate::data_type::noir_data::NoirData;
+use crate::data_type::noir_type::NoirType;
 use crate::operator::Timestamp;
 use crate::{
     block::{BlockStructure, OperatorStructure},
-    data_type::{NoirData, NoirType},
     ExecutionMetadata, Stream,
 };
 

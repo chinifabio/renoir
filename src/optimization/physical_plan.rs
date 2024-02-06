@@ -4,41 +4,24 @@ use std::{fmt::Display, sync::Arc};
 use itertools::Itertools;
 use parking_lot::Mutex;
 
+use crate::data_type::noir_data::NoirData;
+use crate::data_type::noir_type::NoirType;
+use crate::data_type::schema::Schema;
+use crate::data_type::stream_item::StreamItem;
 use crate::{
-    block::NextStrategy,
     box_op::BoxedOperator,
-    data_type::{NoirData, NoirType, Schema, StreamItem},
     environment::StreamEnvironmentInner,
-    operator::{end::End, sink::StreamOutput, source::RowCsvSource},
+    operator::{sink::StreamOutput, source::RowCsvSource},
     optimization::dsl::expressions::Expr,
-    stream::KeyedItem,
-    KeyedStream, Stream,
+    Stream,
 };
 
 use super::logical_plan::{JoinType, LogicPlan};
 
-impl KeyedItem for NoirData {
-    type Key = NoirData;
-
-    type Value = NoirData;
-
-    fn key(&self) -> &Self::Key {
-        self
-    }
-
-    fn value(&self) -> &Self::Value {
-        self
-    }
-
-    fn into_kv(self) -> (Self::Key, Self::Value) {
-        (self.clone(), self)
-    }
-}
-
 #[allow(clippy::type_complexity)]
 pub(crate) enum StreamType {
     Stream(Stream<BoxedOperator<StreamItem>>),
-    KeyedStream(KeyedStream<BoxedOperator<StreamItem>>),
+    KeyedStream(Stream<BoxedOperator<StreamItem>>),
     StreamOutput(StreamOutput<Vec<StreamItem>>),
 }
 
@@ -118,13 +101,7 @@ impl StreamType {
     pub(crate) fn shuffle(self) -> Self {
         match self {
             StreamType::Stream(stream) => StreamType::Stream(stream.shuffle().into_box()),
-            StreamType::KeyedStream(stream) => StreamType::KeyedStream(
-                stream
-                    .0
-                    .split_block(End::new, NextStrategy::random())
-                    .to_keyed()
-                    .into_box(),
-            ),
+            StreamType::KeyedStream(stream) => StreamType::KeyedStream(stream.shuffle().into_box()),
             _ => panic!("Cannot shuffle on a {}", self),
         }
     }
@@ -139,7 +116,7 @@ impl StreamType {
     pub(crate) fn drop_key(self) -> Self {
         match self {
             StreamType::KeyedStream(stream) => {
-                StreamType::Stream(stream.0.map(|i| i.drop_key()).into_box())
+                StreamType::Stream(stream.map(|i| i.drop_key()).into_box())
             }
             _ => panic!("Cannot drop key on a {}", self),
         }
@@ -171,22 +148,16 @@ impl StreamType {
                 }
             }
             StreamType::KeyedStream(stream) => {
-                let temp_stream = stream
-                    .0
-                    .map(move |item| {
+                let temp_stream = stream.map(move |item| {
                         let temp: Vec<NoirType> = projections
                             .iter()
                             .map(|expr| expr.evaluate(&item))
                             .collect();
-                        let (key, _) = item.into_kv();
-                        StreamItem::from(temp).absorb_key(key)
-                    })
-                    .to_keyed();
+                        StreamItem::from(temp).absorb_key(item.get_key().unwrap().to_vec())
+                    });
                 if columns.iter().any(|e| e.is_aggregator()) {
-                    let stream = temp_stream
-                        .0
-                        .group_by_reduce(
-                            |item| item.get_key().unwrap(),
+                    let stream = temp_stream.group_by_reduce(
+                            |item| item.get_key().unwrap().to_vec(),
                             move |acc, item| {
                                 for i in 0..acc.len() {
                                     acc[i] = columns[i].accumulate(acc[i], item[i]);
@@ -195,7 +166,6 @@ impl StreamType {
                         )
                         .0
                         .map(|(key, data)| data.drop_key().absorb_key(key))
-                        .to_keyed()
                         .into_box();
                     StreamType::KeyedStream(stream)
                 } else {
@@ -217,7 +187,7 @@ impl StreamType {
     pub(crate) fn collect_vec(self) -> Self {
         match self {
             StreamType::Stream(stream) => StreamType::StreamOutput(stream.collect_vec()),
-            StreamType::KeyedStream(stream) => StreamType::StreamOutput(stream.0.collect_vec()),
+            StreamType::KeyedStream(stream) => StreamType::StreamOutput(stream.collect_vec()),
             _ => panic!("Cannot collect vec on a {}", self),
         }
     }
@@ -237,7 +207,6 @@ impl StreamType {
                     )
                     .0
                     .map(StreamItem::from)
-                    .to_keyed()
                     .into_box();
                 StreamType::KeyedStream(stream)
             }
@@ -263,7 +232,6 @@ impl StreamType {
                     )
                     .0
                     .map(move |item| unwrap_left_join(item, item_len))
-                    .to_keyed()
                     .into_box();
                 StreamType::KeyedStream(stream)
             }
@@ -289,7 +257,6 @@ impl StreamType {
                     )
                     .0
                     .map(move |item| unwrap_outer_join(item, item_len))
-                    .to_keyed()
                     .into_box();
                 StreamType::KeyedStream(stream)
             }
@@ -320,7 +287,7 @@ fn unwrap_left_join(
         Some(right) => StreamItem::from((item.0, (left, right))),
         None => {
             let right = NoirData::Row(
-                (left.value().len()..item_len)
+                (left.len()..item_len)
                     .map(|_| NoirType::None())
                     .collect(),
             );
@@ -344,7 +311,7 @@ fn unwrap_outer_join(
         (Some(left), Some(right)) => StreamItem::from((item.0, (left, right))),
         (Some(left), None) => {
             let right = NoirData::Row(
-                (left.value().len()..item_len)
+                (left.len()..item_len)
                     .map(|_| NoirType::None())
                     .collect(),
             );
@@ -352,7 +319,7 @@ fn unwrap_outer_join(
         }
         (None, Some(right)) => {
             let left = NoirData::Row(
-                (right.value().len()..item_len)
+                (right.len()..item_len)
                     .map(|_| NoirType::None())
                     .collect(),
             );

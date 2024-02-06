@@ -3,9 +3,10 @@ use std::fmt::Display;
 use super::StreamElement;
 use super::{fold::Fold, Data, ExchangeData, Operator, SimpleStartOperator};
 use crate::block::{BlockStructure, OperatorStructure};
+use crate::data_type::noir_data::NoirData;
 use crate::operator::Timestamp;
 use crate::ExecutionMetadata;
-use crate::{data_type::NoirData, Replication, Stream};
+use crate::{Replication, Stream};
 
 impl<I, Op> Stream<Op>
 where
@@ -287,7 +288,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::data_type::{NoirData, NoirType};
+    use crate::data_type::noir_data::NoirData;
+    use crate::data_type::noir_type::NoirType;
     use crate::operator::min::MinNoirData;
     use crate::operator::{Operator, StreamElement};
     use crate::test::FakeOperator;

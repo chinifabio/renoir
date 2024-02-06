@@ -2,9 +2,9 @@ use core::fmt;
 
 use serde::{de::Visitor, Deserialize, Deserializer};
 
-use crate::data_type::NoirType;
+use crate::data_type::noir_type::NoirType;
 
-use super::NoirDataCsv;
+use crate::data_type::noir_data::NoirDataCsv;
 
 impl<'de> Deserialize<'de> for NoirDataCsv {
     fn deserialize<D>(deserializer: D) -> Result<NoirDataCsv, D::Error>

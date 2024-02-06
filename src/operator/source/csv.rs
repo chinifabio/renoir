@@ -9,7 +9,8 @@ use csv::{ByteRecord, Reader, ReaderBuilder, Terminator, Trim};
 use serde::Deserialize;
 
 use crate::block::{BlockStructure, OperatorKind, OperatorStructure, Replication};
-use crate::data_type::{NoirData, NoirDataCsv, Schema};
+use crate::data_type::noir_data::{NoirData, NoirDataCsv};
+use crate::data_type::schema::Schema;
 use crate::operator::source::Source;
 use crate::operator::{Data, Operator, StreamElement};
 use crate::optimization::dsl::expressions::Expr;
@@ -471,7 +472,9 @@ mod tests {
     use tempfile::NamedTempFile;
 
     use crate::config::EnvironmentConfig;
-    use crate::data_type::{NoirData, NoirDataCsv, NoirType};
+    use crate::data_type::noir_data::NoirData;
+    use crate::data_type::noir_data::NoirDataCsv;
+    use crate::data_type::noir_type::NoirType;
     use crate::environment::StreamEnvironment;
     use crate::operator::source::CsvSource;
 

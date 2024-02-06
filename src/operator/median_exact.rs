@@ -6,7 +6,8 @@ use std::ops::{Add, Div};
 use std::vec;
 
 use crate::block::{BlockStructure, OperatorKind, OperatorStructure};
-use crate::data_type::{NoirData, NoirType};
+use crate::data_type::noir_data::NoirData;
+use crate::data_type::noir_type::NoirType;
 use crate::operator::{ExchangeData, Operator, StreamElement};
 use crate::scheduler::ExecutionMetadata;
 use crate::{Replication, Stream};
@@ -606,7 +607,6 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{
-        data_type::NoirType,
         operator::Operator,
         operator::{median_exact::MedianExact, StreamElement},
         test::FakeOperator,
@@ -651,7 +651,8 @@ mod tests {
         assert_eq!(median.next(), StreamElement::Terminate);
     }
 
-    use crate::data_type::NoirData;
+    use crate::data_type::noir_data::NoirData;
+    use crate::data_type::noir_type::NoirType;
     use crate::operator::median_exact::MedianExactNoirData;
 
     #[test]

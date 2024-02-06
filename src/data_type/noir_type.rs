@@ -5,11 +5,10 @@ use std::fmt::Display;
 use std::hash::Hash;
 use std::ops::{Add, AddAssign, BitXor, Div, DivAssign, Mul, Neg, Not, Rem, Sub, SubAssign};
 
+use serde::{Deserialize, Serialize};
 use sha2::digest::typenum::Pow;
 
-use crate::data_type::NoirType;
-
-use super::NoirData;
+use crate::data_type::noir_data::NoirData;
 
 impl NoirType {
     pub fn sqrt(self) -> NoirType {
@@ -601,7 +600,7 @@ impl Display for NoirType {
 mod tests {
     use std::cmp::Ordering;
 
-    use super::NoirType;
+    use crate::data_type::noir_type::NoirType;
 
     #[test]
     fn test_ord() {
@@ -674,5 +673,39 @@ mod tests {
         let i_a = NoirType::Int32(9);
 
         assert_eq!(i_a.sqrt(), NoirType::Float32(3.0));
+    }
+}
+
+/// NoirType is the basic data type in Noir.
+/// It can be either an Int32 or a Float32.
+/// NaN defines a value that cannot be used in any calculation and the operators should be able to handle it.
+/// None defines a missing value.
+#[derive(Clone, Deserialize, Serialize, Debug, Copy)]
+pub enum NoirType {
+    Int32(i32),
+    Float32(f32),
+    Bool(bool),
+    NaN(),
+    None(),
+}
+
+#[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Eq, Hash, Copy)]
+pub enum NoirTypeKind {
+    Int32,
+    Float32,
+    Bool,
+    NaN,
+    None,
+}
+
+impl Display for NoirTypeKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NoirTypeKind::Int32 => write!(f, "Int32"),
+            NoirTypeKind::Float32 => write!(f, "Float32"),
+            NoirTypeKind::Bool => write!(f, "Bool"),
+            NoirTypeKind::NaN => write!(f, "NaN"),
+            NoirTypeKind::None => write!(f, "None"),
+        }
     }
 }

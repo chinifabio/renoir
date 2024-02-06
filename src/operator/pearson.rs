@@ -1,7 +1,6 @@
-use crate::{
-    data_type::{NoirData, NoirType},
-    Stream,
-};
+use crate::data_type::noir_data::NoirData;
+use crate::data_type::noir_type::NoirType;
+use crate::Stream;
 
 use super::Operator;
 

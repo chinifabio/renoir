@@ -1,7 +1,8 @@
 use std::fmt::Display;
 
 use crate::block::{BlockStructure, OperatorStructure};
-use crate::data_type::{NoirData, StreamItem};
+use crate::data_type::noir_data::NoirData;
+use crate::data_type::stream_item::StreamItem;
 use crate::operator::{Operator, StreamElement};
 use crate::optimization::dsl::expressions::Expr;
 use crate::scheduler::ExecutionMetadata;
@@ -71,8 +72,10 @@ pub mod test {
     use itertools::Itertools;
     use rand::{rngs::ThreadRng, Rng};
 
+    use crate::data_type::noir_data::NoirData;
+    use crate::data_type::noir_type::NoirType;
+    use crate::data_type::stream_item::StreamItem;
     use crate::{
-        data_type::{NoirData, NoirType, StreamItem},
         operator::{Operator, StreamElement},
         optimization::dsl::expressions::*,
         test::FakeOperator,
@@ -86,11 +89,11 @@ pub mod test {
         for _ in 0..col {
             row.push(NoirType::Int32(rng.gen()))
         }
-        StreamItem::DataItem(NoirData::Row(row))
+        StreamItem::from(NoirData::Row(row))
     }
 
     fn random_keyed_row(rng: &mut ThreadRng) -> StreamItem {
-        StreamItem::KeyedDataItem(vec![NoirType::None()], NoirData::from(random_row(rng)))
+        StreamItem::from(NoirData::from(random_row(rng)))
     }
 
     fn test_predicate(

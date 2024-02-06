@@ -1,4 +1,5 @@
-use crate::{data_type::NoirData, Stream};
+use crate::data_type::noir_data::NoirData;
+use crate::Stream;
 
 use super::Operator;
 
@@ -197,7 +198,7 @@ where
                                 / (v * (v - 1.0) * (v - 2.0) * (v - 3.0));
                             let k2 = (v * s2 - s1.powi(2)) / (v * (v - 1.0));
 
-                            kurt.push(crate::data_type::NoirType::Float32(
+                            kurt.push(crate::data_type::noir_type::NoirType::Float32(
                                 (k4 / k2.powi(2)) as f32,
                             ));
                         } else if v.is_nan()
@@ -206,9 +207,9 @@ where
                             || s3[i].is_nan()
                             || s4[i].is_nan()
                         {
-                            kurt.push(crate::data_type::NoirType::NaN())
+                            kurt.push(crate::data_type::noir_type::NoirType::NaN())
                         } else {
-                            kurt.push(crate::data_type::NoirType::None())
+                            kurt.push(crate::data_type::noir_type::NoirType::None())
                         }
                     }
 
@@ -236,7 +237,7 @@ where
 
                         let k2 = (count * s2 - s1.powi(2)) / (count * (count - 1.0));
 
-                        NoirData::NoirType(crate::data_type::NoirType::Float32(
+                        NoirData::NoirType(crate::data_type::noir_type::NoirType::Float32(
                             (k4 / k2.powi(2)) as f32,
                         ))
                     } else if count.is_nan()
@@ -245,9 +246,9 @@ where
                         || s3.is_nan()
                         || s4.is_nan()
                     {
-                        NoirData::NoirType(crate::data_type::NoirType::NaN())
+                        NoirData::NoirType(crate::data_type::noir_type::NoirType::NaN())
                     } else {
-                        NoirData::NoirType(crate::data_type::NoirType::None())
+                        NoirData::NoirType(crate::data_type::noir_type::NoirType::None())
                     }
                 }
                 _ => panic!("Fatal error in Kurtosis"),

@@ -288,7 +288,8 @@ impl OptimizationRule for PredicatePushdown {
 #[cfg(test)]
 pub mod test {
 
-    use crate::data_type::{NoirTypeKind, Schema};
+    use crate::data_type::noir_type::NoirTypeKind;
+    use crate::data_type::schema::Schema;
     use crate::optimization::dsl::expressions::*;
     use crate::optimization::logical_plan::{JoinType, LogicPlan};
     use crate::optimization::optimizer::OptimizationRule;

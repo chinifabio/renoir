@@ -2,11 +2,11 @@ use std::{fmt::Display, marker::PhantomData};
 
 use dyn_clone::DynClone;
 
+use crate::data_type::stream_item::StreamItem;
 use crate::{
     block::BlockStructure,
-    data_type::StreamItem,
     operator::{Data, Operator, StreamElement},
-    ExecutionMetadata, KeyedStream, Stream,
+    ExecutionMetadata, Stream,
 };
 
 pub(crate) trait DynOperator<T: Data>: DynClone {
@@ -95,11 +95,11 @@ where
     }
 }
 
-impl<Op> KeyedStream<Op>
-where
-    Op: Operator<Out = StreamItem> + 'static,
-{
-    pub fn into_box(self) -> KeyedStream<BoxedOperator<Op::Out>> {
-        self.add_operator(|prev| BoxedOperator::new(prev))
-    }
-}
+// impl<Op> KeyedStream<Op>
+// where
+//     Op: Operator<Out = StreamItem> + 'static,
+// {
+//     pub fn into_box(self) -> KeyedStream<BoxedOperator<Op::Out>> {
+//         self.add_operator(|prev| BoxedOperator::new(prev))
+//     }
+// }

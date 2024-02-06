@@ -5,11 +5,13 @@ use std::{
     usize,
 };
 
+use crate::data_type::noir_type::NoirType;
 use average::{Estimate, Quantile};
 use quantiles::ckms::CKMS;
+use serde::{Deserialize, Serialize};
 use sha2::digest::typenum::Pow;
 
-use super::{greenwald_khanna::Gka, NoirData, NoirDataCsv, NoirType};
+use super::{greenwald_khanna::Gka, stream_item::StreamItem};
 
 macro_rules! initialize {
     (&$s: ident , $v: ident) => {
@@ -61,6 +63,15 @@ macro_rules! impl_func {
             }
         }
     };
+}
+
+/// NoirData is the data type that is used in Noir.
+/// It can be either a row of NoirType or a single NoirType, this reduce the allocation of memory necessary
+/// when we are dealing with a single value.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Hash)]
+pub enum NoirData {
+    Row(Vec<NoirType>),
+    NoirType(NoirType),
 }
 
 #[allow(clippy::redundant_closure_call)]
@@ -1027,6 +1038,12 @@ impl From<NoirDataCsv> for NoirData {
     }
 }
 
+impl From<StreamItem> for NoirData {
+    fn from(value: StreamItem) -> Self {
+        NoirData::Row(Vec::from(value))
+    }
+}
+
 impl Index<usize> for NoirData {
     type Output = NoirType;
 
@@ -1060,4 +1077,10 @@ impl IndexMut<usize> for NoirData {
             }
         }
     }
+}
+
+#[derive(Clone, Debug)]
+pub enum NoirDataCsv {
+    Row(Vec<NoirType>),
+    NoirType(NoirType),
 }

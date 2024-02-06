@@ -1,12 +1,13 @@
 use std::path::PathBuf;
 
+use crate::data_type::schema::Schema;
+use crate::data_type::stream_item::StreamItem;
 use crate::{
     box_op::BoxedOperator,
-    data_type::{Schema, StreamItem},
     operator::{filter_expr::FilterExpr, sink::StreamOutput, Operator},
     optimization::dsl::expressions::Expr,
     stream::OptStream,
-    KeyedStream, Stream,
+    Stream,
 };
 
 use super::{
@@ -22,23 +23,21 @@ where
         self.add_operator(|prev| FilterExpr::new(prev, expr))
     }
 
-    pub fn group_by_expr(self, keyer: Vec<Expr>) -> KeyedStream<BoxedOperator<StreamItem>> {
-        self.group_by(move |item: &StreamItem| keyer.iter().map(|k| k.evaluate(item)).collect())
-            .unkey()
-            .map(|(k, v)| v.absorb_key(k))
-            .to_keyed()
+    pub fn group_by_expr(self, keys: Vec<Expr>) -> Stream<BoxedOperator<StreamItem>> {
+        self.group_by(move |item: &StreamItem| keys.iter().map(|k| k.evaluate(item)).collect())
+            .0.map(|(k, v)| v.absorb_key(k))
             .into_box()
     }
 }
 
-impl<Op> KeyedStream<Op>
-where
-    Op: Operator<Out = StreamItem> + 'static,
-{
-    pub fn filter_expr(self, expr: Expr) -> KeyedStream<FilterExpr<Op>> {
-        self.add_operator(|prev| FilterExpr::new(prev, expr))
-    }
-}
+// impl<Op> KeyedStream<Op>
+// where
+//     Op: Operator<Out = StreamItem> + 'static,
+// {
+//     pub fn filter_expr(self, expr: Expr) -> KeyedStream<FilterExpr<Op>> {
+//         self.add_operator(|prev| FilterExpr::new(prev, expr))
+//     }
+// }
 
 impl OptStream {
     pub fn collect_vec(self) -> StreamOutput<Vec<StreamItem>> {

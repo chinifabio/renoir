@@ -3,7 +3,7 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::path::PathBuf;
 
-use crate::data_type::Schema;
+use crate::data_type::schema::Schema;
 
 use super::dsl::expressions::*;
 use super::optimizer::*;

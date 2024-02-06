@@ -6,7 +6,10 @@ use std::path::PathBuf;
 use csv::{Reader, ReaderBuilder, Terminator, Trim};
 
 use crate::block::{BlockStructure, OperatorKind, OperatorStructure, Replication};
-use crate::data_type::{NoirData, NoirType, NoirTypeKind, Schema, StreamItem};
+use crate::data_type::noir_data::NoirData;
+use crate::data_type::noir_type::{NoirType, NoirTypeKind};
+use crate::data_type::schema::Schema;
+use crate::data_type::stream_item::StreamItem;
 use crate::operator::source::Source;
 use crate::operator::{Operator, StreamElement};
 use crate::optimization::dsl::expressions::Expr;
@@ -351,12 +354,12 @@ impl Operator for RowCsvSource {
             };
             match (data, &self.options.filter_at_source) {
                 (Some(item), Some(filter)) => {
-                    let item = StreamItem::DataItem(item);
+                    let item = StreamItem::from(item);
                     if filter.evaluate(&item).into() {
                         return StreamElement::Item(item);
                     }
                 }
-                (Some(item), None) => return StreamElement::Item(StreamItem::DataItem(item)),
+                (Some(item), None) => return StreamElement::Item(StreamItem::from(item)),
                 _ => return StreamElement::FlushAndRestart,
             }
         }
@@ -541,7 +544,8 @@ mod tests {
     use tempfile::NamedTempFile;
 
     use crate::config::EnvironmentConfig;
-    use crate::data_type::{NoirData, NoirType};
+    use crate::data_type::noir_data::NoirData;
+    use crate::data_type::noir_type::NoirType;
     use crate::environment::StreamEnvironment;
     use crate::operator::source::csv_fast::RowCsvSource;
 

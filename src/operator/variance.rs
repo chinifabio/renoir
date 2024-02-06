@@ -1,4 +1,5 @@
-use crate::{data_type::NoirData, Stream};
+use crate::data_type::noir_data::NoirData;
+use crate::Stream;
 
 use super::Operator;
 

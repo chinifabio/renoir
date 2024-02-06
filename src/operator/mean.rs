@@ -1,6 +1,7 @@
 use super::{fold::Fold, Data, ExchangeData, Operator};
-use crate::data_type::NoirType;
-use crate::{data_type::NoirData, Replication, Stream};
+use crate::data_type::noir_data::NoirData;
+use crate::data_type::noir_type::NoirType;
+use crate::{Replication, Stream};
 use std::ops::{AddAssign, Div};
 
 impl<I, Op> Stream<Op>

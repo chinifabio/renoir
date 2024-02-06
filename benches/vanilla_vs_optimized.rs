@@ -3,11 +3,14 @@ use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main};
 use criterion::{BenchmarkId, Criterion, Throughput};
-use noir_compute::data_type::{NoirData, NoirType, NoirTypeKind, Schema, StreamItem};
+use noir_compute::data_type::schema::Schema;
 use noir_compute::optimization::dsl::expressions::*;
 
 mod common;
 use common::*;
+use noir_compute::data_type::noir_data::NoirData;
+use noir_compute::data_type::noir_type::{NoirType, NoirTypeKind};
+use noir_compute::data_type::stream_item::StreamItem;
 use rand::rngs::ThreadRng;
 use rand::RngCore;
 
@@ -235,7 +238,7 @@ fn random_row(rng: &mut ThreadRng) -> StreamItem {
     for _ in 0..col {
         row.push(NoirType::Int32(rng.next_u32() as i32))
     }
-    StreamItem::DataItem(NoirData::Row(row))
+    StreamItem::new(row)
 }
 
 fn expr_vs_closures(c: &mut Criterion) {

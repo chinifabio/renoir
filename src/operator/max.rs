@@ -3,9 +3,9 @@ use std::fmt::Display;
 use super::{
     fold::Fold, Data, ExchangeData, Operator, SimpleStartOperator, StreamElement, Timestamp,
 };
+use crate::data_type::noir_data::NoirData;
 use crate::{
     block::{BlockStructure, OperatorStructure},
-    data_type::NoirData,
     ExecutionMetadata, Replication, Stream,
 };
 
@@ -289,7 +289,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::data_type::{NoirData, NoirType};
+    use crate::data_type::noir_data::NoirData;
+    use crate::data_type::noir_type::NoirType;
     use crate::operator::max::MaxNoirData;
     use crate::operator::{Operator, StreamElement};
     use crate::test::FakeOperator;

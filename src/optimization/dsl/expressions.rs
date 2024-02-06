@@ -1,7 +1,8 @@
 use core::panic;
 use std::fmt::{Debug, Display};
 
-use crate::data_type::{NoirType, StreamItem};
+use crate::data_type::noir_type::NoirType;
+use crate::data_type::stream_item::StreamItem;
 
 #[derive(Clone, PartialEq, Eq, Debug, Copy, Hash)]
 pub enum ExprOp {
@@ -269,7 +270,7 @@ impl Expr {
     pub(crate) fn is_aggregator(&self) -> bool {
         matches!(self, Expr::AggregateExpr { .. })
     }
-    
+
     pub(crate) fn accumulate(&self, a: NoirType, b: NoirType) -> NoirType {
         match self {
             Expr::AggregateExpr { op, .. } => match op {
@@ -373,7 +374,8 @@ pub fn avg(expr: Expr) -> Expr {
 pub mod test {
     use std::vec;
 
-    use crate::data_type::{NoirData, NoirType};
+    use crate::data_type::noir_data::NoirData;
+    use crate::data_type::noir_type::NoirType;
 
     use super::*;
 

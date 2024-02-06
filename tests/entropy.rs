@@ -1,9 +1,8 @@
 use std::vec;
 
-use noir_compute::{
-    data_type::{NoirData, NoirType},
-    operator::source::IteratorSource,
-};
+use noir_compute::data_type::noir_data::NoirData;
+use noir_compute::data_type::noir_type::NoirType;
+use noir_compute::operator::source::IteratorSource;
 use utils::TestHelper;
 
 mod utils;

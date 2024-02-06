@@ -1,7 +1,7 @@
 use std::ops::{Add, Div, Mul, Rem, Sub};
 use std::ops::{BitAnd, BitOr, BitXor};
 
-use crate::data_type::NoirType;
+use crate::data_type::noir_type::NoirType;
 
 use super::expressions::*;
 

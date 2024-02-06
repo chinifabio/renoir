@@ -1,7 +1,6 @@
-use noir_compute::{
-    data_type::{NoirData, NoirType},
-    prelude::IteratorSource,
-};
+use noir_compute::data_type::noir_data::NoirData;
+use noir_compute::data_type::noir_type::NoirType;
+use noir_compute::prelude::IteratorSource;
 use utils::TestHelper;
 
 mod utils;
