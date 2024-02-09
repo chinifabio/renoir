@@ -128,7 +128,7 @@ pub use config::EnvironmentConfig;
 pub use environment::StreamEnvironment;
 pub use operator::iteration::IterationStateHandle;
 pub use scheduler::ExecutionMetadata;
-pub use stream::{KeyedStream, Stream, WindowedStream};
+pub use stream::{KeyedStream, Stream, WindowedStream, OptStream};
 
 use crate::block::BlockStructure;
 use crate::network::Coord;

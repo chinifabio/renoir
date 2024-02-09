@@ -17,6 +17,12 @@ impl From<f32> for Expr {
     }
 }
 
+impl From<bool> for Expr {
+    fn from(b: bool) -> Self {
+        lit(NoirType::Bool(b))
+    }
+}
+
 // ----- Add -----
 
 impl Add for Expr {

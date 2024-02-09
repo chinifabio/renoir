@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use criterion::{criterion_group, criterion_main};
+use criterion::measurement::{Measurement, WallTime};
+use criterion::{criterion_group, criterion_main, BenchmarkGroup};
 use criterion::{BenchmarkId, Criterion, Throughput};
 use noir_compute::data_type::schema::Schema;
 use noir_compute::optimization::dsl::expressions::*;
@@ -11,6 +12,7 @@ use common::*;
 use noir_compute::data_type::noir_data::NoirData;
 use noir_compute::data_type::noir_type::{NoirType, NoirTypeKind};
 use noir_compute::data_type::stream_item::StreamItem;
+use noir_compute::StreamEnvironment;
 use rand::rngs::ThreadRng;
 use rand::RngCore;
 
@@ -30,7 +32,7 @@ fn predicate_pushdown(c: &mut Criterion) {
         group.throughput(Throughput::Elements(n_row as u64));
 
         group.bench_with_input(
-            BenchmarkId::new("Vanilla filter > select", n_col),
+            BenchmarkId::new("Vanilla filter > select", n_row),
             &source_file,
             |b, path| {
                 noir_bench_default(b, |env| {
@@ -43,7 +45,7 @@ fn predicate_pushdown(c: &mut Criterion) {
         );
 
         group.bench_with_input(
-            BenchmarkId::new("Optimized filter > select", n_col),
+            BenchmarkId::new("Optimized filter > select", n_row),
             &source_file,
             |b, path| {
                 noir_bench_default(b, |env| {
@@ -57,7 +59,7 @@ fn predicate_pushdown(c: &mut Criterion) {
         );
 
         group.bench_with_input(
-            BenchmarkId::new("Vanilla group-by", n_col),
+            BenchmarkId::new("Vanilla group-by", n_row),
             &source_file,
             |b, path| {
                 noir_bench_default(b, |env| {
@@ -70,7 +72,7 @@ fn predicate_pushdown(c: &mut Criterion) {
         );
 
         group.bench_with_input(
-            BenchmarkId::new("Optimized group-by", n_col),
+            BenchmarkId::new("Optimized group-by", n_row),
             &source_file,
             |b, path| {
                 noir_bench_default(b, |env| {
@@ -84,7 +86,7 @@ fn predicate_pushdown(c: &mut Criterion) {
         );
 
         group.bench_with_input(
-            BenchmarkId::new("Vanilla join > filter", n_col),
+            BenchmarkId::new("Vanilla join > filter", n_row),
             &source_file,
             |b, path| {
                 noir_bench_default(b, |env| {
@@ -104,7 +106,7 @@ fn predicate_pushdown(c: &mut Criterion) {
         );
 
         group.bench_with_input(
-            BenchmarkId::new("Optimize join > filter", n_col),
+            BenchmarkId::new("Optimize join > filter", n_row),
             &source_file,
             |b, path| {
                 noir_bench_default(b, |env| {
@@ -126,7 +128,7 @@ fn predicate_pushdown(c: &mut Criterion) {
 }
 
 fn projection_pushdown(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Predicate pushdown");
+    let mut group = c.benchmark_group("Projection pushdown");
     group.sample_size(SAMPLE_SIZE);
     group.measurement_time(MEASUREMENT_TIME);
     group.warm_up_time(WARM_UP_TIME);
@@ -222,7 +224,7 @@ fn projection_pushdown(c: &mut Criterion) {
                         .stream_csv_optimized(path.to_path_buf())
                         .with_schema(Schema::same_type(*n_col, NoirTypeKind::Int32));
                     left.join(right, &[col(0), col(1)], &[col(0), col(1)])
-                        .filter(col(2).eq(i(10)).and(col(102).eq(i(10))))
+                        .filter(col(2).eq(i(10)).and(col(n_col + 2).eq(i(10))))
                         .collect_vec();
                 });
             },
