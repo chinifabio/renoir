@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use criterion::measurement::{Measurement, WallTime};
-use criterion::{criterion_group, criterion_main, BenchmarkGroup};
+use criterion::{black_box, criterion_group, criterion_main};
 use criterion::{BenchmarkId, Criterion, Throughput};
 use noir_compute::data_type::schema::Schema;
+use noir_compute::optimization::arena::Arena;
 use noir_compute::optimization::dsl::expressions::*;
 
 mod common;
@@ -12,7 +12,6 @@ use common::*;
 use noir_compute::data_type::noir_data::NoirData;
 use noir_compute::data_type::noir_type::{NoirType, NoirTypeKind};
 use noir_compute::data_type::stream_item::StreamItem;
-use noir_compute::StreamEnvironment;
 use rand::rngs::ThreadRng;
 use rand::RngCore;
 
@@ -267,7 +266,7 @@ fn expr_vs_closures(c: &mut Criterion) {
             let closure = |item: &StreamItem| item[3].modulo(7) == NoirType::Int32(0);
             b.iter(move || {
                 for item in items.iter() {
-                    closure(item);
+                    closure(black_box(item));
                 }
             });
         });
@@ -276,10 +275,25 @@ fn expr_vs_closures(c: &mut Criterion) {
             let expr = col(3).modulo(i(7)).eq(i(0));
             b.iter(move || {
                 for item in items.iter() {
-                    expr.evaluate(item);
+                    expr.evaluate(black_box(item));
                 }
             });
         });
+
+        group.bench_with_input(
+            BenchmarkId::new("Arena Expression", size),
+            &items,
+            |b, items| {
+                let expr = col(3).modulo(i(7)).eq(i(0));
+                let mut arena = Arena::new();
+                let expr = expr.into_arena(&mut arena);
+                b.iter(move || {
+                    for item in items.iter() {
+                        evaluate_arena_expr(&expr, item, &arena);
+                    }
+                });
+            },
+        );
     }
 
     group.finish();
@@ -287,8 +301,8 @@ fn expr_vs_closures(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    predicate_pushdown,
-    projection_pushdown,
+    // predicate_pushdown,
+    // projection_pushdown,
     expr_vs_closures
 );
 criterion_main!(benches);

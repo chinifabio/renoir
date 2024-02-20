@@ -1,79 +1,86 @@
-use crate::data_type::noir_type::NoirType;
 use crate::data_type::noir_data::NoirData;
+use crate::data_type::noir_type::NoirType;
 use core::panic;
 use serde::{Deserialize, Serialize};
-use std::{fmt::Display, ops::{Index, IndexMut}};
+use std::{
+    fmt::Display,
+    ops::{Index, IndexMut},
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct StreamItem {
     values: Vec<NoirType>,
-    keys_from: i32,
+    values_from: usize,
 }
 
 impl StreamItem {
     pub fn new(values: Vec<NoirType>) -> Self {
         StreamItem {
             values,
-            keys_from: -1,
+            values_from: 0
         }
     }
 
-    pub fn new_with_key(values: Vec<NoirType>, i: i32) -> Self {
+    pub fn new_with_key(values: Vec<NoirType>, key_len: usize) -> Self {
         StreamItem {
             values,
-            keys_from: i,
+            values_from: key_len,
         }
     }
 
-    pub(crate) fn absorb_key(self, keys_columns: Vec<NoirType>) -> StreamItem {
-        if self.keys_from < 0 {
-            let len = self.values.len() as i32;
-            StreamItem::new_with_key([self.values, keys_columns].concat(), len)
+    pub(crate) fn absorb_key(self, mut keys_columns: Vec<NoirType>) -> StreamItem {
+        if self.values_from == 0 {
+            let len = keys_columns.len();
+            keys_columns.extend(self.values);
+            StreamItem::new_with_key(keys_columns, len)
         } else {
-            // StreamItem::new_with_key([self.values, k].concat(), self.keys_from)
             panic!("StreamItem already has a key")
         }
     }
 
     pub(crate) fn drop_key(self) -> StreamItem {
-        if self.keys_from < 0 {
+        if self.values_from == 0 {
             self
         } else {
-            StreamItem::new(self.values[0..self.keys_from as usize].to_vec())
+            StreamItem::new(self.values[self.values_from..self.values.len()].to_vec())
         }
     }
 
     pub(crate) fn get_key(&self) -> Option<&[NoirType]> {
-        if self.keys_from < 0 {
+        if self.values_from == 0 {
             None
         } else {
-            Some(&self.values[self.keys_from as usize..self.values.len()])
+            Some(&self.values[0..self.values_from])
         }
     }
 
     pub(crate) fn get_value(&self) -> &[NoirType] {
-        if self.keys_from < 0 {
+        if self.values_from == 0 {
             &self.values
         } else {
-            &self.values[0..self.keys_from as usize]
+            &self.values[self.values_from..self.values.len()]
         }
     }
 
-    pub(crate) fn len(&self) -> usize {
-        if self.keys_from < 0 {
-            self.values.len()
+    pub fn len(&self) -> usize {
+        if self.values_from == 0 {
+            self.values.len() - self.values_from
         } else {
-            self.keys_from as usize
+            self.values_from
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
 impl From<StreamItem> for Vec<NoirType> {
     fn from(data: StreamItem) -> Self {
-        if data.keys_from < 0 {
+        if data.values_from == 0 {
             data.values
         } else {
-            data.values[0..data.keys_from as usize].to_vec()
+            data.values[data.values_from..data.values.len()].to_vec()
         }
     }
 }
@@ -94,11 +101,12 @@ impl From<Vec<NoirType>> for StreamItem {
 }
 
 impl From<(Vec<NoirType>, NoirData)> for StreamItem {
-    fn from(data: (Vec<NoirType>, NoirData)) -> Self {
+    fn from(mut data: (Vec<NoirType>, NoirData)) -> Self {
         match data.1 {
             NoirData::Row(row) => {
-                let len = row.len() as i32;
-                StreamItem::new_with_key([row, data.0].concat(), len)
+                let len = data.0.len();
+                data.0.extend(row);
+                StreamItem::new_with_key(data.0, len)
             }
             NoirData::NoirType(t) => StreamItem::new_with_key([vec![t], data.0].concat(), 1),
         }
@@ -106,22 +114,28 @@ impl From<(Vec<NoirType>, NoirData)> for StreamItem {
 }
 
 impl From<(Vec<NoirType>, (StreamItem, StreamItem))> for StreamItem {
-    fn from (data: (Vec<NoirType>, (StreamItem, StreamItem))) -> Self {
-        let (key, (left, right)) = data;
-        let mut data = Vec::with_capacity(left.len() + right.len());
+    fn from(data: (Vec<NoirType>, (StreamItem, StreamItem))) -> Self {
+        let (mut key, (left, right)) = data;
+        let mut data: Vec<NoirType> = Vec::with_capacity(left.len() + right.len());
         data.extend(left.get_value());
         data.extend(right.get_value());
-        let len =data.len() as i32;
-        StreamItem::new_with_key([data, key].concat(), len)
+        let len = key.len();
+        key.extend(data);
+        StreamItem::new_with_key(key, len)
     }
 }
 
 impl Display for StreamItem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.keys_from < 0 {
+        if self.values_from == 0 {
             write!(f, "StreamItem({:?})", self.values)
         } else {
-            write!(f, "StreamItem(K: {:?}, V: {:?})", self.get_key().unwrap(), self.get_value())
+            write!(
+                f,
+                "StreamItem(K: {:?}, V: {:?})",
+                self.get_key().unwrap(),
+                self.get_value()
+            )
         }
     }
 }
@@ -130,7 +144,7 @@ impl Index<usize> for StreamItem {
     type Output = NoirType;
 
     fn index(&self, index: usize) -> &Self::Output {
-        if index >= self.keys_from as usize && index < self.values.len() {
+        if index >= self.values_from && index < self.values.len() {
             panic!("Cannot access key")
         }
 
@@ -144,7 +158,7 @@ impl Index<usize> for StreamItem {
 
 impl IndexMut<usize> for StreamItem {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
-        if index >= self.keys_from as usize && index < self.values.len() {
+        if index >= self.values_from && index < self.values.len() {
             panic!("Cannot modify key")
         }
 

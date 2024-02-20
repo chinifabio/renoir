@@ -50,7 +50,9 @@ pub(crate) fn to_stream(
                 .filter_at_source(predicate)
                 .project_at_source(projections)
                 .with_schema(schema);
-            let stream = StreamEnvironmentInner::stream(env, source).into_box();
+            let stream = StreamEnvironmentInner::stream(env, source)
+                .map(StreamItem::from)
+                .into_box();
             StreamType::Stream(stream)
         }
         LogicPlan::Filter { predicate, input } => to_stream(*input, env).filter_expr(predicate),
@@ -149,14 +151,15 @@ impl StreamType {
             }
             StreamType::KeyedStream(stream) => {
                 let temp_stream = stream.map(move |item| {
-                        let temp: Vec<NoirType> = projections
-                            .iter()
-                            .map(|expr| expr.evaluate(&item))
-                            .collect();
-                        StreamItem::from(temp).absorb_key(item.get_key().unwrap().to_vec())
-                    });
+                    let temp: Vec<NoirType> = projections
+                        .iter()
+                        .map(|expr| expr.evaluate(&item))
+                        .collect();
+                    StreamItem::from(temp).absorb_key(item.get_key().unwrap().to_vec())
+                });
                 if columns.iter().any(|e| e.is_aggregator()) {
-                    let stream = temp_stream.group_by_reduce(
+                    let stream = temp_stream
+                        .group_by_reduce(
                             |item| item.get_key().unwrap().to_vec(),
                             move |acc, item| {
                                 for i in 0..acc.len() {
@@ -286,11 +289,7 @@ fn unwrap_left_join(
     match item.1 .1 {
         Some(right) => StreamItem::from((item.0, (left, right))),
         None => {
-            let right = NoirData::Row(
-                (left.len()..item_len)
-                    .map(|_| NoirType::None())
-                    .collect(),
-            );
+            let right = NoirData::Row((left.len()..item_len).map(|_| NoirType::None()).collect());
             StreamItem::from((item.0, (left, right.into())))
         }
     }
@@ -310,19 +309,11 @@ fn unwrap_outer_join(
     match (item.1 .0, item.1 .1) {
         (Some(left), Some(right)) => StreamItem::from((item.0, (left, right))),
         (Some(left), None) => {
-            let right = NoirData::Row(
-                (left.len()..item_len)
-                    .map(|_| NoirType::None())
-                    .collect(),
-            );
+            let right = NoirData::Row((left.len()..item_len).map(|_| NoirType::None()).collect());
             StreamItem::from((item.0, (left, right.into())))
         }
         (None, Some(right)) => {
-            let left = NoirData::Row(
-                (right.len()..item_len)
-                    .map(|_| NoirType::None())
-                    .collect(),
-            );
+            let left = NoirData::Row((right.len()..item_len).map(|_| NoirType::None()).collect());
             StreamItem::from((item.0, (left.into(), right)))
         }
         (None, None) => {

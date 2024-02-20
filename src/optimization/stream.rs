@@ -25,7 +25,8 @@ where
 
     pub fn group_by_expr(self, keys: Vec<Expr>) -> Stream<BoxedOperator<StreamItem>> {
         self.group_by(move |item: &StreamItem| keys.iter().map(|k| k.evaluate(item)).collect())
-            .0.map(|(k, v)| v.absorb_key(k))
+            .0
+            .map(|(k, v)| v.absorb_key(k))
             .into_box()
     }
 }

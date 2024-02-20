@@ -1,3 +1,4 @@
+pub mod arena;
 pub mod dsl;
 pub(crate) mod logical_plan;
 pub(crate) mod optimizer;

@@ -108,6 +108,7 @@ macro_rules! impl_from {
 }
 
 impl_from!(i32, Int32);
+impl_from!(bool, Bool);
 
 macro_rules! impl_from_option {
     ($t:ty, $v:ident) => {
@@ -124,6 +125,7 @@ macro_rules! impl_from_option {
 
 impl_from_option!(i32, Int32);
 impl_from_option!(f32, Float32);
+impl_from_option!(bool, Bool);
 
 impl From<f32> for NoirType {
     fn from(item: f32) -> Self {

@@ -1,11 +1,13 @@
 use core::panic;
 use std::fmt::{Debug, Display};
+use std::ops::Index;
 
 use crate::data_type::noir_type::NoirType;
 use crate::data_type::stream_item::StreamItem;
+use crate::optimization::arena::Arena;
 
 #[derive(Clone, PartialEq, Eq, Debug, Copy, Hash)]
-pub enum ExprOp {
+pub enum BinaryOp {
     Eq,
     NotEq,
     Lt,
@@ -20,6 +22,10 @@ pub enum ExprOp {
     And,
     Or,
     Xor,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Copy, Hash)]
+pub enum UnaryOp {
     Floor,
     Ceil,
     Abs,
@@ -44,16 +50,35 @@ pub enum Expr {
     Literal(NoirType),
     BinaryExpr {
         left: ExprRef,
-        op: ExprOp,
+        op: BinaryOp,
         right: ExprRef,
     },
     UnaryExpr {
-        op: ExprOp,
+        op: UnaryOp,
         expr: ExprRef,
     },
     AggregateExpr {
         op: AggregateOp,
         expr: ExprRef,
+    },
+    Empty,
+}
+
+pub enum ArenaExpr {
+    NthColumn(usize),
+    Literal(NoirType),
+    BinaryExpr {
+        left: usize,
+        op: BinaryOp,
+        right: usize,
+    },
+    UnaryExpr {
+        op: UnaryOp,
+        expr: usize,
+    },
+    AggregateExpr {
+        op: AggregateOp,
+        expr: usize,
     },
     Empty,
 }
@@ -64,29 +89,27 @@ impl Display for Expr {
             Expr::NthColumn(n) => write!(f, "col({})", n),
             Expr::Literal(value) => write!(f, "{}", value),
             Expr::BinaryExpr { left, op, right } => match op {
-                ExprOp::Plus => write!(f, "({} + {})", left, right),
-                ExprOp::Minus => write!(f, "({} - {})", left, right),
-                ExprOp::Multiply => write!(f, "({} * {})", left, right),
-                ExprOp::Divide => write!(f, "({} / {})", left, right),
-                ExprOp::Eq => write!(f, "({} == {})", left, right),
-                ExprOp::And => write!(f, "({} && {})", left, right),
-                ExprOp::NotEq => write!(f, "({} != {})", left, right),
-                ExprOp::Lt => write!(f, "({} < {})", left, right),
-                ExprOp::LtEq => write!(f, "({} <= {})", left, right),
-                ExprOp::Gt => write!(f, "({} > {})", left, right),
-                ExprOp::GtEq => write!(f, "({} >= {})", left, right),
-                ExprOp::Or => write!(f, "({} || {})", left, right),
-                ExprOp::Xor => write!(f, "({} ^ {})", left, right),
-                ExprOp::Mod => write!(f, "({} % {})", left, right),
-                _ => panic!("Unsupported operator"),
+                BinaryOp::Plus => write!(f, "({} + {})", left, right),
+                BinaryOp::Minus => write!(f, "({} - {})", left, right),
+                BinaryOp::Multiply => write!(f, "({} * {})", left, right),
+                BinaryOp::Divide => write!(f, "({} / {})", left, right),
+                BinaryOp::Eq => write!(f, "({} == {})", left, right),
+                BinaryOp::And => write!(f, "({} && {})", left, right),
+                BinaryOp::NotEq => write!(f, "({} != {})", left, right),
+                BinaryOp::Lt => write!(f, "({} < {})", left, right),
+                BinaryOp::LtEq => write!(f, "({} <= {})", left, right),
+                BinaryOp::Gt => write!(f, "({} > {})", left, right),
+                BinaryOp::GtEq => write!(f, "({} >= {})", left, right),
+                BinaryOp::Or => write!(f, "({} || {})", left, right),
+                BinaryOp::Xor => write!(f, "({} ^ {})", left, right),
+                BinaryOp::Mod => write!(f, "({} % {})", left, right),
             },
             Expr::UnaryExpr { op, expr } => match op {
-                ExprOp::Floor => write!(f, "floor({})", expr),
-                ExprOp::Ceil => write!(f, "ceil({})", expr),
-                ExprOp::Sqrt => write!(f, "sqrt({})", expr),
-                ExprOp::Abs => write!(f, "abs({})", expr),
-                ExprOp::Round => write!(f, "round({})", expr),
-                _ => panic!("Unsupported operator"),
+                UnaryOp::Floor => write!(f, "floor({})", expr),
+                UnaryOp::Ceil => write!(f, "ceil({})", expr),
+                UnaryOp::Sqrt => write!(f, "sqrt({})", expr),
+                UnaryOp::Abs => write!(f, "abs({})", expr),
+                UnaryOp::Round => write!(f, "round({})", expr),
             },
             Expr::AggregateExpr { op, expr } => match op {
                 AggregateOp::Sum { .. } => write!(f, "sum({})", expr),
@@ -102,62 +125,62 @@ impl Display for Expr {
 
 impl Expr {
     pub fn floor(self) -> Expr {
-        unary_expr(ExprOp::Floor, self)
+        unary_expr(UnaryOp::Floor, self)
     }
 
     pub fn ceil(self) -> Expr {
-        unary_expr(ExprOp::Ceil, self)
+        unary_expr(UnaryOp::Ceil, self)
     }
 
     pub fn sqrt(self) -> Expr {
-        unary_expr(ExprOp::Sqrt, self)
+        unary_expr(UnaryOp::Sqrt, self)
     }
 
     pub fn abs(self) -> Expr {
-        unary_expr(ExprOp::Abs, self)
+        unary_expr(UnaryOp::Abs, self)
     }
     pub fn round(self) -> Expr {
-        unary_expr(ExprOp::Round, self)
+        unary_expr(UnaryOp::Round, self)
     }
 
-    pub fn modulo(self, rhs: Expr) -> Expr {
-        binary_expr(self, ExprOp::Mod, rhs)
+    pub fn modulo(self, rhs: impl Into<Expr>) -> Expr {
+        binary_expr(self, BinaryOp::Mod, rhs.into())
     }
 
-    pub fn eq(self, rhs: Expr) -> Expr {
-        binary_expr(self, ExprOp::Eq, rhs)
+    pub fn eq(self, rhs: impl Into<Expr>) -> Expr {
+        binary_expr(self, BinaryOp::Eq, rhs.into())
     }
 
-    pub fn neq(self, rhs: Expr) -> Expr {
-        binary_expr(self, ExprOp::NotEq, rhs)
+    pub fn neq(self, rhs: impl Into<Expr>) -> Expr {
+        binary_expr(self, BinaryOp::NotEq, rhs.into())
     }
 
-    pub fn and(self, rhs: Expr) -> Expr {
-        binary_expr(self, ExprOp::And, rhs)
+    pub fn and(self, rhs: impl Into<Expr>) -> Expr {
+        binary_expr(self, BinaryOp::And, rhs.into())
     }
 
-    pub fn or(self, rhs: Expr) -> Expr {
-        binary_expr(self, ExprOp::Or, rhs)
+    pub fn or(self, rhs: impl Into<Expr>) -> Expr {
+        binary_expr(self, BinaryOp::Or, rhs.into())
     }
 
-    pub fn xor(self, rhs: Expr) -> Expr {
-        binary_expr(self, ExprOp::Xor, rhs)
+    pub fn xor(self, rhs: impl Into<Expr>) -> Expr {
+        binary_expr(self, BinaryOp::Xor, rhs.into())
     }
 
-    pub fn lt(self, rhs: Expr) -> Expr {
-        binary_expr(self, ExprOp::Lt, rhs)
+    pub fn lt(self, rhs: impl Into<Expr>) -> Expr {
+        binary_expr(self, BinaryOp::Lt, rhs.into())
     }
 
-    pub fn lte(self, rhs: Expr) -> Expr {
-        binary_expr(self, ExprOp::LtEq, rhs)
+    pub fn lte(self, rhs: impl Into<Expr>) -> Expr {
+        binary_expr(self, BinaryOp::LtEq, rhs.into())
     }
 
-    pub fn gt(self, rhs: Expr) -> Expr {
-        binary_expr(self, ExprOp::Gt, rhs)
+    pub fn gt(self, rhs: impl Into<Expr>) -> Expr {
+        binary_expr(self, BinaryOp::Gt, rhs.into())
     }
 
-    pub fn gte(self, rhs: Expr) -> Expr {
-        binary_expr(self, ExprOp::GtEq, rhs)
+    pub fn gte(self, rhs: impl Into<Expr>) -> Expr {
+        binary_expr(self, BinaryOp::GtEq, rhs.into())
     }
 
     pub(crate) fn extract_dependencies(&self) -> Vec<usize> {
@@ -185,7 +208,7 @@ impl Expr {
         dependencies
     }
 
-    pub fn evaluate(&self, item: &StreamItem) -> NoirType {
+    pub fn evaluate<T: Index<usize, Output = NoirType>>(&self, item: &T) -> NoirType {
         match self {
             Expr::Literal(value) => *value,
             Expr::NthColumn(n) => item[*n],
@@ -193,32 +216,30 @@ impl Expr {
                 let left = left.evaluate(item);
                 let right = right.evaluate(item);
                 match op {
-                    ExprOp::Plus => left + right,
-                    ExprOp::Minus => left - right,
-                    ExprOp::Multiply => left * right,
-                    ExprOp::Divide => left / right,
-                    ExprOp::Mod => left % right,
-                    ExprOp::Xor => left ^ right,
-                    ExprOp::Eq => NoirType::Bool(left == right),
-                    ExprOp::NotEq => NoirType::Bool(left != right),
-                    ExprOp::And => NoirType::Bool(left.into() && right.into()),
-                    ExprOp::Or => NoirType::Bool(left.into() || right.into()),
-                    ExprOp::Lt => NoirType::Bool(left < right),
-                    ExprOp::LtEq => NoirType::Bool(left <= right),
-                    ExprOp::Gt => NoirType::Bool(left > right),
-                    ExprOp::GtEq => NoirType::Bool(left >= right),
-                    _ => panic!("Unsupported operator"),
+                    BinaryOp::Plus => left + right,
+                    BinaryOp::Minus => left - right,
+                    BinaryOp::Multiply => left * right,
+                    BinaryOp::Divide => left / right,
+                    BinaryOp::Mod => left % right,
+                    BinaryOp::Xor => left ^ right,
+                    BinaryOp::Eq => NoirType::Bool(left == right),
+                    BinaryOp::NotEq => NoirType::Bool(left != right),
+                    BinaryOp::And => NoirType::Bool(left.into() && right.into()),
+                    BinaryOp::Or => NoirType::Bool(left.into() || right.into()),
+                    BinaryOp::Lt => NoirType::Bool(left < right),
+                    BinaryOp::LtEq => NoirType::Bool(left <= right),
+                    BinaryOp::Gt => NoirType::Bool(left > right),
+                    BinaryOp::GtEq => NoirType::Bool(left >= right),
                 }
             }
             Expr::UnaryExpr { op, expr } => {
                 let data = expr.evaluate(item);
                 match op {
-                    ExprOp::Floor => data.floor(),
-                    ExprOp::Ceil => data.ceil(),
-                    ExprOp::Sqrt => data.sqrt(),
-                    ExprOp::Abs => data.abs(),
-                    ExprOp::Round => data.round(),
-                    _ => panic!("Unsupported operator"),
+                    UnaryOp::Floor => data.floor(),
+                    UnaryOp::Ceil => data.ceil(),
+                    UnaryOp::Sqrt => data.sqrt(),
+                    UnaryOp::Abs => data.abs(),
+                    UnaryOp::Round => data.round(),
                 }
             }
             // Expr::AggregateExpr {..} => panic!("Aggregates should not be evaluated"),
@@ -298,13 +319,94 @@ impl Expr {
             }
         }
     }
+
+    pub fn into_arena(self, expr_arena: &mut Arena<ArenaExpr>) -> ArenaExpr {
+        match self {
+            Expr::NthColumn(n) => ArenaExpr::NthColumn(n),
+            Expr::Literal(value) => ArenaExpr::Literal(value),
+            Expr::BinaryExpr { left, op, right } => {
+                let arena_left = left.into_arena(expr_arena);
+                let arena_right = right.into_arena(expr_arena);
+                let new_left = expr_arena.alloc(arena_left);
+                let new_right = expr_arena.alloc(arena_right);
+                ArenaExpr::BinaryExpr {
+                    left: new_left,
+                    op,
+                    right: new_right,
+                }
+            }
+            Expr::UnaryExpr { op, expr } => {
+                let expr = expr.into_arena(expr_arena);
+                let new_expr = expr_arena.alloc(expr);
+                ArenaExpr::UnaryExpr { op, expr: new_expr }
+            }
+            Expr::AggregateExpr { op, expr } => {
+                let expr = expr.into_arena(expr_arena);
+                let new_expr = expr_arena.alloc(expr);
+                ArenaExpr::AggregateExpr { op, expr: new_expr }
+            }
+            Expr::Empty => ArenaExpr::Empty,
+        }
+    }
+}
+
+pub fn evaluate_arena_expr(
+    expr: &ArenaExpr,
+    item: &StreamItem,
+    expr_arena: &Arena<ArenaExpr>,
+) -> NoirType {
+    match expr {
+        ArenaExpr::NthColumn(n) => item[*n],
+        ArenaExpr::Literal(value) => *value,
+        ArenaExpr::BinaryExpr { left, op, right } => {
+            let left = evaluate_arena_expr(expr_arena.get(*left).unwrap(), item, expr_arena);
+            let right = evaluate_arena_expr(expr_arena.get(*right).unwrap(), item, expr_arena);
+            match op {
+                BinaryOp::Plus => left + right,
+                BinaryOp::Minus => left - right,
+                BinaryOp::Multiply => left * right,
+                BinaryOp::Divide => left / right,
+                BinaryOp::Mod => left % right,
+                BinaryOp::Xor => left ^ right,
+                BinaryOp::Eq => NoirType::Bool(left == right),
+                BinaryOp::NotEq => NoirType::Bool(left != right),
+                BinaryOp::And => NoirType::Bool(left.into() && right.into()),
+                BinaryOp::Or => NoirType::Bool(left.into() || right.into()),
+                BinaryOp::Lt => NoirType::Bool(left < right),
+                BinaryOp::LtEq => NoirType::Bool(left <= right),
+                BinaryOp::Gt => NoirType::Bool(left > right),
+                BinaryOp::GtEq => NoirType::Bool(left >= right),
+            }
+        }
+        ArenaExpr::UnaryExpr { op, expr } => {
+            let data = evaluate_arena_expr(expr_arena.get(*expr).unwrap(), item, expr_arena);
+            match op {
+                UnaryOp::Floor => data.floor(),
+                UnaryOp::Ceil => data.ceil(),
+                UnaryOp::Sqrt => data.sqrt(),
+                UnaryOp::Abs => data.abs(),
+                UnaryOp::Round => data.round(),
+            }
+        }
+        ArenaExpr::AggregateExpr { op, expr } => {
+            let data = evaluate_arena_expr(expr_arena.get(*expr).unwrap(), item, expr_arena);
+            match op {
+                AggregateOp::Sum => data,
+                AggregateOp::Count => NoirType::Int32(1),
+                AggregateOp::Min => data,
+                AggregateOp::Max => data,
+                AggregateOp::Avg => todo!(),
+            }
+        }
+        ArenaExpr::Empty => panic!("Empty expression"),
+    }
 }
 
 pub fn col(n: usize) -> Expr {
     Expr::NthColumn(n)
 }
 
-pub fn binary_expr(lhs: Expr, op: ExprOp, rhs: Expr) -> Expr {
+pub fn binary_expr(lhs: Expr, op: BinaryOp, rhs: Expr) -> Expr {
     Expr::BinaryExpr {
         left: Box::new(lhs),
         op,
@@ -312,15 +414,15 @@ pub fn binary_expr(lhs: Expr, op: ExprOp, rhs: Expr) -> Expr {
     }
 }
 
-pub fn unary_expr(op: ExprOp, expr: Expr) -> Expr {
+pub fn unary_expr(op: UnaryOp, expr: Expr) -> Expr {
     Expr::UnaryExpr {
         op,
         expr: Box::new(expr),
     }
 }
 
-pub fn lit(value: NoirType) -> Expr {
-    Expr::Literal(value)
+pub fn lit(value: impl Into<NoirType>) -> Expr {
+    Expr::Literal(value.into())
 }
 
 pub fn i(value: i32) -> Expr {

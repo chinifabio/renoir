@@ -9,7 +9,6 @@ use crate::block::{BlockStructure, OperatorKind, OperatorStructure, Replication}
 use crate::data_type::noir_data::NoirData;
 use crate::data_type::noir_type::{NoirType, NoirTypeKind};
 use crate::data_type::schema::Schema;
-use crate::data_type::stream_item::StreamItem;
 use crate::operator::source::Source;
 use crate::operator::{Operator, StreamElement};
 use crate::optimization::dsl::expressions::Expr;
@@ -222,7 +221,7 @@ impl Source for RowCsvSource {
 }
 
 impl Operator for RowCsvSource {
-    type Out = StreamItem;
+    type Out = NoirData;
 
     fn setup(&mut self, metadata: &mut ExecutionMetadata) {
         info!("CsvSource: setup from {}", metadata.global_id);
@@ -331,7 +330,7 @@ impl Operator for RowCsvSource {
         self.csv_reader = Some(csv_reader);
     }
 
-    fn next(&mut self) -> StreamElement<StreamItem> {
+    fn next(&mut self) -> StreamElement<NoirData> {
         loop {
             if self.terminated {
                 return StreamElement::Terminate;
@@ -354,12 +353,11 @@ impl Operator for RowCsvSource {
             };
             match (data, &self.options.filter_at_source) {
                 (Some(item), Some(filter)) => {
-                    let item = StreamItem::from(item);
                     if filter.evaluate(&item).into() {
                         return StreamElement::Item(item);
                     }
                 }
-                (Some(item), None) => return StreamElement::Item(StreamItem::from(item)),
+                (Some(item), None) => return StreamElement::Item(item),
                 _ => return StreamElement::FlushAndRestart,
             }
         }
@@ -530,7 +528,7 @@ impl crate::StreamEnvironment {
     pub fn stream_csv_noirdata(
         &mut self,
         path: impl Into<PathBuf>,
-    ) -> Stream<impl Operator<Out = StreamItem>> {
+    ) -> Stream<impl Operator<Out = NoirData>> {
         let source = RowCsvSource::new(path);
         self.stream(source)
     }

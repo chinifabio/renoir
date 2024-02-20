@@ -2,7 +2,7 @@ use std::vec;
 
 use itertools::Itertools;
 
-use super::dsl::expressions::{Expr, ExprOp};
+use super::dsl::expressions::{BinaryOp, Expr};
 
 use super::{
     logical_plan::LogicPlan,
@@ -260,7 +260,7 @@ impl PredicatePushdown {
                 Expr::BinaryExpr {
                     left,
                     right,
-                    op: ExprOp::And,
+                    op: BinaryOp::And,
                 } => {
                     iter = Some(*left);
                     stack.push(*right);
