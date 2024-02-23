@@ -1,7 +1,9 @@
 use crate::data_type::noir_type::NoirTypeKind;
 use csv::ReaderBuilder;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::{ops::Index, path::PathBuf};
+
+use super::noir_type::NoirType;
 
 #[derive(Clone, Deserialize, Serialize, Debug, PartialEq, Eq, Hash)]
 pub struct Schema {
@@ -46,4 +48,19 @@ impl Schema {
             columns: [self.columns, other.columns].concat(),
         }
     }
+}
+
+impl Index<usize> for Schema {
+    type Output = NoirType;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        match self.columns.get(index).expect("Index out of bounds") {
+            NoirTypeKind::Int32 => &NoirType::Int32(0),
+            NoirTypeKind::Float32 => &NoirType::Float32(0.0),
+            NoirTypeKind::Bool => &NoirType::Bool(false),
+            NoirTypeKind::None => &NoirType::None(),
+            NoirTypeKind::NaN => &NoirType::NaN(),
+        }
+    }
+
 }

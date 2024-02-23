@@ -46,7 +46,7 @@ impl StreamItem {
         }
     }
 
-    pub(crate) fn get_key(&self) -> Option<&[NoirType]> {
+    pub fn get_key(&self) -> Option<&[NoirType]> {
         if self.values_from == 0 {
             None
         } else {
@@ -54,7 +54,7 @@ impl StreamItem {
         }
     }
 
-    pub(crate) fn get_value(&self) -> &[NoirType] {
+    pub fn get_value(&self) -> &[NoirType] {
         if self.values_from == 0 {
             &self.values
         } else {

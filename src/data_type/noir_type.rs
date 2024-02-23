@@ -700,6 +700,18 @@ pub enum NoirTypeKind {
     None,
 }
 
+impl From<NoirType> for NoirTypeKind {
+    fn from(item: NoirType) -> Self {
+        match item {
+            NoirType::Int32(_) => NoirTypeKind::Int32,
+            NoirType::Float32(_) => NoirTypeKind::Float32,
+            NoirType::Bool(_) => NoirTypeKind::Bool,
+            NoirType::NaN() => NoirTypeKind::NaN,
+            NoirType::None() => NoirTypeKind::None,
+        }
+    }
+}
+
 impl Display for NoirTypeKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
