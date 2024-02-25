@@ -294,6 +294,21 @@ fn expr_vs_closures(c: &mut Criterion) {
                 });
             },
         );
+
+        group.bench_with_input(
+            BenchmarkId::new("Compiled Expression", size),
+            &items,
+            |b, items| {
+                let expr = col(3).modulo(7).eq(0);
+                let schema = Schema::same_type(5, NoirTypeKind::Int32);
+                let compiled_expr = CompiledExpr::compile(expr, schema);
+                b.iter(move || {
+                    for item in items.iter() {
+                        compiled_expr.evaluate(black_box(item.get_value()));
+                    }
+                });
+            },
+        );
     }
 
     group.finish();

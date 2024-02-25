@@ -62,5 +62,4 @@ impl Index<usize> for Schema {
             NoirTypeKind::NaN => &NoirType::NaN(),
         }
     }
-
 }

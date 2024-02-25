@@ -17,7 +17,7 @@ impl StreamItem {
     pub fn new(values: Vec<NoirType>) -> Self {
         StreamItem {
             values,
-            values_from: 0
+            values_from: 0,
         }
     }
 
@@ -55,19 +55,11 @@ impl StreamItem {
     }
 
     pub fn get_value(&self) -> &[NoirType] {
-        if self.values_from == 0 {
-            &self.values
-        } else {
-            &self.values[self.values_from..self.values.len()]
-        }
+        &self.values[self.values_from..self.values.len()]
     }
 
     pub fn len(&self) -> usize {
-        if self.values_from == 0 {
-            self.values.len() - self.values_from
-        } else {
-            self.values_from
-        }
+        self.values.len() - self.values_from
     }
 
     pub fn is_empty(&self) -> bool {
@@ -144,15 +136,7 @@ impl Index<usize> for StreamItem {
     type Output = NoirType;
 
     fn index(&self, index: usize) -> &Self::Output {
-        if index >= self.values_from && index < self.values.len() {
-            panic!("Cannot access key")
-        }
-
-        if index >= self.values.len() {
-            panic!("Index {} out of bounds for {}", index, self)
-        }
-
-        &self.values[index]
+        &self.values[index + self.values_from]
     }
 }
 

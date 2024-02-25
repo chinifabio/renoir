@@ -3,8 +3,11 @@ use std::fmt::{Debug, Display};
 use std::ops::Index;
 
 use crate::data_type::noir_type::NoirType;
+use crate::data_type::schema::Schema;
 use crate::data_type::stream_item::StreamItem;
 use crate::optimization::arena::Arena;
+
+use super::jit::JitCompiler;
 
 #[derive(Clone, PartialEq, Eq, Debug, Copy, Hash)]
 pub enum BinaryOp {
@@ -62,6 +65,32 @@ pub enum Expr {
         expr: ExprRef,
     },
     Empty,
+}
+
+pub struct CompiledExpr {
+    compiled_expression: Option<extern "C" fn(*const NoirType, *mut NoirType)>,
+}
+
+impl CompiledExpr {
+    pub fn compile(expr: Expr, schema: Schema) -> Self {
+        let mut jit = JitCompiler::default();
+        let code_ptr = jit.compile(expr, schema).unwrap();
+        let compiled_expr: extern "C" fn(*const NoirType, *mut NoirType) =
+            unsafe { std::mem::transmute(code_ptr) };
+        Self {
+            compiled_expression: Some(compiled_expr),
+        }
+    }
+
+    pub fn evaluate(&self, item: &[NoirType]) -> NoirType {
+        let mut result = NoirType::Int32(0);
+        if let Some(compiled_expr) = self.compiled_expression {
+            compiled_expr(item.as_ptr(), &mut result);
+            result
+        } else {
+            panic!("Compiled expression is not available");
+        }
+    }
 }
 
 pub enum ArenaExpr {
@@ -242,7 +271,6 @@ impl Expr {
                     UnaryOp::Round => data.round(),
                 }
             }
-            // Expr::AggregateExpr {..} => panic!("Aggregates should not be evaluated"),
             Expr::AggregateExpr { op, expr } => {
                 let data = expr.evaluate(item);
                 match op {

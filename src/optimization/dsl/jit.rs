@@ -1,22 +1,19 @@
 use cranelift::prelude::*;
 use cranelift_jit::{JITBuilder, JITModule};
-use cranelift_module::{DataDescription, Linkage, Module};
-use std::collections::HashMap;
-use std::slice;
+use cranelift_module::{Linkage, Module};
 
 use crate::data_type::noir_type::{NoirType, NoirTypeKind};
 use crate::data_type::schema::Schema;
 
-use super::expressions::{BinaryOp, Expr};
+use super::expressions::{AggregateOp, BinaryOp, Expr, UnaryOp};
 
-pub struct JIT {
+pub struct JitCompiler {
     builder_context: FunctionBuilderContext,
     ctx: codegen::Context,
     module: JITModule,
-    data_description: DataDescription,
 }
 
-impl Default for JIT {
+impl Default for JitCompiler {
     fn default() -> Self {
         let mut flag_builder = settings::builder();
         flag_builder.set("use_colocated_libcalls", "false").unwrap();
@@ -33,18 +30,33 @@ impl Default for JIT {
         Self {
             builder_context: FunctionBuilderContext::new(),
             ctx: module.make_context(),
-            data_description: DataDescription::new(),
             module,
         }
     }
 }
 
-impl JIT {
+impl JitCompiler {
     pub fn compile(&mut self, input_expr: Expr, schema: Schema) -> Result<*const u8, String> {
         let params = schema.columns.clone();
         let the_return = input_expr.evaluate(&schema);
         self.translate(params, the_return.into(), input_expr)?;
-        Err("Not implemented".to_string())
+        let id = self
+            .module
+            .declare_function("jit_function", Linkage::Export, &self.ctx.func.signature)
+            .map_err(|e| {
+                println!("{:?}", e);
+                e.to_string()
+            })?;
+        self.module
+            .define_function(id, &mut self.ctx)
+            .map_err(|e| {
+                println!("{:#?}", e);
+                e.to_string()
+            })?;
+        self.module.clear_context(&mut self.ctx);
+        self.module.finalize_definitions().unwrap();
+        let code = self.module.get_finalized_function(id);
+        Ok(code)
     }
 
     fn translate(
@@ -53,23 +65,23 @@ impl JIT {
         the_return: NoirTypeKind,
         expr: Expr,
     ) -> Result<(), String> {
-        for p in &params {
-            let abi_param = match p {
-                NoirTypeKind::Int32 => AbiParam::new(types::I32),
-                NoirTypeKind::Float32 => AbiParam::new(types::F32),
-                NoirTypeKind::Bool => AbiParam::new(types::I8),
-                e => return Err(format!("Error during jit compiling, {} is not supported", e)),
-            };
-            self.ctx.func.signature.params.push(abi_param);
-        }
+        let pointer_type = self.module.target_config().pointer_type();
+        self.ctx
+            .func
+            .signature
+            .params
+            .push(AbiParam::new(pointer_type));
+        self.ctx
+            .func
+            .signature
+            .params
+            .push(AbiParam::new(pointer_type));
 
-        let abi_return = match the_return {
-            NoirTypeKind::Int32 => types::I32,
-            NoirTypeKind::Float32 => types::F32,
-            NoirTypeKind::Bool => types::I8,
-            e => return Err(format!("Error during jit compiling, {} is not supported", e)),
-        };
-        self.ctx.func.signature.returns.push(AbiParam::new(abi_return));
+        // self.ctx
+        //     .func
+        //     .signature
+        //     .returns
+        //     .push(AbiParam::new(types::I32));
 
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
         let entry_block = builder.create_block();
@@ -77,21 +89,30 @@ impl JIT {
         builder.switch_to_block(entry_block);
         builder.seal_block(entry_block);
 
-        let variables = declare_variables(&mut builder, &params, the_return, entry_block);
+        let mut translator = ExprTranslator { params, builder };
 
-        let mut translator = ExprTranslator {
-            params,
-            builder,
-            variables,
-            module: &mut self.module,
-        };
-
-        let (return_value, computed_return_type) = translator.translate(expr);
+        let (return_value, computed_return_type) = translator.translate(expr, entry_block);
         assert_eq!(computed_return_type, the_return);
 
-        translator.builder.ins().return_(&[return_value]);
-        translator.builder.finalize();
+        let result_address = translator.builder.block_params(entry_block)[1];
+        translator
+            .builder
+            .ins()
+            .store(MemFlags::new(), return_value, result_address, 4);
 
+        let discriminant_value = translator
+            .builder
+            .ins()
+            .iconst(types::I32, the_return as i64);
+        translator.builder.ins().store(
+            MemFlags::new().with_heap(),
+            discriminant_value,
+            result_address,
+            0,
+        );
+
+        translator.builder.ins().return_(&[]);
+        translator.builder.finalize();
         Ok(())
     }
 }
@@ -99,29 +120,51 @@ impl JIT {
 struct ExprTranslator<'a> {
     params: Vec<NoirTypeKind>,
     builder: FunctionBuilder<'a>,
-    variables: HashMap<String, Variable>,
-    module: &'a mut JITModule,
 }
 
 impl<'a> ExprTranslator<'a> {
-    fn translate(&mut self, expr: Expr) -> (Value, NoirTypeKind) {
+    fn translate(&mut self, expr: Expr, block: Block) -> (Value, NoirTypeKind) {
         match expr {
             Expr::NthColumn(n) => {
-                let var = self.variables[&format!("param{}", n)];
-                let val = self.builder.use_var(var);
-                (val, self.params[n])
-            },
-            Expr::Literal(v) => {
-                match v {
-                    NoirType::Int32(v) => (self.builder.ins().iconst(types::I32, v as i64), NoirTypeKind::Int32),
-                    NoirType::Float32(v) => (self.builder.ins().f32const(v), NoirTypeKind::Float32),
-                    NoirType::Bool(v) => (self.builder.ins().iconst(types::I8, if v { 1 } else { 0 }), NoirTypeKind::Bool),
-                    e => panic!("Error during jit compiling, {} is not supported", e),
-                }
+                let item_base_address = self.builder.block_params(block)[0];
+                let item_size = self
+                    .builder
+                    .ins()
+                    .iconst(types::I64, std::mem::size_of::<NoirType>() as i64);
+                let item_offset = self.builder.ins().imul_imm(item_size, n as i64);
+                let item_address = self.builder.ins().iadd(item_base_address, item_offset);
+
+                let item_type = match self.params[n] {
+                    NoirTypeKind::Int32 => types::I32,
+                    NoirTypeKind::Float32 => types::F32,
+                    NoirTypeKind::Bool => types::I8,
+                    e => panic!("{} should not be a column type", e),
+                };
+                let item_value = self.builder.ins().load(
+                    item_type,
+                    MemFlags::new().with_heap(),
+                    item_address,
+                    4,
+                );
+
+                (item_value, self.params[n])
+            }
+            Expr::Literal(v) => match v {
+                NoirType::Int32(v) => (
+                    self.builder.ins().iconst(types::I32, v as i64),
+                    NoirTypeKind::Int32,
+                ),
+                NoirType::Float32(v) => (self.builder.ins().f32const(v), NoirTypeKind::Float32),
+                NoirType::Bool(v) => (
+                    self.builder.ins().iconst(types::I8, if v { 1 } else { 0 }),
+                    NoirTypeKind::Bool,
+                ),
+                NoirType::NaN() => (self.builder.ins().f32const(f32::NAN), NoirTypeKind::Float32),
+                NoirType::None() => (self.builder.ins().f32const(f32::NAN), NoirTypeKind::Float32),
             },
             Expr::BinaryExpr { left, op, right } => {
-                let (left_val, left_type) = self.translate(*left);
-                let (right_val, right_type) = self.translate(*right);
+                let (left_val, left_type) = self.translate(*left, block);
+                let (right_val, right_type) = self.translate(*right, block);
                 match op {
                     BinaryOp::Plus => {
                         assert_eq!(left_type, right_type);
@@ -132,61 +175,121 @@ impl<'a> ExprTranslator<'a> {
                             e => panic!("Error during jit compiling, {} is not supported", e),
                         };
                         (val, left_type)
-                    },
+                    }
+                    BinaryOp::Minus => {
+                        assert_eq!(left_type, right_type);
+                        let val = match left_type {
+                            NoirTypeKind::Int32 => self.builder.ins().isub(left_val, right_val),
+                            NoirTypeKind::Float32 => self.builder.ins().fsub(left_val, right_val),
+                            NoirTypeKind::Bool => self.builder.ins().isub(left_val, right_val),
+                            e => panic!("Error during jit compiling, {} is not supported", e),
+                        };
+                        (val, left_type)
+                    }
+                    BinaryOp::Multiply => {
+                        assert_eq!(left_type, right_type);
+                        let val = match left_type {
+                            NoirTypeKind::Int32 => self.builder.ins().imul(left_val, right_val),
+                            NoirTypeKind::Float32 => self.builder.ins().fmul(left_val, right_val),
+                            NoirTypeKind::Bool => self.builder.ins().imul(left_val, right_val),
+                            e => panic!("Error during jit compiling, {} is not supported", e),
+                        };
+                        (val, left_type)
+                    }
+                    BinaryOp::Divide => {
+                        assert_eq!(left_type, right_type);
+                        let val = match left_type {
+                            NoirTypeKind::Int32 => self.builder.ins().sdiv(left_val, right_val),
+                            NoirTypeKind::Float32 => self.builder.ins().fdiv(left_val, right_val),
+                            NoirTypeKind::Bool => self.builder.ins().sdiv(left_val, right_val),
+                            e => panic!("Error during jit compiling, {} is not supported", e),
+                        };
+                        (val, left_type)
+                    }
+                    BinaryOp::Mod => {
+                        assert_eq!(left_type, right_type);
+                        let val = match (left_type, right_type) {
+                            (NoirTypeKind::Int32, NoirTypeKind::Int32) => {
+                                self.builder.ins().srem(left_val, right_val)
+                            }
+                            e => panic!("Error during jit compiling, cannot crate mod for {:?}", e),
+                        };
+                        (val, left_type)
+                    }
+                    BinaryOp::Eq => {
+                        assert_eq!(left_type, right_type);
+                        let val = match left_type {
+                            NoirTypeKind::Int32 => {
+                                self.builder.ins().icmp(IntCC::Equal, left_val, right_val)
+                            }
+                            NoirTypeKind::Float32 => {
+                                self.builder.ins().fcmp(FloatCC::Equal, left_val, right_val)
+                            }
+                            NoirTypeKind::Bool => {
+                                self.builder.ins().icmp(IntCC::Equal, left_val, right_val)
+                            }
+                            e => panic!("Error during jit compiling, {} is not supported", e),
+                        };
+                        (val, NoirTypeKind::Bool)
+                    }
                     e => panic!("Error during jit compiling, {:?} is not supported yet", e),
                 }
+            }
+            Expr::UnaryExpr { op, expr } => {
+                let (val, val_type) = self.translate(*expr, block);
+                match op {
+                    UnaryOp::Floor => {
+                        let val = match val_type {
+                            NoirTypeKind::Float32 => {
+                                self.builder.ins().fcvt_to_sint(types::I32, val)
+                            }
+                            NoirTypeKind::Int32 => val,
+                            e => panic!("Error during jit compiling, cannot floor {:?}", e),
+                        };
+                        (val, NoirTypeKind::Int32)
+                    }
+                    _ => todo!(),
+                }
+            }
+            Expr::AggregateExpr { op, expr } => match op {
+                AggregateOp::Sum => self.translate(*expr, block),
+                AggregateOp::Count => (
+                    self.builder.ins().iconst(types::I32, 1),
+                    NoirTypeKind::Int32,
+                ),
+                _ => todo!(),
             },
-            Expr::UnaryExpr { op, expr } => todo!(),
-            Expr::AggregateExpr { op, expr } => todo!(),
             Expr::Empty => todo!(),
         }
     }
 }
 
-fn declare_variables(
-    builder: &mut FunctionBuilder,
-    params: &[NoirTypeKind],
-    the_return: NoirTypeKind,
-    entry_block: Block,
-) -> HashMap<String, Variable> {
-    let mut variables = HashMap::new();
-    let mut index = 0;
-
-    for (i, var_type) in params.iter().enumerate() {
-        let var_type = match var_type {
-            NoirTypeKind::Int32 => types::I32,
-            NoirTypeKind::Float32 => types::F32,
-            NoirTypeKind::Bool => types::I8,
-            e => panic!("Error during jit compiling, {} is not supported", e),
-        };
-        let val = builder.block_params(entry_block)[i];
-        let var = declare_variable(var_type, builder, &mut variables, &mut index, &format!("param{}", i));
-        builder.def_var(var, val);
-    }
-
-    let return_type = match the_return {
-        NoirTypeKind::Int32 => types::I32,
-        NoirTypeKind::Float32 => types::F32,
-        NoirTypeKind::Bool => types::I8,
-        e => panic!("Error during jit compiling, {} is not supported", e),
+#[cfg(test)]
+pub mod test {
+    use crate::{
+        data_type::{noir_type::{NoirType, NoirTypeKind}, schema::Schema},
+        optimization::dsl::{expressions::*, jit::JitCompiler},
     };
-    let return_variable = declare_variable(return_type, builder, &mut variables, &mut index, "return");
 
-    variables
-}
+    #[test]
+    fn test_jit_compiler() {
+        let schema = Schema::new(vec![
+            NoirTypeKind::Int32,
+            NoirTypeKind::Int32,
+        ]);
+        let expr = col(0) + col(1);
 
-fn declare_variable(
-    var_type: types::Type,
-    builder: &mut FunctionBuilder,
-    variables: &mut HashMap<String, Variable>,
-    index: &mut usize,
-    name: &str,
-) -> Variable {
-    let var = Variable::new(*index);
-    if !variables.contains_key(name) {
-        variables.insert(name.into(), var);
-        builder.declare_var(var, var_type);
-        *index += 1;
+        let mut jit_compiler = JitCompiler::default();
+        let code = jit_compiler.compile(expr, schema);
+        assert!(code.is_ok());
+
+        let code = code.unwrap();
+        let compiled_expr: extern "C" fn(*const NoirType, *mut NoirType) =
+            unsafe { std::mem::transmute(code) };
+
+        let item = [NoirType::Int32(1), NoirType::Int32(2)];
+        let mut result = NoirType::None();
+        compiled_expr(item.as_ptr(), &mut result);
+        assert_eq!(result, NoirType::Int32(3));
     }
-    var
 }

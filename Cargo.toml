@@ -158,8 +158,8 @@ harness = false
 
 [profile.release]
 lto = true
-strip = "symbols"
-# debug = 1
+# strip = "symbols"
+debug = true
 
 [profile.release-fast]
 inherits = "release"
