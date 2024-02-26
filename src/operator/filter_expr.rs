@@ -54,7 +54,7 @@ where
         loop {
             match self.prev.next() {
                 StreamElement::Item(ref item) | StreamElement::Timestamped(ref item, _)
-                    if bool::from(!self.expression.evaluate(item)) => {}
+                    if bool::from(!self.expression.evaluate(item.get_value())) => {}
                 element => return element,
             }
         }

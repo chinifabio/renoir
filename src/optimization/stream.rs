@@ -24,21 +24,14 @@ where
     }
 
     pub fn group_by_expr(self, keys: Vec<Expr>) -> Stream<BoxedOperator<StreamItem>> {
-        self.group_by(move |item: &StreamItem| keys.iter().map(|k| k.evaluate(item)).collect())
-            .0
-            .map(|(k, v)| v.absorb_key(k))
-            .into_box()
+        self.group_by(move |item: &StreamItem| {
+            keys.iter().map(|k| k.evaluate(item.get_value())).collect()
+        })
+        .0
+        .map(|(k, v)| v.absorb_key(k))
+        .into_box()
     }
 }
-
-// impl<Op> KeyedStream<Op>
-// where
-//     Op: Operator<Out = StreamItem> + 'static,
-// {
-//     pub fn filter_expr(self, expr: Expr) -> KeyedStream<FilterExpr<Op>> {
-//         self.add_operator(|prev| FilterExpr::new(prev, expr))
-//     }
-// }
 
 impl OptStream {
     pub fn collect_vec(self) -> StreamOutput<Vec<StreamItem>> {

@@ -352,8 +352,8 @@ impl Operator for RowCsvSource {
                 Err(e) => panic!("Error while reading CSV file: {:?}", e),
             };
             match (data, &self.options.filter_at_source) {
-                (Some(item), Some(filter)) => {
-                    if filter.evaluate(&item).into() {
+                (Some(mut item), Some(filter)) => {
+                    if filter.evaluate(item.get_row()).into() {
                         return StreamElement::Item(item);
                     }
                 }

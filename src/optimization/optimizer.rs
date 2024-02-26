@@ -1,11 +1,12 @@
 use super::{
-    logical_plan::LogicPlan, predicate_pushdown::PredicatePushdown,
-    projection_pushdown::ProjectionPushdown,
+    expression_compile::ExpressionCompile, logical_plan::LogicPlan,
+    predicate_pushdown::PredicatePushdown, projection_pushdown::ProjectionPushdown,
 };
 
 #[derive(Debug)]
 pub(crate) enum OptimizerError {
     NotImplemented { message: String },
+    SchemaNotDefined { message: String },
 }
 
 impl std::fmt::Display for OptimizerError {
@@ -13,6 +14,9 @@ impl std::fmt::Display for OptimizerError {
         match self {
             OptimizerError::NotImplemented { message } => {
                 write!(f, "Not implemented: {}", message)
+            }
+            OptimizerError::SchemaNotDefined { message } => {
+                write!(f, "Missing schema: {}", message)
             }
         }
     }
@@ -29,6 +33,7 @@ pub(crate) struct LogicPlanOptimizer {}
 pub struct OptimizationOptions {
     projection_pushdown: bool,
     predicate_pushdown: bool,
+    compile_expressions: bool,
     expression_rewrite: bool,
 }
 
@@ -37,6 +42,7 @@ impl Default for OptimizationOptions {
         Self {
             projection_pushdown: true,
             predicate_pushdown: true,
+            compile_expressions: true,
             expression_rewrite: false,
         }
     }
@@ -61,6 +67,10 @@ impl LogicPlanOptimizer {
 
         if options.expression_rewrite {
             todo!()
+        }
+
+        if options.compile_expressions {
+            plan = ExpressionCompile::optimize(plan)?;
         }
 
         Ok(plan)

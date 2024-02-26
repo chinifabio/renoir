@@ -1,7 +1,8 @@
-use crate::data_type::noir_type::NoirTypeKind;
+use crate::{data_type::noir_type::NoirTypeKind, optimization::dsl::expressions::Expr};
 use csv::ReaderBuilder;
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use std::{ops::Index, path::PathBuf};
+use std::path::PathBuf;
 
 use super::noir_type::NoirType;
 
@@ -48,18 +49,39 @@ impl Schema {
             columns: [self.columns, other.columns].concat(),
         }
     }
-}
 
-impl Index<usize> for Schema {
-    type Output = NoirType;
+    pub(crate) fn compute_result_type(&self, expr: &Expr) -> NoirTypeKind {
+        expr.evaluate(
+            self.columns
+                .iter()
+                .map(|c| match c {
+                    NoirTypeKind::Int32 => NoirType::Int32(0),
+                    NoirTypeKind::Float32 => NoirType::Float32(0.0),
+                    NoirTypeKind::Bool => NoirType::Bool(false),
+                    NoirTypeKind::None => NoirType::None(),
+                    NoirTypeKind::NaN => NoirType::NaN(),
+                })
+                .collect_vec()
+                .as_slice(),
+        )
+        .kind()
+    }
 
-    fn index(&self, index: usize) -> &Self::Output {
-        match self.columns.get(index).expect("Index out of bounds") {
-            NoirTypeKind::Int32 => &NoirType::Int32(0),
-            NoirTypeKind::Float32 => &NoirType::Float32(0.0),
-            NoirTypeKind::Bool => &NoirType::Bool(false),
-            NoirTypeKind::None => &NoirType::None(),
-            NoirTypeKind::NaN => &NoirType::NaN(),
+    pub(crate) fn with_projections(&self, projections: &Option<Vec<usize>>) -> Schema {
+        match projections {
+            Some(projections) => Schema {
+                columns: projections.iter().map(|i| self.columns[*i]).collect(),
+            },
+            None => self.clone(),
+        }
+    }
+
+    pub(crate) fn update(&self, columns: &[Expr]) -> Schema {
+        Schema {
+            columns: columns
+                .iter()
+                .map(|c| self.compute_result_type(c))
+                .collect(),
         }
     }
 }

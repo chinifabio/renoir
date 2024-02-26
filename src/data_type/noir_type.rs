@@ -95,6 +95,16 @@ impl NoirType {
             _ => self,
         }
     }
+
+    pub(crate) fn kind(&self) -> NoirTypeKind {
+        match self {
+            NoirType::Int32(_) => NoirTypeKind::Int32,
+            NoirType::Float32(_) => NoirTypeKind::Float32,
+            NoirType::Bool(_) => NoirTypeKind::Bool,
+            NoirType::NaN() => NoirTypeKind::NaN,
+            NoirType::None() => NoirTypeKind::None,
+        }
+    }
 }
 
 macro_rules! impl_from {

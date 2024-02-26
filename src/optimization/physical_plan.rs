@@ -131,7 +131,7 @@ impl StreamType {
                 let temp_stream = stream.map(move |item| {
                     projections
                         .iter()
-                        .map(|expr| expr.evaluate(&item))
+                        .map(|expr| expr.evaluate(item.get_value()))
                         .collect_vec()
                 });
                 if columns.iter().any(|e| e.is_aggregator()) {
@@ -153,7 +153,7 @@ impl StreamType {
                 let temp_stream = stream.map(move |item| {
                     let temp: Vec<NoirType> = projections
                         .iter()
-                        .map(|expr| expr.evaluate(&item))
+                        .map(|expr| expr.evaluate(item.get_value()))
                         .collect();
                     StreamItem::from(temp).absorb_key(item.get_key().unwrap().to_vec())
                 });
@@ -196,7 +196,10 @@ impl StreamType {
     }
 
     fn keyer(item: &StreamItem, conditions: &[Expr]) -> Vec<NoirType> {
-        conditions.iter().map(|expr| expr.evaluate(item)).collect()
+        conditions
+            .iter()
+            .map(|expr| expr.evaluate(item.get_value()))
+            .collect()
     }
 
     pub(crate) fn inner_join(self, rhs: Self, left_on: Vec<Expr>, right_on: Vec<Expr>) -> Self {

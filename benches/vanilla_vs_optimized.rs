@@ -12,6 +12,7 @@ use common::*;
 use noir_compute::data_type::noir_data::NoirData;
 use noir_compute::data_type::noir_type::{NoirType, NoirTypeKind};
 use noir_compute::data_type::stream_item::StreamItem;
+use noir_compute::optimization::dsl::jit::JitCompiler;
 use rand::rngs::ThreadRng;
 use rand::RngCore;
 
@@ -301,7 +302,8 @@ fn expr_vs_closures(c: &mut Criterion) {
             |b, items| {
                 let expr = col(3).modulo(7).eq(0);
                 let schema = Schema::same_type(5, NoirTypeKind::Int32);
-                let compiled_expr = CompiledExpr::compile(expr, schema);
+                let compiled_expr =
+                    CompiledExpr::compile(expr, schema, &mut JitCompiler::default());
                 b.iter(move || {
                     for item in items.iter() {
                         compiled_expr.evaluate(black_box(item.get_value()));

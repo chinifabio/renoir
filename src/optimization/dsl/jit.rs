@@ -36,10 +36,10 @@ impl Default for JitCompiler {
 }
 
 impl JitCompiler {
-    pub fn compile(&mut self, input_expr: Expr, schema: Schema) -> Result<*const u8, String> {
+    pub fn compile(&mut self, input_expr: &Expr, schema: &Schema) -> Result<*const u8, String> {
         let params = schema.columns.clone();
-        let the_return = input_expr.evaluate(&schema);
-        self.translate(params, the_return.into(), input_expr)?;
+        let the_return = schema.compute_result_type(input_expr);
+        self.translate(params, the_return, input_expr)?;
         let id = self
             .module
             .declare_function("jit_function", Linkage::Export, &self.ctx.func.signature)
@@ -63,7 +63,7 @@ impl JitCompiler {
         &mut self,
         params: Vec<NoirTypeKind>,
         the_return: NoirTypeKind,
-        expr: Expr,
+        expr: &Expr,
     ) -> Result<(), String> {
         let pointer_type = self.module.target_config().pointer_type();
         self.ctx
@@ -76,12 +76,6 @@ impl JitCompiler {
             .signature
             .params
             .push(AbiParam::new(pointer_type));
-
-        // self.ctx
-        //     .func
-        //     .signature
-        //     .returns
-        //     .push(AbiParam::new(types::I32));
 
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
         let entry_block = builder.create_block();
@@ -123,7 +117,7 @@ struct ExprTranslator<'a> {
 }
 
 impl<'a> ExprTranslator<'a> {
-    fn translate(&mut self, expr: Expr, block: Block) -> (Value, NoirTypeKind) {
+    fn translate(&mut self, expr: &Expr, block: Block) -> (Value, NoirTypeKind) {
         match expr {
             Expr::NthColumn(n) => {
                 let item_base_address = self.builder.block_params(block)[0];
@@ -131,10 +125,10 @@ impl<'a> ExprTranslator<'a> {
                     .builder
                     .ins()
                     .iconst(types::I64, std::mem::size_of::<NoirType>() as i64);
-                let item_offset = self.builder.ins().imul_imm(item_size, n as i64);
+                let item_offset = self.builder.ins().imul_imm(item_size, *n as i64);
                 let item_address = self.builder.ins().iadd(item_base_address, item_offset);
 
-                let item_type = match self.params[n] {
+                let item_type = match self.params[*n] {
                     NoirTypeKind::Int32 => types::I32,
                     NoirTypeKind::Float32 => types::F32,
                     NoirTypeKind::Bool => types::I8,
@@ -147,24 +141,24 @@ impl<'a> ExprTranslator<'a> {
                     4,
                 );
 
-                (item_value, self.params[n])
+                (item_value, self.params[*n])
             }
             Expr::Literal(v) => match v {
                 NoirType::Int32(v) => (
-                    self.builder.ins().iconst(types::I32, v as i64),
+                    self.builder.ins().iconst(types::I32, *v as i64),
                     NoirTypeKind::Int32,
                 ),
-                NoirType::Float32(v) => (self.builder.ins().f32const(v), NoirTypeKind::Float32),
+                NoirType::Float32(v) => (self.builder.ins().f32const(*v), NoirTypeKind::Float32),
                 NoirType::Bool(v) => (
-                    self.builder.ins().iconst(types::I8, if v { 1 } else { 0 }),
+                    self.builder.ins().iconst(types::I8, if *v { 1 } else { 0 }),
                     NoirTypeKind::Bool,
                 ),
                 NoirType::NaN() => (self.builder.ins().f32const(f32::NAN), NoirTypeKind::Float32),
                 NoirType::None() => (self.builder.ins().f32const(f32::NAN), NoirTypeKind::Float32),
             },
             Expr::BinaryExpr { left, op, right } => {
-                let (left_val, left_type) = self.translate(*left, block);
-                let (right_val, right_type) = self.translate(*right, block);
+                let (left_val, left_type) = self.translate(left, block);
+                let (right_val, right_type) = self.translate(right, block);
                 match op {
                     BinaryOp::Plus => {
                         assert_eq!(left_type, right_type);
@@ -236,7 +230,7 @@ impl<'a> ExprTranslator<'a> {
                 }
             }
             Expr::UnaryExpr { op, expr } => {
-                let (val, val_type) = self.translate(*expr, block);
+                let (val, val_type) = self.translate(expr, block);
                 match op {
                     UnaryOp::Floor => {
                         let val = match val_type {
@@ -252,14 +246,17 @@ impl<'a> ExprTranslator<'a> {
                 }
             }
             Expr::AggregateExpr { op, expr } => match op {
-                AggregateOp::Sum => self.translate(*expr, block),
+                AggregateOp::Sum => self.translate(expr, block),
                 AggregateOp::Count => (
                     self.builder.ins().iconst(types::I32, 1),
                     NoirTypeKind::Int32,
                 ),
                 _ => todo!(),
             },
-            Expr::Empty => todo!(),
+            Expr::Empty => panic!("Error during jit compiling, cannot compile empty expression"),
+            Expr::Compiled { .. } => {
+                panic!("Error during jit compiling, cannot compile compiled expression")
+            }
         }
     }
 }
@@ -267,20 +264,20 @@ impl<'a> ExprTranslator<'a> {
 #[cfg(test)]
 pub mod test {
     use crate::{
-        data_type::{noir_type::{NoirType, NoirTypeKind}, schema::Schema},
+        data_type::{
+            noir_type::{NoirType, NoirTypeKind},
+            schema::Schema,
+        },
         optimization::dsl::{expressions::*, jit::JitCompiler},
     };
 
     #[test]
     fn test_jit_compiler() {
-        let schema = Schema::new(vec![
-            NoirTypeKind::Int32,
-            NoirTypeKind::Int32,
-        ]);
+        let schema = Schema::new(vec![NoirTypeKind::Int32, NoirTypeKind::Int32]);
         let expr = col(0) + col(1);
 
         let mut jit_compiler = JitCompiler::default();
-        let code = jit_compiler.compile(expr, schema);
+        let code = jit_compiler.compile(&expr, &schema);
         assert!(code.is_ok());
 
         let code = code.unwrap();

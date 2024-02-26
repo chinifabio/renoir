@@ -1,6 +1,5 @@
 use core::panic;
 use std::fmt::{Debug, Display};
-use std::ops::Index;
 
 use crate::data_type::noir_type::NoirType;
 use crate::data_type::schema::Schema;
@@ -64,6 +63,10 @@ pub enum Expr {
         op: AggregateOp,
         expr: ExprRef,
     },
+    Compiled {
+        compiled: extern "C" fn(*const NoirType, *mut NoirType),
+        expr: ExprRef,
+    },
     Empty,
 }
 
@@ -72,9 +75,8 @@ pub struct CompiledExpr {
 }
 
 impl CompiledExpr {
-    pub fn compile(expr: Expr, schema: Schema) -> Self {
-        let mut jit = JitCompiler::default();
-        let code_ptr = jit.compile(expr, schema).unwrap();
+    pub fn compile(expr: Expr, schema: Schema, jit_compiler: &mut JitCompiler) -> Self {
+        let code_ptr = jit_compiler.compile(&expr, &schema).unwrap();
         let compiled_expr: extern "C" fn(*const NoirType, *mut NoirType) =
             unsafe { std::mem::transmute(code_ptr) };
         Self {
@@ -148,6 +150,7 @@ impl Display for Expr {
                 AggregateOp::Avg { .. } => write!(f, "avg({})", expr),
             },
             Expr::Empty => write!(f, "empty"),
+            Expr::Compiled { compiled: _, expr } => write!(f, "{}", expr),
         }
     }
 }
@@ -232,12 +235,23 @@ impl Expr {
                     stack.push(expr);
                 }
                 Expr::Empty => panic!("Empty expression"),
+                Expr::Compiled { compiled: _, expr } => {
+                    stack.push(expr);
+                }
             }
         }
         dependencies
     }
 
-    pub fn evaluate<T: Index<usize, Output = NoirType>>(&self, item: &T) -> NoirType {
+    pub(crate) fn compile(self, schema: &Schema, jit_compiler: &mut JitCompiler) -> Expr {
+        let code = jit_compiler.compile(&self, schema).unwrap();
+        Expr::Compiled {
+            compiled: unsafe { std::mem::transmute(code) },
+            expr: Box::new(self),
+        }
+    }
+
+    pub fn evaluate(&self, item: &[NoirType]) -> NoirType {
         match self {
             Expr::Literal(value) => *value,
             Expr::NthColumn(n) => item[*n],
@@ -282,6 +296,11 @@ impl Expr {
                 }
             }
             Expr::Empty => panic!("Empty expression"),
+            Expr::Compiled { compiled, expr: _ } => {
+                let mut result = NoirType::Int32(0);
+                compiled(item.as_ptr(), &mut result);
+                result
+            }
         }
     }
 
@@ -313,6 +332,7 @@ impl Expr {
                 }
             }
             Expr::Empty => panic!("Empty expression"),
+            Expr::Compiled { .. } => panic!("You can't modify a compiled expression"),
         }
     }
 
@@ -374,6 +394,9 @@ impl Expr {
                 ArenaExpr::AggregateExpr { op, expr: new_expr }
             }
             Expr::Empty => ArenaExpr::Empty,
+            Expr::Compiled { .. } => {
+                panic!("You can't convert a compiled expression to an arena expression")
+            }
         }
     }
 }
@@ -504,19 +527,13 @@ pub fn avg(expr: Expr) -> Expr {
 pub mod test {
     use std::vec;
 
-    use crate::data_type::noir_data::NoirData;
     use crate::data_type::noir_type::NoirType;
 
     use super::*;
 
     #[test]
     fn test_expr() {
-        let data: StreamItem = NoirData::Row(vec![
-            NoirType::Int32(1),
-            NoirType::Int32(2),
-            NoirType::Int32(3),
-        ])
-        .into();
+        let data = vec![NoirType::Int32(1), NoirType::Int32(2), NoirType::Int32(3)];
 
         let expr = col(0) + i(1);
         assert_eq!(expr.evaluate(&data), NoirType::Int32(2));

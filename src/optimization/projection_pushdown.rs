@@ -219,7 +219,8 @@ impl ProjectionPushdown {
                 op,
                 expr: Box::new(Self::replace_dependencies(*expr, accumulator)),
             },
-            Expr::Empty => panic!("Empty expression"),
+            Expr::Empty => panic!("Can't replace dependencies in an empty expression"),
+            Expr::Compiled { .. } => panic!("Can't replace dependencies in a compiled expression"),
         }
     }
 }

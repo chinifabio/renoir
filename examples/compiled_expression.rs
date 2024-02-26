@@ -4,6 +4,7 @@ use noir_compute::{
         schema::Schema,
         stream_item::StreamItem,
     },
+    optimization::dsl::jit::JitCompiler,
     prelude::*,
 };
 use rand::{rngs::ThreadRng, Rng};
@@ -42,11 +43,10 @@ fn main() {
     }
     println!("Time taken: {:?}", time.elapsed());
     let schema = Schema::same_type(5, NoirTypeKind::Int32);
-    let compiled_expr = CompiledExpr::compile(expr.clone(), schema);
+    let compiled_expr = CompiledExpr::compile(expr, schema, &mut JitCompiler::default());
     let time = std::time::Instant::now();
     for row in &data {
         compiled_expr.evaluate(row);
     }
     println!("Time taken: {:?}", time.elapsed());
-    
 }
