@@ -360,7 +360,7 @@ fn is_compiled_faster(c: &mut Criterion) {
 }
 
 criterion_group!(
-    benches, 
+    benches,
     predicate_pushdown,
     projection_pushdown,
     expr_vs_closures,

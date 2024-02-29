@@ -1,11 +1,14 @@
 use core::panic;
 use std::fmt::{Debug, Display};
 
+use serde::{Deserialize, Serialize};
+
 use crate::data_type::noir_type::NoirType;
 use crate::data_type::schema::Schema;
 use crate::data_type::stream_item::StreamItem;
 use crate::optimization::arena::Arena;
 
+use super::aggregate::*;
 use super::jit::JitCompiler;
 
 #[derive(Clone, PartialEq, Eq, Debug, Copy, Hash)]
@@ -35,13 +38,14 @@ pub enum UnaryOp {
     Round,
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Copy, Hash)]
+#[derive(Clone, PartialEq, Eq, Debug, Copy, Hash, Serialize, Deserialize)]
 pub enum AggregateOp {
-    Sum,
-    Count,
-    Min,
-    Max,
-    Avg,
+    Val(Val),
+    Sum(Sum),
+    Count(Count),
+    Min(Min),
+    Max(Max),
+    Avg(Avg),
 }
 
 pub type ExprRef = Box<Expr>;
@@ -123,6 +127,7 @@ impl Display for Expr {
                 AggregateOp::Min { .. } => write!(f, "min({})", expr),
                 AggregateOp::Max { .. } => write!(f, "max({})", expr),
                 AggregateOp::Avg { .. } => write!(f, "avg({})", expr),
+                _ => panic!("Invalid aggregate expression")
             },
             Expr::Empty => write!(f, "empty"),
             Expr::Compiled {
@@ -236,9 +241,9 @@ impl Expr {
     }
 
     pub fn compile(self, schema: &Schema, jit_compiler: &mut JitCompiler) -> Expr {
-        if self.depth() <= 2 {
-            return self;
-        }
+        // if self.depth() <= 2 {
+        //     return self;
+        // }
 
         if let Expr::AggregateExpr { op, expr } = self {
             return Expr::AggregateExpr {
@@ -288,16 +293,7 @@ impl Expr {
                     UnaryOp::Round => data.round(),
                 }
             }
-            Expr::AggregateExpr { op, expr } => {
-                let data = expr.evaluate(item);
-                match op {
-                    AggregateOp::Sum => data,
-                    AggregateOp::Count => NoirType::Int32(1),
-                    AggregateOp::Min => data,
-                    AggregateOp::Max => data,
-                    AggregateOp::Avg => todo!(),
-                }
-            }
+            Expr::AggregateExpr { op: _, expr } => expr.evaluate(item),
             Expr::Empty => panic!("Empty expression"),
             Expr::Compiled {
                 compiled_eval,
@@ -342,31 +338,10 @@ impl Expr {
         matches!(self, Expr::AggregateExpr { .. })
     }
 
-    pub(crate) fn accumulate(&self, a: NoirType, b: NoirType) -> NoirType {
+    pub fn into_accumulator_state(self) -> AggregateOp {
         match self {
-            Expr::AggregateExpr { op, .. } => match op {
-                AggregateOp::Sum => a + b,
-                AggregateOp::Count => a + b,
-                AggregateOp::Min => {
-                    if a > b {
-                        b
-                    } else {
-                        a
-                    }
-                }
-                AggregateOp::Max => {
-                    if a < b {
-                        b
-                    } else {
-                        a
-                    }
-                }
-                AggregateOp::Avg => todo!(),
-            },
-            _ => {
-                assert_eq!(a, b);
-                a
-            }
+            Expr::AggregateExpr { op, .. } => op,
+            _ => AggregateOp::Val(Val::new()),
         }
     }
 
@@ -399,6 +374,30 @@ impl Expr {
             Expr::Compiled { .. } => {
                 panic!("You can't convert a compiled expression to an arena expression")
             }
+        }
+    }
+}
+
+impl AggregateOp {
+    pub(crate) fn accumulate(&self, value: NoirType) {
+        match self {
+            AggregateOp::Sum(mut state) => state.aggregate(value),
+            AggregateOp::Count(mut state) => state.aggregate(value),
+            AggregateOp::Min(mut state) => state.aggregate(value),
+            AggregateOp::Max(mut state) => state.aggregate(value),
+            AggregateOp::Avg(mut state) => state.aggregate(value),
+            AggregateOp::Val(mut state) => state.aggregate(value),
+        }
+    }
+
+    pub(crate) fn finalize(&self) -> NoirType {
+        match self {
+            AggregateOp::Sum(state) => state.finalize(),
+            AggregateOp::Count(state) => state.finalize(),
+            AggregateOp::Min(state) => state.finalize(),
+            AggregateOp::Max(state) => state.finalize(),
+            AggregateOp::Avg(state) => state.finalize(),
+            AggregateOp::Val(state) => state.finalize(),
         }
     }
 }
@@ -441,16 +440,7 @@ pub fn evaluate_arena_expr(
                 UnaryOp::Round => data.round(),
             }
         }
-        ArenaExpr::AggregateExpr { op, expr } => {
-            let data = evaluate_arena_expr(expr_arena.get(*expr).unwrap(), item, expr_arena);
-            match op {
-                AggregateOp::Sum => data,
-                AggregateOp::Count => NoirType::Int32(1),
-                AggregateOp::Min => data,
-                AggregateOp::Max => data,
-                AggregateOp::Avg => todo!(),
-            }
-        }
+        ArenaExpr::AggregateExpr { op: _, expr } => evaluate_arena_expr(expr_arena.get(*expr).unwrap(), item, expr_arena),
         ArenaExpr::Empty => panic!("Empty expression"),
     }
 }
@@ -492,35 +482,35 @@ pub fn b(value: bool) -> Expr {
 
 pub fn sum(expr: Expr) -> Expr {
     Expr::AggregateExpr {
-        op: AggregateOp::Sum,
+        op: AggregateOp::Sum(Sum::new()),
         expr: Box::new(expr),
     }
 }
 
 pub fn count(expr: Expr) -> Expr {
     Expr::AggregateExpr {
-        op: AggregateOp::Count,
+        op: AggregateOp::Count(Count::new()),
         expr: Box::new(expr),
     }
 }
 
 pub fn min(expr: Expr) -> Expr {
     Expr::AggregateExpr {
-        op: AggregateOp::Min,
+        op: AggregateOp::Min(Min::new()),
         expr: Box::new(expr),
     }
 }
 
 pub fn max(expr: Expr) -> Expr {
     Expr::AggregateExpr {
-        op: AggregateOp::Max,
+        op: AggregateOp::Max(Max::new()),
         expr: Box::new(expr),
     }
 }
 
 pub fn avg(expr: Expr) -> Expr {
     Expr::AggregateExpr {
-        op: AggregateOp::Avg,
+        op: AggregateOp::Avg(Avg::new()),
         expr: Box::new(expr),
     }
 }

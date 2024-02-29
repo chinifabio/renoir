@@ -5,7 +5,7 @@ use cranelift_module::{Linkage, Module};
 use crate::data_type::noir_type::{NoirType, NoirTypeKind};
 use crate::data_type::schema::Schema;
 
-use super::expressions::{AggregateOp, BinaryOp, Expr, UnaryOp};
+use super::expressions::{BinaryOp, Expr, UnaryOp};
 
 pub struct JitCompiler {
     builder_context: FunctionBuilderContext,
@@ -361,14 +361,7 @@ impl<'a> ExprTranslator<'a> {
                     _ => todo!(),
                 }
             }
-            Expr::AggregateExpr { op, expr } => match op {
-                AggregateOp::Sum => self.translate(expr, block),
-                AggregateOp::Count => (
-                    self.builder.ins().iconst(types::I32, 1),
-                    NoirTypeKind::Int32,
-                ),
-                _ => todo!(),
-            },
+            Expr::AggregateExpr { .. } => panic!("Error during jit compiling, cannot aggregate"),
             Expr::Empty => panic!("Error during jit compiling, cannot compile empty expression"),
             Expr::Compiled { .. } => {
                 panic!("Error during jit compiling, cannot compile compiled expression")

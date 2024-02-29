@@ -16,6 +16,7 @@ use crate::{
     Stream,
 };
 
+use super::dsl::expressions::AggregateOp;
 use super::logical_plan::{JoinType, LogicPlan};
 
 #[allow(clippy::type_complexity)]
@@ -135,12 +136,20 @@ impl StreamType {
                         .collect_vec()
                 });
                 if columns.iter().any(|e| e.is_aggregator()) {
+                    let accumulator = columns
+                        .into_iter()
+                        .map(|e| e.into_accumulator_state())
+                        .collect_vec();
                     let stream = temp_stream
-                        .reduce(move |mut accumulator, item| {
-                            for i in 0..accumulator.len() {
-                                accumulator[i] = columns[i].accumulate(accumulator[i], item[i]);
+                        .fold(accumulator, |acc, value: Vec<NoirType>| {
+                            for i in 0..acc.len() {
+                                acc[i].accumulate(value[i]);
                             }
-                            accumulator
+                        })
+                        .map(|acc| {
+                            acc.into_iter()
+                                .map(|a| a.finalize())
+                                .collect_vec()
                         })
                         .map(StreamItem::from)
                         .into_box();
@@ -158,17 +167,31 @@ impl StreamType {
                     StreamItem::from(temp).absorb_key(item.get_key().unwrap().to_vec())
                 });
                 if columns.iter().any(|e| e.is_aggregator()) {
+                    let accumulator = columns
+                        .into_iter()
+                        .map(|e| e.into_accumulator_state())
+                        .collect_vec();
                     let stream = temp_stream
-                        .group_by_reduce(
-                            |item| item.get_key().unwrap().to_vec(),
-                            move |acc, item| {
+                        .group_by_fold(
+                            |item| item.get_key().unwrap().to_vec(), 
+                            accumulator, 
+                            |acc: &mut Vec<AggregateOp>, value: StreamItem| {
                                 for i in 0..acc.len() {
-                                    acc[i] = columns[i].accumulate(acc[i], item[i]);
+                                    acc[i].accumulate(value[i]);
+                                }
+                            },
+                            |acc, _| {
+                                for _ in 0..acc.len() {
+                                    // todo: merge the accumulators
                                 }
                             },
                         )
-                        .0
-                        .map(|(key, data)| data.drop_key().absorb_key(key))
+                        .map(|(_, data)| data.into_iter().map(|item| item.finalize()).collect_vec())
+                        .0.map(|(mut key, data)| {
+                            let key_len = key.len();
+                            key.extend(data);
+                            StreamItem::new_with_key(key, key_len)
+                        })
                         .into_box();
                     StreamType::KeyedStream(stream)
                 } else {
