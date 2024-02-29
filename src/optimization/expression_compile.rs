@@ -51,7 +51,10 @@ impl ExpressionCompile {
                 let new_schema = schema.update(&columns);
                 Ok((
                     LogicPlan::Select {
-                        columns,
+                        columns: columns
+                            .into_iter()
+                            .map(|c| c.compile(&schema, jit_compiler))
+                            .collect(),
                         input: Box::new(new_input),
                     },
                     new_schema,
@@ -145,7 +148,7 @@ impl ExpressionCompile {
 impl OptimizationRule for ExpressionCompile {
     fn optimize(plan: LogicPlan) -> OptimizerResult {
         match Self::compile(plan, &mut JitCompiler::default()) {
-            Ok((plan, ..)) => Ok(plan),
+            Ok((new_plan, ..)) => Ok(new_plan),
             Err(e) => Err(e),
         }
     }

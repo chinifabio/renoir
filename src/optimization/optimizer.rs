@@ -42,17 +42,13 @@ impl Default for OptimizationOptions {
         Self {
             projection_pushdown: true,
             predicate_pushdown: true,
-            compile_expressions: true,
+            compile_expressions: false,
             expression_rewrite: false,
         }
     }
 }
 
 impl LogicPlanOptimizer {
-    pub fn optimize(plan: LogicPlan) -> Result<LogicPlan, OptimizerError> {
-        Self::optmize_with_options(plan, OptimizationOptions::default())
-    }
-
     pub fn optmize_with_options(
         mut plan: LogicPlan,
         options: OptimizationOptions,
@@ -74,5 +70,39 @@ impl LogicPlanOptimizer {
         }
 
         Ok(plan)
+    }
+}
+
+impl OptimizationOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_projection_pushdown(self, enable: bool) -> Self {
+        Self {
+            projection_pushdown: enable,
+            ..self
+        }
+    }
+
+    pub fn with_predicate_pushdown(self, enable: bool) -> Self {
+        Self {
+            predicate_pushdown: enable,
+            ..self
+        }
+    }
+
+    pub fn with_compile_expressions(self, enable: bool) -> Self {
+        Self {
+            compile_expressions: enable,
+            ..self
+        }
+    }
+
+    pub fn with_expression_rewrite(self, enable: bool) -> Self {
+        Self {
+            expression_rewrite: enable,
+            ..self
+        }
     }
 }

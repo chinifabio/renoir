@@ -484,7 +484,7 @@ where
                         }
 
                         while !self.buffer.is_empty()
-                            && !self.buffer.get(0).unwrap().contains_none()
+                            && !self.buffer.front().unwrap().contains_none()
                         {
                             self.to_send.push_back(self.buffer.pop_front().unwrap());
                         }
@@ -558,7 +558,7 @@ where
                             }
 
                             while !self.buffer.is_empty()
-                                || self.buffer.get(0).unwrap().contains_none()
+                                || self.buffer.front().unwrap().contains_none()
                             {
                                 self.to_send.push_back(self.buffer.pop_front().unwrap());
                             }

@@ -153,13 +153,13 @@ harness = false
 name = "csv"
 harness = false
 [[bench]]
-name = "vanilla_vs_optimized"
+name = "optimizations"
 harness = false
 
 [profile.release]
 lto = true
-# strip = "symbols"
-debug = true
+strip = "symbols"
+debug = false
 
 [profile.release-fast]
 inherits = "release"

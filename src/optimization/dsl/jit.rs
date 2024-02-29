@@ -11,6 +11,7 @@ pub struct JitCompiler {
     builder_context: FunctionBuilderContext,
     ctx: codegen::Context,
     module: JITModule,
+    index: usize,
 }
 
 impl Default for JitCompiler {
@@ -31,6 +32,7 @@ impl Default for JitCompiler {
             builder_context: FunctionBuilderContext::new(),
             ctx: module.make_context(),
             module,
+            index: 0,
         }
     }
 }
@@ -42,11 +44,16 @@ impl JitCompiler {
         self.translate(params, the_return, input_expr)?;
         let id = self
             .module
-            .declare_function("jit_function", Linkage::Export, &self.ctx.func.signature)
+            .declare_function(
+                format!("compiled_expression_{}", self.index).as_str(),
+                Linkage::Export,
+                &self.ctx.func.signature,
+            )
             .map_err(|e| {
                 println!("{:?}", e);
                 e.to_string()
             })?;
+        self.index += 1;
         self.module
             .define_function(id, &mut self.ctx)
             .map_err(|e| {
@@ -74,8 +81,8 @@ impl JitCompiler {
         self.ctx
             .func
             .signature
-            .params
-            .push(AbiParam::new(pointer_type));
+            .returns
+            .push(AbiParam::new(types::I64));
 
         let mut builder = FunctionBuilder::new(&mut self.ctx.func, &mut self.builder_context);
         let entry_block = builder.create_block();
@@ -85,27 +92,24 @@ impl JitCompiler {
 
         let mut translator = ExprTranslator { params, builder };
 
-        let (return_value, computed_return_type) = translator.translate(expr, entry_block);
+        let (result_value, computed_return_type) = translator.translate(expr, entry_block);
         assert_eq!(computed_return_type, the_return);
-
-        let result_address = translator.builder.block_params(entry_block)[1];
-        translator
-            .builder
-            .ins()
-            .store(MemFlags::new(), return_value, result_address, 4);
 
         let discriminant_value = translator
             .builder
             .ins()
             .iconst(types::I32, the_return as i64);
-        translator.builder.ins().store(
-            MemFlags::new().with_heap(),
-            discriminant_value,
-            result_address,
-            0,
-        );
 
-        translator.builder.ins().return_(&[]);
+        // let return_value = translator.builder.ins().iconcat(discriminant_value, result_value);
+        let mut return_value = translator.builder.ins().uextend(types::I64, result_value);
+        return_value = translator.builder.ins().ishl_imm(return_value, 32);
+        let other = translator
+            .builder
+            .ins()
+            .uextend(types::I64, discriminant_value);
+        return_value = translator.builder.ins().bor(return_value, other);
+
+        translator.builder.ins().return_(&[return_value]);
         translator.builder.finalize();
         Ok(())
     }
@@ -121,25 +125,19 @@ impl<'a> ExprTranslator<'a> {
         match expr {
             Expr::NthColumn(n) => {
                 let item_base_address = self.builder.block_params(block)[0];
-                let item_size = self
-                    .builder
-                    .ins()
-                    .iconst(types::I64, std::mem::size_of::<NoirType>() as i64);
-                let item_offset = self.builder.ins().imul_imm(item_size, *n as i64);
-                let item_address = self.builder.ins().iadd(item_base_address, item_offset);
+                let item_offset = std::mem::size_of::<NoirType>() as i64 * *n as i64;
+                let item_address = self.builder.ins().iadd_imm(item_base_address, item_offset);
 
                 let item_type = match self.params[*n] {
                     NoirTypeKind::Int32 => types::I32,
                     NoirTypeKind::Float32 => types::F32,
-                    NoirTypeKind::Bool => types::I8,
+                    NoirTypeKind::Bool => types::I32,
                     e => panic!("{} should not be a column type", e),
                 };
-                let item_value = self.builder.ins().load(
-                    item_type,
-                    MemFlags::new().with_heap(),
-                    item_address,
-                    4,
-                );
+                let item_value =
+                    self.builder
+                        .ins()
+                        .load(item_type, MemFlags::new(), item_address, 4);
 
                 (item_value, self.params[*n])
             }
@@ -150,7 +148,9 @@ impl<'a> ExprTranslator<'a> {
                 ),
                 NoirType::Float32(v) => (self.builder.ins().f32const(*v), NoirTypeKind::Float32),
                 NoirType::Bool(v) => (
-                    self.builder.ins().iconst(types::I8, if *v { 1 } else { 0 }),
+                    self.builder
+                        .ins()
+                        .iconst(types::I32, if *v { 1 } else { 0 }),
                     NoirTypeKind::Bool,
                 ),
                 NoirType::NaN() => (self.builder.ins().f32const(f32::NAN), NoirTypeKind::Float32),
@@ -161,49 +161,57 @@ impl<'a> ExprTranslator<'a> {
                 let (right_val, right_type) = self.translate(right, block);
                 match op {
                     BinaryOp::Plus => {
-                        assert_eq!(left_type, right_type);
-                        let val = match left_type {
+                        let (left_val, right_val, values_type) = self
+                            .ensure_compatible_types(left_val, right_val, left_type, right_type);
+                        let val = match values_type {
                             NoirTypeKind::Int32 => self.builder.ins().iadd(left_val, right_val),
                             NoirTypeKind::Float32 => self.builder.ins().fadd(left_val, right_val),
                             NoirTypeKind::Bool => self.builder.ins().iadd(left_val, right_val),
                             e => panic!("Error during jit compiling, {} is not supported", e),
                         };
-                        (val, left_type)
+                        (val, values_type)
                     }
                     BinaryOp::Minus => {
-                        assert_eq!(left_type, right_type);
-                        let val = match left_type {
+                        let (left_val, right_val, values_type) = self
+                            .ensure_compatible_types(left_val, right_val, left_type, right_type);
+                        let val = match values_type {
                             NoirTypeKind::Int32 => self.builder.ins().isub(left_val, right_val),
                             NoirTypeKind::Float32 => self.builder.ins().fsub(left_val, right_val),
                             NoirTypeKind::Bool => self.builder.ins().isub(left_val, right_val),
                             e => panic!("Error during jit compiling, {} is not supported", e),
                         };
-                        (val, left_type)
+                        (val, values_type)
                     }
                     BinaryOp::Multiply => {
-                        assert_eq!(left_type, right_type);
-                        let val = match left_type {
+                        let (left_val, right_val, values_type) = self
+                            .ensure_compatible_types(left_val, right_val, left_type, right_type);
+                        let val = match values_type {
                             NoirTypeKind::Int32 => self.builder.ins().imul(left_val, right_val),
                             NoirTypeKind::Float32 => self.builder.ins().fmul(left_val, right_val),
                             NoirTypeKind::Bool => self.builder.ins().imul(left_val, right_val),
                             e => panic!("Error during jit compiling, {} is not supported", e),
                         };
-                        (val, left_type)
+                        (val, values_type)
                     }
                     BinaryOp::Divide => {
-                        assert_eq!(left_type, right_type);
-                        let val = match left_type {
+                        let (left_val, right_val, values_type) = self
+                            .ensure_compatible_types(left_val, right_val, left_type, right_type);
+                        let val = match values_type {
                             NoirTypeKind::Int32 => self.builder.ins().sdiv(left_val, right_val),
                             NoirTypeKind::Float32 => self.builder.ins().fdiv(left_val, right_val),
                             NoirTypeKind::Bool => self.builder.ins().sdiv(left_val, right_val),
                             e => panic!("Error during jit compiling, {} is not supported", e),
                         };
-                        (val, left_type)
+                        (val, values_type)
                     }
                     BinaryOp::Mod => {
-                        assert_eq!(left_type, right_type);
                         let val = match (left_type, right_type) {
                             (NoirTypeKind::Int32, NoirTypeKind::Int32) => {
+                                self.builder.ins().srem(left_val, right_val)
+                            }
+                            (NoirTypeKind::Float32, NoirTypeKind::Int32) => {
+                                let left_val =
+                                    self.builder.ins().fcvt_to_sint(types::F32, left_val);
                                 self.builder.ins().srem(left_val, right_val)
                             }
                             e => panic!("Error during jit compiling, cannot crate mod for {:?}", e),
@@ -211,18 +219,126 @@ impl<'a> ExprTranslator<'a> {
                         (val, left_type)
                     }
                     BinaryOp::Eq => {
-                        assert_eq!(left_type, right_type);
-                        let val = match left_type {
+                        let (left_val, right_val, values_type) = self
+                            .ensure_compatible_types(left_val, right_val, left_type, right_type);
+                        let val = match values_type {
                             NoirTypeKind::Int32 => {
-                                self.builder.ins().icmp(IntCC::Equal, left_val, right_val)
+                                self.handle_int_comparison(left_val, right_val, IntCC::Equal)
                             }
                             NoirTypeKind::Float32 => {
-                                self.builder.ins().fcmp(FloatCC::Equal, left_val, right_val)
+                                self.handle_float_comparison(left_val, right_val, FloatCC::Equal)
                             }
                             NoirTypeKind::Bool => {
-                                self.builder.ins().icmp(IntCC::Equal, left_val, right_val)
+                                self.handle_int_comparison(left_val, right_val, IntCC::Equal)
                             }
-                            e => panic!("Error during jit compiling, {} is not supported", e),
+                            e => panic!("Error during jit compiling, cannot compare {:?}", e),
+                        };
+                        (val, NoirTypeKind::Bool)
+                    }
+                    BinaryOp::NotEq => {
+                        let (left_val, right_val, values_type) = self
+                            .ensure_compatible_types(left_val, right_val, left_type, right_type);
+                        let val = match values_type {
+                            NoirTypeKind::Int32 => {
+                                self.handle_int_comparison(left_val, right_val, IntCC::NotEqual)
+                            }
+                            NoirTypeKind::Float32 => {
+                                self.handle_float_comparison(left_val, right_val, FloatCC::NotEqual)
+                            }
+                            NoirTypeKind::Bool => {
+                                self.handle_int_comparison(left_val, right_val, IntCC::NotEqual)
+                            }
+                            e => panic!("Error during jit compiling, cannot compare {:?}", e),
+                        };
+                        (val, NoirTypeKind::Bool)
+                    }
+                    BinaryOp::Gt => {
+                        let (left_val, right_val, values_type) = self
+                            .ensure_compatible_types(left_val, right_val, left_type, right_type);
+                        let val = match values_type {
+                            NoirTypeKind::Int32 => self.handle_int_comparison(
+                                left_val,
+                                right_val,
+                                IntCC::SignedGreaterThan,
+                            ),
+                            NoirTypeKind::Float32 => self.handle_float_comparison(
+                                left_val,
+                                right_val,
+                                FloatCC::GreaterThan,
+                            ),
+                            NoirTypeKind::Bool => self.handle_int_comparison(
+                                left_val,
+                                right_val,
+                                IntCC::SignedGreaterThan,
+                            ),
+                            e => panic!("Error during jit compiling, cannot compare {:?}", e),
+                        };
+                        (val, NoirTypeKind::Bool)
+                    }
+                    BinaryOp::GtEq => {
+                        let (left_val, right_val, values_type) = self
+                            .ensure_compatible_types(left_val, right_val, left_type, right_type);
+                        let val = match values_type {
+                            NoirTypeKind::Int32 => self.handle_int_comparison(
+                                left_val,
+                                right_val,
+                                IntCC::SignedGreaterThanOrEqual,
+                            ),
+                            NoirTypeKind::Float32 => self.handle_float_comparison(
+                                left_val,
+                                right_val,
+                                FloatCC::GreaterThanOrEqual,
+                            ),
+                            NoirTypeKind::Bool => self.handle_int_comparison(
+                                left_val,
+                                right_val,
+                                IntCC::SignedGreaterThanOrEqual,
+                            ),
+                            e => panic!("Error during jit compiling, cannot compare {:?}", e),
+                        };
+                        (val, NoirTypeKind::Bool)
+                    }
+                    BinaryOp::Lt => {
+                        let (left_val, right_val, values_type) = self
+                            .ensure_compatible_types(left_val, right_val, left_type, right_type);
+                        let val = match values_type {
+                            NoirTypeKind::Int32 => self.handle_int_comparison(
+                                left_val,
+                                right_val,
+                                IntCC::SignedLessThan,
+                            ),
+                            NoirTypeKind::Float32 => {
+                                self.handle_float_comparison(left_val, right_val, FloatCC::LessThan)
+                            }
+                            NoirTypeKind::Bool => self.handle_int_comparison(
+                                left_val,
+                                right_val,
+                                IntCC::SignedLessThan,
+                            ),
+                            e => panic!("Error during jit compiling, cannot compare {:?}", e),
+                        };
+                        (val, NoirTypeKind::Bool)
+                    }
+                    BinaryOp::LtEq => {
+                        let (left_val, right_val, values_type) = self
+                            .ensure_compatible_types(left_val, right_val, left_type, right_type);
+                        let val = match values_type {
+                            NoirTypeKind::Int32 => self.handle_int_comparison(
+                                left_val,
+                                right_val,
+                                IntCC::SignedLessThanOrEqual,
+                            ),
+                            NoirTypeKind::Float32 => self.handle_float_comparison(
+                                left_val,
+                                right_val,
+                                FloatCC::LessThanOrEqual,
+                            ),
+                            NoirTypeKind::Bool => self.handle_int_comparison(
+                                left_val,
+                                right_val,
+                                IntCC::SignedLessThanOrEqual,
+                            ),
+                            e => panic!("Error during jit compiling, cannot compare {:?}", e),
                         };
                         (val, NoirTypeKind::Bool)
                     }
@@ -259,10 +375,61 @@ impl<'a> ExprTranslator<'a> {
             }
         }
     }
+
+    fn ensure_compatible_types(
+        &mut self,
+        left_val: Value,
+        right_val: Value,
+        left_type: NoirTypeKind,
+        right_type: NoirTypeKind,
+    ) -> (Value, Value, NoirTypeKind) {
+        match (left_type, right_type) {
+            (NoirTypeKind::Int32, NoirTypeKind::Int32) => (left_val, right_val, left_type),
+            (NoirTypeKind::Float32, NoirTypeKind::Float32) => (left_val, right_val, left_type),
+            (NoirTypeKind::Bool, NoirTypeKind::Bool) => (left_val, right_val, left_type),
+            (NoirTypeKind::Int32, NoirTypeKind::Float32) => {
+                let left_val = self.builder.ins().fcvt_to_sint(types::F32, left_val);
+                (left_val, right_val, NoirTypeKind::Float32)
+            }
+            (NoirTypeKind::Int32, NoirTypeKind::Bool) => (left_val, right_val, NoirTypeKind::Int32),
+            (NoirTypeKind::Float32, NoirTypeKind::Int32) => {
+                let right_val = self.builder.ins().fcvt_to_sint(types::F32, right_val);
+                (left_val, right_val, NoirTypeKind::Float32)
+            }
+            (NoirTypeKind::Float32, NoirTypeKind::Bool) => {
+                let right_val = self.builder.ins().fcvt_to_sint(types::F32, right_val);
+                (left_val, right_val, NoirTypeKind::Float32)
+            }
+            (NoirTypeKind::Bool, NoirTypeKind::Int32) => (left_val, right_val, NoirTypeKind::Int32),
+            (NoirTypeKind::Bool, NoirTypeKind::Float32) => {
+                let left_val = self.builder.ins().fcvt_to_sint(types::F32, left_val);
+                (left_val, right_val, NoirTypeKind::Float32)
+            }
+            e => panic!(
+                "Error during jit compiling, {:?} and {:?} are not compatible",
+                e.0, e.1
+            ),
+        }
+    }
+
+    fn handle_int_comparison(&mut self, left_val: Value, right_val: Value, op: IntCC) -> Value {
+        let val = self.builder.ins().icmp(op, left_val, right_val);
+        self.builder.ins().uextend(types::I32, val)
+    }
+
+    fn handle_float_comparison(&mut self, left_val: Value, right_val: Value, op: FloatCC) -> Value {
+        let val = self.builder.ins().fcmp(op, left_val, right_val);
+        self.builder.ins().uextend(types::I32, val)
+    }
 }
 
 #[cfg(test)]
 pub mod test {
+    use cranelift::{
+        codegen::ir::{types, Function, InstBuilder},
+        frontend::{FunctionBuilder, FunctionBuilderContext},
+    };
+
     use crate::{
         data_type::{
             noir_type::{NoirType, NoirTypeKind},
@@ -270,6 +437,96 @@ pub mod test {
         },
         optimization::dsl::{expressions::*, jit::JitCompiler},
     };
+
+    use super::ExprTranslator;
+
+    #[test]
+    fn test_ensure_compatible_types() {
+        let mut func = Function::new();
+        let mut func_builder_ctx = FunctionBuilderContext::new();
+        let mut func_builder = FunctionBuilder::new(&mut func, &mut func_builder_ctx);
+        let block = func_builder.create_block();
+        func_builder.append_block_params_for_function_params(block);
+        func_builder.switch_to_block(block);
+        let mut translator = ExprTranslator {
+            params: vec![NoirTypeKind::Int32, NoirTypeKind::Float32],
+            builder: func_builder,
+        };
+
+        let dummy_val = translator.builder.ins().iconst(types::I32, 0);
+
+        let (_, _, res) = translator.ensure_compatible_types(
+            dummy_val,
+            dummy_val,
+            NoirTypeKind::Int32,
+            NoirTypeKind::Int32,
+        );
+        assert_eq!(res, NoirTypeKind::Int32);
+
+        let (_, _, res) = translator.ensure_compatible_types(
+            dummy_val,
+            dummy_val,
+            NoirTypeKind::Float32,
+            NoirTypeKind::Float32,
+        );
+        assert_eq!(res, NoirTypeKind::Float32);
+
+        let (_, _, res) = translator.ensure_compatible_types(
+            dummy_val,
+            dummy_val,
+            NoirTypeKind::Bool,
+            NoirTypeKind::Bool,
+        );
+        assert_eq!(res, NoirTypeKind::Bool);
+
+        let (_, _, res) = translator.ensure_compatible_types(
+            dummy_val,
+            dummy_val,
+            NoirTypeKind::Int32,
+            NoirTypeKind::Float32,
+        );
+        assert_eq!(res, NoirTypeKind::Float32);
+
+        let (_, _, res) = translator.ensure_compatible_types(
+            dummy_val,
+            dummy_val,
+            NoirTypeKind::Int32,
+            NoirTypeKind::Bool,
+        );
+        assert_eq!(res, NoirTypeKind::Int32);
+
+        let (_, _, res) = translator.ensure_compatible_types(
+            dummy_val,
+            dummy_val,
+            NoirTypeKind::Float32,
+            NoirTypeKind::Int32,
+        );
+        assert_eq!(res, NoirTypeKind::Float32);
+
+        let (_, _, res) = translator.ensure_compatible_types(
+            dummy_val,
+            dummy_val,
+            NoirTypeKind::Float32,
+            NoirTypeKind::Bool,
+        );
+        assert_eq!(res, NoirTypeKind::Float32);
+
+        let (_, _, res) = translator.ensure_compatible_types(
+            dummy_val,
+            dummy_val,
+            NoirTypeKind::Bool,
+            NoirTypeKind::Int32,
+        );
+        assert_eq!(res, NoirTypeKind::Int32);
+
+        let (_, _, res) = translator.ensure_compatible_types(
+            dummy_val,
+            dummy_val,
+            NoirTypeKind::Bool,
+            NoirTypeKind::Float32,
+        );
+        assert_eq!(res, NoirTypeKind::Float32);
+    }
 
     #[test]
     fn test_jit_compiler() {

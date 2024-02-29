@@ -123,10 +123,10 @@ impl Display for LogicPlan {
 }
 
 impl LogicPlan {
-    pub(crate) fn optimize(self) -> LogicPlan {
-        match LogicPlanOptimizer::optimize(self) {
+    pub(crate) fn optimize(self, options: OptimizationOptions) -> LogicPlan {
+        match LogicPlanOptimizer::optmize_with_options(self, options) {
             Ok(plan) => plan,
-            Err(err) => panic!("Error during optimization -> {}", err),
+            Err(err) => panic!("Error during optimization: {}", err),
         }
     }
 

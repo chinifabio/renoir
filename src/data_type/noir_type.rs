@@ -3,7 +3,9 @@ use std::cmp::Eq;
 use std::f32;
 use std::fmt::Display;
 use std::hash::Hash;
-use std::ops::{Add, AddAssign, BitXor, Div, DivAssign, Mul, Neg, Not, Rem, Sub, SubAssign};
+use std::ops::{
+    Add, AddAssign, BitAnd, BitOr, BitXor, Div, DivAssign, Mul, Neg, Not, Rem, Sub, SubAssign,
+};
 
 use serde::{Deserialize, Serialize};
 use sha2::digest::typenum::Pow;
@@ -580,6 +582,34 @@ impl Rem for NoirType {
             (NoirType::Int32(a), NoirType::Int32(b)) => NoirType::Int32(a % b),
             (NoirType::Float32(a), NoirType::Int32(b)) => NoirType::Float32(a % b as f32),
             (_, _) => panic!("NaN, None or Float! ({} % {})", self, rhs),
+        }
+    }
+}
+
+impl BitAnd for NoirType {
+    type Output = NoirType;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (NoirType::Int32(a), NoirType::Int32(b)) => NoirType::Int32(a & b),
+            (NoirType::Bool(a), NoirType::Bool(b)) => NoirType::Bool(a && b),
+            (NoirType::Int32(a), NoirType::Bool(b)) => NoirType::Bool(a != 0 && b),
+            (NoirType::Bool(a), NoirType::Int32(b)) => NoirType::Bool(a && b != 0),
+            (_, _) => panic!("Operation not supported! ({} & {})", self, rhs),
+        }
+    }
+}
+
+impl BitOr for NoirType {
+    type Output = NoirType;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        match (self, rhs) {
+            (NoirType::Int32(a), NoirType::Int32(b)) => NoirType::Int32(a | b),
+            (NoirType::Bool(a), NoirType::Bool(b)) => NoirType::Bool(a || b),
+            (NoirType::Int32(a), NoirType::Bool(b)) => NoirType::Bool(a != 0 || b),
+            (NoirType::Bool(a), NoirType::Int32(b)) => NoirType::Bool(a || b != 0),
+            (_, _) => panic!("Operation not supported! ({} | {})", self, rhs),
         }
     }
 }

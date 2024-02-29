@@ -64,35 +64,10 @@ pub enum Expr {
         expr: ExprRef,
     },
     Compiled {
-        compiled: extern "C" fn(*const NoirType, *mut NoirType),
+        compiled_eval: fn(*const NoirType) -> NoirType,
         expr: ExprRef,
     },
     Empty,
-}
-
-pub struct CompiledExpr {
-    compiled_expression: Option<extern "C" fn(*const NoirType, *mut NoirType)>,
-}
-
-impl CompiledExpr {
-    pub fn compile(expr: Expr, schema: Schema, jit_compiler: &mut JitCompiler) -> Self {
-        let code_ptr = jit_compiler.compile(&expr, &schema).unwrap();
-        let compiled_expr: extern "C" fn(*const NoirType, *mut NoirType) =
-            unsafe { std::mem::transmute(code_ptr) };
-        Self {
-            compiled_expression: Some(compiled_expr),
-        }
-    }
-
-    pub fn evaluate(&self, item: &[NoirType]) -> NoirType {
-        let mut result = NoirType::Int32(0);
-        if let Some(compiled_expr) = self.compiled_expression {
-            compiled_expr(item.as_ptr(), &mut result);
-            result
-        } else {
-            panic!("Compiled expression is not available");
-        }
-    }
 }
 
 pub enum ArenaExpr {
@@ -150,7 +125,10 @@ impl Display for Expr {
                 AggregateOp::Avg { .. } => write!(f, "avg({})", expr),
             },
             Expr::Empty => write!(f, "empty"),
-            Expr::Compiled { compiled: _, expr } => write!(f, "{}", expr),
+            Expr::Compiled {
+                compiled_eval: _,
+                expr,
+            } => write!(f, "compiled<{}>", expr),
         }
     }
 }
@@ -234,19 +212,44 @@ impl Expr {
                 Expr::AggregateExpr { op: _, expr } => {
                     stack.push(expr);
                 }
-                Expr::Empty => panic!("Empty expression"),
-                Expr::Compiled { compiled: _, expr } => {
-                    stack.push(expr);
-                }
+                Expr::Empty => panic!("Empty expression has no dependencies"),
+                Expr::Compiled { .. } => panic!("Compiled expression has no dependencies"),
             }
         }
         dependencies
     }
 
-    pub(crate) fn compile(self, schema: &Schema, jit_compiler: &mut JitCompiler) -> Expr {
+    pub fn depth(&self) -> usize {
+        match self {
+            Expr::NthColumn(_) => 1,
+            Expr::Literal(_) => 1,
+            Expr::BinaryExpr { left, op: _, right } => {
+                let left = left.depth();
+                let right = right.depth();
+                left.max(right) + 1
+            }
+            Expr::UnaryExpr { op: _, expr } => expr.depth() + 1,
+            Expr::AggregateExpr { op: _, expr } => expr.depth() + 1,
+            Expr::Empty => panic!("Empty expression has no depth"),
+            Expr::Compiled { .. } => panic!("Compiled expression has no depth"),
+        }
+    }
+
+    pub fn compile(self, schema: &Schema, jit_compiler: &mut JitCompiler) -> Expr {
+        if self.depth() <= 2 {
+            return self;
+        }
+
+        if let Expr::AggregateExpr { op, expr } = self {
+            return Expr::AggregateExpr {
+                op,
+                expr: Box::new(expr.compile(schema, jit_compiler)),
+            };
+        }
+
         let code = jit_compiler.compile(&self, schema).unwrap();
         Expr::Compiled {
-            compiled: unsafe { std::mem::transmute(code) },
+            compiled_eval: unsafe { std::mem::transmute(code) },
             expr: Box::new(self),
         }
     }
@@ -296,11 +299,10 @@ impl Expr {
                 }
             }
             Expr::Empty => panic!("Empty expression"),
-            Expr::Compiled { compiled, expr: _ } => {
-                let mut result = NoirType::Int32(0);
-                compiled(item.as_ptr(), &mut result);
-                result
-            }
+            Expr::Compiled {
+                compiled_eval,
+                expr: _,
+            } => compiled_eval(item.as_ptr()),
         }
     }
 
@@ -418,11 +420,11 @@ pub fn evaluate_arena_expr(
                 BinaryOp::Multiply => left * right,
                 BinaryOp::Divide => left / right,
                 BinaryOp::Mod => left % right,
+                BinaryOp::And => left & right,
+                BinaryOp::Or => left | right,
                 BinaryOp::Xor => left ^ right,
                 BinaryOp::Eq => NoirType::Bool(left == right),
                 BinaryOp::NotEq => NoirType::Bool(left != right),
-                BinaryOp::And => NoirType::Bool(left.into() && right.into()),
-                BinaryOp::Or => NoirType::Bool(left.into() || right.into()),
                 BinaryOp::Lt => NoirType::Bool(left < right),
                 BinaryOp::LtEq => NoirType::Bool(left <= right),
                 BinaryOp::Gt => NoirType::Bool(left > right),

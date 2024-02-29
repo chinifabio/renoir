@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use criterion::{black_box, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main};
 use criterion::{BenchmarkId, Criterion, Throughput};
 use noir_compute::data_type::schema::Schema;
 use noir_compute::optimization::arena::Arena;
@@ -267,7 +267,7 @@ fn expr_vs_closures(c: &mut Criterion) {
             let closure = |item: &StreamItem| item[3].modulo(7) == NoirType::Int32(0);
             b.iter(move || {
                 for item in items.iter() {
-                    closure(black_box(item));
+                    closure(item);
                 }
             });
         });
@@ -276,7 +276,7 @@ fn expr_vs_closures(c: &mut Criterion) {
             let expr = col(3).modulo(i(7)).eq(i(0));
             b.iter(move || {
                 for item in items.iter() {
-                    expr.evaluate(black_box(item));
+                    expr.evaluate(item.get_value());
                 }
             });
         });
@@ -302,11 +302,10 @@ fn expr_vs_closures(c: &mut Criterion) {
             |b, items| {
                 let expr = col(3).modulo(7).eq(0);
                 let schema = Schema::same_type(5, NoirTypeKind::Int32);
-                let compiled_expr =
-                    CompiledExpr::compile(expr, schema, &mut JitCompiler::default());
+                let compiled_expr = expr.compile(&schema, &mut JitCompiler::default());
                 b.iter(move || {
                     for item in items.iter() {
-                        compiled_expr.evaluate(black_box(item.get_value()));
+                        compiled_expr.evaluate(item.get_value());
                     }
                 });
             },
@@ -316,10 +315,55 @@ fn expr_vs_closures(c: &mut Criterion) {
     group.finish();
 }
 
+fn is_compiled_faster(c: &mut Criterion) {
+    let mut group = c.benchmark_group("Compiled vs Interpreted");
+    group.sample_size(SAMPLE_SIZE);
+    group.measurement_time(MEASUREMENT_TIME);
+    group.warm_up_time(WARM_UP_TIME);
+
+    let n_col = 100;
+    for n_row in [10000, 100000, 1000000, 10000000] {
+        let source_file = PathBuf::from(format!("../py-evaluation/data/{}_{}.csv", n_row, n_col));
+        group.throughput(Throughput::Elements(n_row as u64));
+
+        group.bench_with_input(
+            BenchmarkId::new("Interpreted", n_row),
+            &source_file,
+            |b, path| {
+                noir_bench_default(b, |env| {
+                    env.stream_csv_optimized(path.to_path_buf())
+                        .with_schema(Schema::same_type(100, NoirTypeKind::Int32))
+                        .filter(((col(0) + col(1)) / 2).gte(50))
+                        .select(&[col(0), col(1), col(1) + col(1)])
+                        .collect_vec();
+                });
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("Compiled", n_row),
+            &source_file,
+            |b, path| {
+                noir_bench_default(b, |env| {
+                    env.stream_csv_optimized(path.to_path_buf())
+                        .with_schema(Schema::same_type(100, NoirTypeKind::Int32))
+                        .with_compiled_expressions(true)
+                        .filter(((col(0) + col(1)) / 2).gte(50))
+                        .select(&[col(0), col(1), col(1) + col(1)])
+                        .collect_vec();
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
-    benches,
-    // predicate_pushdown,
-    // projection_pushdown,
-    expr_vs_closures
+    benches, 
+    predicate_pushdown,
+    projection_pushdown,
+    expr_vs_closures,
+    is_compiled_faster
 );
 criterion_main!(benches);

@@ -13,6 +13,7 @@ use crate::operator::Start;
 use crate::operator::{Data, ExchangeData, KeyerFn, Operator};
 use crate::operator::{DataKey, SimpleStartOperator};
 use crate::optimization::logical_plan::LogicPlan;
+use crate::optimization::optimizer::OptimizationOptions;
 use crate::scheduler::BlockId;
 
 /// A Stream represents a chain of operators that work on a flow of data. The type of the elements
@@ -105,6 +106,7 @@ where
 pub struct OptStream {
     pub(crate) inner: Arc<Mutex<StreamEnvironmentInner>>,
     pub(crate) logic_plan: LogicPlan,
+    pub(crate) optimizations: OptimizationOptions,
 }
 
 impl<Op> Stream<Op>

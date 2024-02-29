@@ -156,12 +156,15 @@ pub type CoordUInt = u64;
 
 /// Re-export of commonly used structs and traits
 pub mod prelude {
+    pub use super::data_type::noir_type::{NoirType, NoirTypeKind};
+    pub use super::data_type::schema::Schema;
     pub use super::operator::sink::StreamOutput;
     pub use super::operator::source::*;
     pub use super::operator::window::{CountWindow, ProcessingTimeWindow, SessionWindow};
     #[cfg(feature = "timestamp")]
     pub use super::operator::window::{EventTimeWindow, TransactionWindow};
     pub use super::optimization::dsl::expressions::*;
+    pub use super::optimization::optimizer::OptimizationOptions;
     pub use super::{BatchMode, EnvironmentConfig, StreamEnvironment};
 }
 

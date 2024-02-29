@@ -104,6 +104,9 @@ where
 }
 
 pub fn noir_bench_default(b: &mut Bencher, logic: impl Fn(&mut StreamEnvironment)) {
-    let builder = NoirBenchBuilder::new(StreamEnvironment::default, logic);
+    let builder = NoirBenchBuilder::new(
+        || StreamEnvironment::new(EnvironmentConfig::local(1)),
+        logic,
+    );
     b.iter_custom(|n| builder.bench(n));
 }

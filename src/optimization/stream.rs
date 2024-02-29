@@ -10,6 +10,7 @@ use crate::{
     Stream,
 };
 
+use super::optimizer::OptimizationOptions;
 use super::{
     logical_plan::{JoinType, LogicPlan},
     physical_plan::to_stream,
@@ -35,7 +36,7 @@ where
 
 impl OptStream {
     pub fn collect_vec(self) -> StreamOutput<Vec<StreamItem>> {
-        let optimized = self.logic_plan.collect_vec().optimize();
+        let optimized = self.logic_plan.collect_vec().optimize(self.optimizations);
         info!("Optimized plan: {}", optimized);
         to_stream(optimized, self.inner).into_output()
     }
@@ -44,6 +45,7 @@ impl OptStream {
         OptStream {
             inner: self.inner,
             logic_plan: self.logic_plan.filter(predicate),
+            optimizations: self.optimizations,
         }
     }
 
@@ -51,6 +53,7 @@ impl OptStream {
         OptStream {
             inner: self.inner,
             logic_plan: self.logic_plan.shuffle(),
+            optimizations: self.optimizations,
         }
     }
 
@@ -58,6 +61,7 @@ impl OptStream {
         OptStream {
             inner: self.inner,
             logic_plan: self.logic_plan.group_by(key),
+            optimizations: self.optimizations,
         }
     }
 
@@ -65,6 +69,7 @@ impl OptStream {
         OptStream {
             inner: self.inner,
             logic_plan: self.logic_plan.select(exprs),
+            optimizations: self.optimizations,
         }
     }
 
@@ -72,6 +77,7 @@ impl OptStream {
         OptStream {
             inner: self.inner,
             logic_plan: self.logic_plan.drop_key(),
+            optimizations: self.optimizations,
         }
     }
 
@@ -79,11 +85,13 @@ impl OptStream {
         OptStream {
             inner: self.inner,
             logic_plan: self.logic_plan.drop(cols),
+            optimizations: self.optimizations,
         }
     }
 
     pub fn join<E: AsRef<[Expr]>>(self, other: OptStream, left_on: E, right_on: E) -> OptStream {
         OptStream {
+            optimizations: self.optimizations,
             inner: self.inner,
             logic_plan: self
                 .logic_plan
@@ -98,6 +106,7 @@ impl OptStream {
         right_on: E,
     ) -> OptStream {
         OptStream {
+            optimizations: self.optimizations,
             inner: self.inner,
             logic_plan: self
                 .logic_plan
@@ -112,6 +121,7 @@ impl OptStream {
         right_on: E,
     ) -> OptStream {
         OptStream {
+            optimizations: self.optimizations,
             inner: self.inner,
             logic_plan: self
                 .logic_plan
@@ -137,6 +147,23 @@ impl OptStream {
         Self {
             inner: self.inner,
             logic_plan: new_plan,
+            optimizations: self.optimizations,
+        }
+    }
+
+    pub fn with_optimizations(self, optimizations: OptimizationOptions) -> Self {
+        Self {
+            inner: self.inner,
+            logic_plan: self.logic_plan,
+            optimizations,
+        }
+    }
+
+    pub fn with_compiled_expressions(self, compiled: bool) -> Self {
+        Self {
+            inner: self.inner,
+            logic_plan: self.logic_plan,
+            optimizations: self.optimizations.with_compile_expressions(compiled),
         }
     }
 
@@ -158,6 +185,7 @@ impl OptStream {
         Self {
             inner: self.inner.clone(),
             logic_plan: new_plan,
+            optimizations: self.optimizations,
         }
     }
 }
@@ -173,6 +201,7 @@ impl crate::StreamEnvironment {
                 projections: None,
                 schema: None,
             },
+            optimizations: OptimizationOptions::default(),
         }
     }
 }
