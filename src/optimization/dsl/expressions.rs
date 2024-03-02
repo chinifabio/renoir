@@ -127,7 +127,7 @@ impl Display for Expr {
                 AggregateOp::Min { .. } => write!(f, "min({})", expr),
                 AggregateOp::Max { .. } => write!(f, "max({})", expr),
                 AggregateOp::Avg { .. } => write!(f, "avg({})", expr),
-                _ => panic!("Invalid aggregate expression")
+                _ => panic!("Invalid aggregate expression"),
             },
             Expr::Empty => write!(f, "empty"),
             Expr::Compiled {
@@ -440,7 +440,9 @@ pub fn evaluate_arena_expr(
                 UnaryOp::Round => data.round(),
             }
         }
-        ArenaExpr::AggregateExpr { op: _, expr } => evaluate_arena_expr(expr_arena.get(*expr).unwrap(), item, expr_arena),
+        ArenaExpr::AggregateExpr { op: _, expr } => {
+            evaluate_arena_expr(expr_arena.get(*expr).unwrap(), item, expr_arena)
+        }
         ArenaExpr::Empty => panic!("Empty expression"),
     }
 }

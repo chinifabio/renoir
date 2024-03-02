@@ -4,6 +4,7 @@ use std::fmt::Display;
 use std::path::PathBuf;
 
 use crate::data_type::schema::Schema;
+use crate::data_type::stream_item::StreamItem;
 
 use super::dsl::expressions::*;
 use super::optimizer::*;
@@ -17,6 +18,10 @@ pub enum JoinType {
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum LogicPlan {
+    ParallelIterator {
+        generator: fn(u64, u64) -> Box<dyn Iterator<Item = StreamItem> + Send>,
+        schema: Schema,
+    },
     TableScan {
         path: PathBuf,
         predicate: Option<Expr>,
@@ -118,10 +123,17 @@ impl Display for LogicPlan {
                     input_left, input_right, join_type, left_on, right_on
                 )
             }
+            LogicPlan::ParallelIterator {
+                generator: _,
+                schema,
+            } => {
+                write!(f, "ParallelIterator({:?})", schema)
+            }
         }
     }
 }
 
+// todo spostare metodi dentro opt stream
 impl LogicPlan {
     pub(crate) fn optimize(self, options: OptimizationOptions) -> LogicPlan {
         match LogicPlanOptimizer::optmize_with_options(self, options) {
@@ -192,41 +204,58 @@ impl LogicPlan {
         }
     }
 
-    fn extract_header_final(schema: &Option<Schema>, projections: &Option<Vec<usize>>) -> Schema {
-        match (schema, projections) {
-            (Some(schema), Some(projections)) => Schema {
-                columns: projections
-                    .clone()
-                    .into_iter()
-                    .map(|i| schema.columns[i])
-                    .collect(),
-            },
-            (Some(schema), None) => schema.clone(),
-            _ => panic!(
-                "Schema not found. You should set the schema as first operation after the source."
-            ),
+    pub(crate) fn set_schema(&mut self, schema: Schema) {
+        match self {
+            LogicPlan::TableScan { schema: s, .. } => *s = Some(schema),
+            LogicPlan::ParallelIterator { schema: s, .. } => *s = schema,
+            LogicPlan::Filter { input, .. } => input.set_schema(schema),
+            LogicPlan::Select { input, .. } => input.set_schema(schema),
+            LogicPlan::Shuffle { input } => input.set_schema(schema),
+            LogicPlan::GroupBy { input, .. } => input.set_schema(schema),
+            LogicPlan::DropKey { input } => input.set_schema(schema),
+            LogicPlan::CollectVec { input } => input.set_schema(schema),
+            LogicPlan::DropColumns { input, .. } => input.set_schema(schema),
+            LogicPlan::Join { .. } => panic!("Schema should be set before the join operation."),
         }
     }
 
-    pub(crate) fn schema(&self) -> Schema {
+    pub(crate) fn get_schema(&self) -> Schema {
         match self {
             LogicPlan::TableScan {
                 schema,
                 projections,
                 ..
-            } => Self::extract_header_final(schema, projections),
-            LogicPlan::Filter { input, .. } => input.schema(),
-            LogicPlan::Select { input, .. } => input.schema(),
-            LogicPlan::Shuffle { input } => input.schema(),
-            LogicPlan::GroupBy { input, .. } => input.schema(),
-            LogicPlan::DropKey { input } => input.schema(),
-            LogicPlan::CollectVec { input } => input.schema(),
-            LogicPlan::DropColumns { input, .. } => input.schema(),
+            } => {
+                match (schema, projections) {
+                    (Some(schema), Some(projections)) => Schema {
+                        columns: projections
+                            .clone()
+                            .into_iter()
+                            .map(|i| schema.columns[i])
+                            .collect(),
+                    },
+                    (Some(schema), None) => schema.clone(),
+                    _ => panic!(
+                        "Schema not found. You should set the schema as first operation after the source."
+                    ),
+                }
+            },
+            LogicPlan::Filter { input, .. } => input.get_schema(),
+            LogicPlan::Select { input, .. } => input.get_schema(),
+            LogicPlan::Shuffle { input } => input.get_schema(),
+            LogicPlan::GroupBy { input, .. } => input.get_schema(),
+            LogicPlan::DropKey { input } => input.get_schema(),
+            LogicPlan::CollectVec { input } => input.get_schema(),
+            LogicPlan::DropColumns { input, .. } => input.get_schema(),
             LogicPlan::Join {
                 input_left,
                 input_right,
                 ..
-            } => input_left.schema().merge(input_right.schema()),
+            } => input_left.get_schema().merge(input_right.get_schema()),
+            LogicPlan::ParallelIterator {
+                generator: _,
+                schema,
+            } => schema.clone(),
         }
     }
 }

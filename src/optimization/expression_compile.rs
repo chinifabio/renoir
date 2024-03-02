@@ -141,6 +141,13 @@ impl ExpressionCompile {
                     new_schema,
                 ))
             }
+            LogicPlan::ParallelIterator { generator, schema } => {
+                let new_schema = schema.clone();
+                Ok((
+                    LogicPlan::ParallelIterator { generator, schema },
+                    new_schema,
+                ))
+            }
         }
     }
 }

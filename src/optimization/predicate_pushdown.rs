@@ -214,7 +214,7 @@ impl PredicatePushdown {
             } => {
                 // Divide the predicates in the accumulator into two groups: those that depend only on the left
                 // input and those that depend only on the right input
-                let left_header_len = input_left.schema().columns.len();
+                let left_header_len = input_left.get_schema().columns.len();
                 let mut left_accumulator = accumulator
                     .iter_mut()
                     .filter(|p| p.is_left(i, left_header_len))
@@ -239,6 +239,16 @@ impl PredicatePushdown {
                     right_on,
                     join_type,
                 })
+            }
+            LogicPlan::ParallelIterator { generator, schema } => {
+                let new_predicate = Self::take_action(accumulator, i);
+                match new_predicate {
+                    Some(predicate) => Ok(LogicPlan::Filter {
+                        predicate,
+                        input: Box::new(LogicPlan::ParallelIterator { generator, schema }),
+                    }),
+                    None => Ok(LogicPlan::ParallelIterator { generator, schema }),
+                }
             }
         }
     }

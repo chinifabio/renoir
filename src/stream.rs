@@ -7,7 +7,7 @@ use crate::block::{BatchMode, Block, NextStrategy, SchedulerRequirements};
 use crate::environment::StreamEnvironmentInner;
 use crate::operator::end::End;
 use crate::operator::iteration::IterationStateLock;
-use crate::operator::source::Source;
+use crate::operator::source::{CsvOptions, Source};
 use crate::operator::window::WindowDescription;
 use crate::operator::Start;
 use crate::operator::{Data, ExchangeData, KeyerFn, Operator};
@@ -107,6 +107,7 @@ pub struct OptStream {
     pub(crate) inner: Arc<Mutex<StreamEnvironmentInner>>,
     pub(crate) logic_plan: LogicPlan,
     pub(crate) optimizations: OptimizationOptions,
+    pub(crate) csv_options: Option<CsvOptions>,
 }
 
 impl<Op> Stream<Op>

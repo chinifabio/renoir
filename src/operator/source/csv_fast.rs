@@ -212,6 +212,11 @@ impl RowCsvSource {
         self.options.schema = schema;
         self
     }
+
+    pub(crate) fn with_options(mut self, options: CsvOptions) -> Self {
+        self.options = options;
+        self
+    }
 }
 
 impl Source for RowCsvSource {
@@ -386,7 +391,7 @@ impl RowCsvSource {
         }
 
         if let Some(projections) = &self.options.projections_at_source {
-            let mut data: Vec<NoirType> = Vec::with_capacity(self.record.len() - projections.len());
+            let mut data: Vec<NoirType> = Vec::with_capacity(projections.len());
             for index in projections {
                 let field = self.record.get(*index).unwrap();
                 if field.is_empty() {
@@ -449,7 +454,7 @@ impl RowCsvSource {
         }
 
         if let Some(projections) = &self.options.projections_at_source {
-            let mut data = Vec::with_capacity(self.record.len() - schema.columns.len());
+            let mut data = Vec::with_capacity(projections.len());
             for index in projections {
                 match schema.columns[*index] {
                     NoirTypeKind::Int32 => {

@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use crate::data_type::noir_type::NoirType;
 use crate::data_type::schema::Schema;
 use crate::data_type::stream_item::StreamItem;
+use crate::operator::source::CsvOptions;
 use crate::{
     box_op::BoxedOperator,
     operator::{filter_expr::FilterExpr, sink::StreamOutput, Operator},
@@ -71,64 +72,58 @@ impl OptStream {
     pub fn collect_vec(self) -> StreamOutput<Vec<StreamItem>> {
         let optimized = self.logic_plan.collect_vec().optimize(self.optimizations);
         info!("Optimized plan: {}", optimized);
-        to_stream(optimized, self.inner).into_output()
+        to_stream(optimized, self.inner, self.csv_options.unwrap_or_default()).into_output()
     }
 
     pub fn filter(self, predicate: Expr) -> Self {
         OptStream {
-            inner: self.inner,
             logic_plan: self.logic_plan.filter(predicate),
-            optimizations: self.optimizations,
+            ..self
         }
     }
 
     pub fn shuffle(self) -> Self {
         OptStream {
-            inner: self.inner,
             logic_plan: self.logic_plan.shuffle(),
-            optimizations: self.optimizations,
+            ..self
         }
     }
 
     pub fn group_by<E: AsRef<[Expr]>>(self, key: E) -> Self {
         OptStream {
-            inner: self.inner,
             logic_plan: self.logic_plan.group_by(key),
-            optimizations: self.optimizations,
+            ..self
         }
     }
 
     pub fn select<E: AsRef<[Expr]>>(self, exprs: E) -> Self {
         OptStream {
-            inner: self.inner,
             logic_plan: self.logic_plan.select(exprs),
-            optimizations: self.optimizations,
+            ..self
         }
     }
 
     pub fn drop_key(self) -> Self {
         OptStream {
-            inner: self.inner,
             logic_plan: self.logic_plan.drop_key(),
-            optimizations: self.optimizations,
+            ..self
         }
     }
 
     pub fn drop(self, cols: Vec<usize>) -> Self {
         OptStream {
-            inner: self.inner,
             logic_plan: self.logic_plan.drop(cols),
-            optimizations: self.optimizations,
+            ..self
         }
     }
 
     pub fn join<E: AsRef<[Expr]>>(self, other: OptStream, left_on: E, right_on: E) -> OptStream {
         OptStream {
-            optimizations: self.optimizations,
-            inner: self.inner,
             logic_plan: self
                 .logic_plan
                 .join(other.logic_plan, left_on, right_on, JoinType::Inner),
+
+            ..self
         }
     }
 
@@ -139,11 +134,10 @@ impl OptStream {
         right_on: E,
     ) -> OptStream {
         OptStream {
-            optimizations: self.optimizations,
-            inner: self.inner,
             logic_plan: self
                 .logic_plan
                 .join(other.logic_plan, left_on, right_on, JoinType::Left),
+            ..self
         }
     }
 
@@ -154,87 +148,83 @@ impl OptStream {
         right_on: E,
     ) -> OptStream {
         OptStream {
-            optimizations: self.optimizations,
-            inner: self.inner,
             logic_plan: self
                 .logic_plan
                 .join(other.logic_plan, left_on, right_on, JoinType::Outer),
+            ..self
         }
     }
 
-    pub fn with_schema(self, schema: Schema) -> Self {
-        let new_plan = match self.logic_plan {
-            LogicPlan::TableScan {
-                path,
-                predicate,
-                projections,
-                ..
-            } => LogicPlan::TableScan {
-                path,
-                predicate,
-                projections,
-                schema: Some(schema),
-            },
-            _ => panic!("Cannot set schema on non TableScan plan"),
-        };
-        Self {
-            inner: self.inner,
-            logic_plan: new_plan,
-            optimizations: self.optimizations,
-        }
+    pub fn with_schema(mut self, schema: Schema) -> Self {
+        self.logic_plan.set_schema(schema);
+        self
     }
 
     pub fn with_optimizations(self, optimizations: OptimizationOptions) -> Self {
         Self {
-            inner: self.inner,
-            logic_plan: self.logic_plan,
             optimizations,
+            ..self
         }
     }
 
     pub fn with_compiled_expressions(self, compiled: bool) -> Self {
         Self {
-            inner: self.inner,
-            logic_plan: self.logic_plan,
             optimizations: self.optimizations.with_compile_expressions(compiled),
+            ..self
         }
     }
 
-    pub fn infer_schema(self) -> Self {
-        let new_plan = match self.logic_plan {
-            LogicPlan::TableScan {
-                path,
-                predicate,
-                projections,
-                ..
-            } => LogicPlan::TableScan {
-                path: path.clone(),
-                predicate,
-                projections,
-                schema: Some(Schema::infer_from_file(path)),
-            },
-            _ => panic!("Cannot infer schema on non TableScan plan"),
-        };
+    pub fn with_predicate_pushdown(self, predicate_pushdown: bool) -> Self {
         Self {
-            inner: self.inner.clone(),
-            logic_plan: new_plan,
-            optimizations: self.optimizations,
+            optimizations: self
+                .optimizations
+                .with_predicate_pushdown(predicate_pushdown),
+            ..self
+        }
+    }
+
+    pub fn with_projection_pushdown(self, projection_pushdown: bool) -> Self {
+        Self {
+            optimizations: self
+                .optimizations
+                .with_projection_pushdown(projection_pushdown),
+            ..self
+        }
+    }
+
+    pub fn with_csv_options(self, csv_options: CsvOptions) -> Self {
+        Self {
+            csv_options: Some(csv_options),
+            ..self
         }
     }
 }
 
 impl crate::StreamEnvironment {
     pub fn stream_csv_optimized(&mut self, path: impl Into<PathBuf>) -> OptStream {
-        let path = path.into();
         OptStream {
             inner: self.inner.clone(),
             logic_plan: LogicPlan::TableScan {
-                path: path.clone(),
+                path: path.into(),
                 predicate: None,
                 projections: None,
                 schema: None,
             },
             optimizations: OptimizationOptions::default(),
+            csv_options: None,
+        }
+    }
+
+    pub fn stream_par_optimized(
+        &mut self,
+        generator: fn(u64, u64) -> Box<dyn Iterator<Item = StreamItem> + Send>,
+        schema: Schema,
+    ) -> OptStream {
+        OptStream {
+            inner: self.inner.clone(),
+            logic_plan: LogicPlan::ParallelIterator { generator, schema },
+            optimizations: OptimizationOptions::default(),
+            csv_options: None,
         }
     }
 }

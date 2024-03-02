@@ -115,7 +115,7 @@ impl ProjectionPushdown {
                 join_type,
             } => {
                 // Get the length of the header of the left input
-                let left_header_len = input_left.schema().columns.len();
+                let left_header_len = input_left.get_schema().columns.len();
 
                 // Initialize accumulators for the left and right inputs
                 let mut left_accumulator = Vec::new();
@@ -178,6 +178,9 @@ impl ProjectionPushdown {
                     join_type,
                 })
             }
+            LogicPlan::ParallelIterator { generator, schema } => {
+                Ok(LogicPlan::ParallelIterator { generator, schema })
+            }
         }
     }
 
@@ -190,7 +193,7 @@ impl ProjectionPushdown {
     /// Replace the dependencies in an expression with the new indices
     /// provided by the accumulator
     ///
-    /// Filter(col(3).eq(col(2))) with accumulator [1, 2, 3] becomes Filter(col(2).eq(col(1)))
+    /// Filter(col(5).eq(col(4))) with accumulator [1, 4, 5] becomes Filter(col(2).eq(col(1)))
     /// because the accumulator contains the mapping [
     ///     (2, 1),
     ///     (3, 2),

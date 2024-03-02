@@ -8,6 +8,7 @@ use crate::data_type::noir_data::NoirData;
 use crate::data_type::noir_type::NoirType;
 use crate::data_type::schema::Schema;
 use crate::data_type::stream_item::StreamItem;
+use crate::operator::source::{CsvOptions, ParallelIteratorSource};
 use crate::{
     box_op::BoxedOperator,
     environment::StreamEnvironmentInner,
@@ -39,6 +40,7 @@ impl Display for StreamType {
 pub(crate) fn to_stream(
     logic_plan: LogicPlan,
     env: Arc<Mutex<StreamEnvironmentInner>>,
+    csv_options: CsvOptions,
 ) -> StreamType {
     match logic_plan {
         LogicPlan::TableScan {
@@ -48,6 +50,7 @@ pub(crate) fn to_stream(
             schema,
         } => {
             let source = RowCsvSource::new(path)
+                .with_options(csv_options)
                 .filter_at_source(predicate)
                 .project_at_source(projections)
                 .with_schema(schema);
@@ -56,13 +59,17 @@ pub(crate) fn to_stream(
                 .into_box();
             StreamType::Stream(stream)
         }
-        LogicPlan::Filter { predicate, input } => to_stream(*input, env).filter_expr(predicate),
-        LogicPlan::Select { columns, input } => to_stream(*input, env).select(columns),
-        LogicPlan::Shuffle { input } => to_stream(*input, env).shuffle(),
-        LogicPlan::GroupBy { key, input } => to_stream(*input, env).group_by_expr(key),
-        LogicPlan::DropKey { input } => to_stream(*input, env).drop_key(),
-        LogicPlan::CollectVec { input } => to_stream(*input, env).collect_vec(),
-        LogicPlan::DropColumns { input, columns } => to_stream(*input, env).drop_columns(columns),
+        LogicPlan::Filter { predicate, input } => {
+            to_stream(*input, env, csv_options).filter_expr(predicate)
+        }
+        LogicPlan::Select { columns, input } => to_stream(*input, env, csv_options).select(columns),
+        LogicPlan::Shuffle { input } => to_stream(*input, env, csv_options).shuffle(),
+        LogicPlan::GroupBy { key, input } => to_stream(*input, env, csv_options).group_by_expr(key),
+        LogicPlan::DropKey { input } => to_stream(*input, env, csv_options).drop_key(),
+        LogicPlan::CollectVec { input } => to_stream(*input, env, csv_options).collect_vec(),
+        LogicPlan::DropColumns { input, columns } => {
+            to_stream(*input, env, csv_options).drop_columns(columns)
+        }
         LogicPlan::Join {
             input_left,
             input_right,
@@ -71,20 +78,31 @@ pub(crate) fn to_stream(
             join_type,
         } => match join_type {
             JoinType::Inner => {
-                let rhs = to_stream(*input_right, env.clone());
-                to_stream(*input_left, env).inner_join(rhs, left_on, right_on)
+                let rhs = to_stream(*input_right, env.clone(), csv_options.clone());
+                to_stream(*input_left, env, csv_options).inner_join(rhs, left_on, right_on)
             }
             JoinType::Left => {
-                let schema = input_left.schema().merge(input_right.schema());
-                let rhs = to_stream(*input_right, env.clone());
-                to_stream(*input_left, env).left_join(rhs, left_on, right_on, schema)
+                let schema = input_left.get_schema().merge(input_right.get_schema());
+                let rhs = to_stream(*input_right, env.clone(), csv_options.clone());
+                to_stream(*input_left, env, csv_options).left_join(rhs, left_on, right_on, schema)
             }
             JoinType::Outer => {
-                let schema = input_left.schema().merge(input_right.schema());
-                let rhs = to_stream(*input_right, env.clone());
-                to_stream(*input_left, env).outer_join(rhs, left_on, right_on, schema)
+                let schema = input_left.get_schema().merge(input_right.get_schema());
+                let rhs = to_stream(*input_right, env.clone(), csv_options.clone());
+                to_stream(*input_left, env, csv_options).outer_join(rhs, left_on, right_on, schema)
             }
         },
+        LogicPlan::ParallelIterator {
+            generator,
+            schema: _,
+        } => {
+            let source = ParallelIteratorSource::new(move |i, n| {
+                let boxed_iter = generator(i, n);
+                boxed_iter.into_iter()
+            });
+            let stream = StreamEnvironmentInner::stream(env, source).into_box();
+            StreamType::Stream(stream)
+        }
     }
 }
 
@@ -146,11 +164,7 @@ impl StreamType {
                                 acc[i].accumulate(value[i]);
                             }
                         })
-                        .map(|acc| {
-                            acc.into_iter()
-                                .map(|a| a.finalize())
-                                .collect_vec()
-                        })
+                        .map(|acc| acc.into_iter().map(|a| a.finalize()).collect_vec())
                         .map(StreamItem::from)
                         .into_box();
                     StreamType::Stream(stream)
@@ -173,8 +187,8 @@ impl StreamType {
                         .collect_vec();
                     let stream = temp_stream
                         .group_by_fold(
-                            |item| item.get_key().unwrap().to_vec(), 
-                            accumulator, 
+                            |item| item.get_key().unwrap().to_vec(),
+                            accumulator,
                             |acc: &mut Vec<AggregateOp>, value: StreamItem| {
                                 for i in 0..acc.len() {
                                     acc[i].accumulate(value[i]);
@@ -187,7 +201,8 @@ impl StreamType {
                             },
                         )
                         .map(|(_, data)| data.into_iter().map(|item| item.finalize()).collect_vec())
-                        .0.map(|(mut key, data)| {
+                        .0
+                        .map(|(mut key, data)| {
                             let key_len = key.len();
                             key.extend(data);
                             StreamItem::new_with_key(key, key_len)
