@@ -5,7 +5,7 @@ use std::{
     usize,
 };
 
-use crate::data_type::noir_type::NoirType;
+use crate::{data_type::noir_type::NoirType, optimization::dsl::expressions::ExprEvaluable};
 use average::{Estimate, Quantile};
 use quantiles::ckms::CKMS;
 use serde::{Deserialize, Serialize};
@@ -1075,6 +1075,15 @@ impl IndexMut<usize> for NoirData {
                     panic!("NOIR DATA: Index {} out of bounds for single col!", index)
                 }
             }
+        }
+    }
+}
+
+impl ExprEvaluable for NoirData {
+    fn as_ptr(&self) -> *const NoirType {
+        match self {
+            NoirData::Row(row) => row.as_ptr(),
+            NoirData::NoirType(v) => v as *const NoirType,
         }
     }
 }

@@ -141,12 +141,13 @@ impl ExpressionCompile {
                     new_schema,
                 ))
             }
-            LogicPlan::ParallelIterator { generator, schema } => {
-                let new_schema = schema.clone();
-                Ok((
-                    LogicPlan::ParallelIterator { generator, schema },
-                    new_schema,
-                ))
+            LogicPlan::UpStream { stream, schema } => {
+                if schema.is_none() {
+                    return Err(OptimizerError::SchemaNotDefined { message: "You are trying to compile expression without schema, set the schema or do not compile expressions".to_owned() });
+                }
+
+                let new_schema = schema.clone().unwrap();
+                Ok((LogicPlan::UpStream { stream, schema }, new_schema))
             }
         }
     }

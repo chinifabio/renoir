@@ -3,8 +3,10 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::path::PathBuf;
 
+use crate::box_op::BoxedOperator;
 use crate::data_type::schema::Schema;
 use crate::data_type::stream_item::StreamItem;
+use crate::Stream;
 
 use super::dsl::expressions::*;
 use super::optimizer::*;
@@ -16,11 +18,10 @@ pub enum JoinType {
     Outer,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum LogicPlan {
-    ParallelIterator {
-        generator: fn(u64, u64) -> Box<dyn Iterator<Item = StreamItem> + Send>,
-        schema: Schema,
+    UpStream {
+        stream: Stream<BoxedOperator<StreamItem>>,
+        schema: Option<Schema>,
     },
     TableScan {
         path: PathBuf,
@@ -60,6 +61,176 @@ pub enum LogicPlan {
         right_on: Vec<Expr>,
         join_type: JoinType,
     },
+}
+
+impl Eq for LogicPlan {}
+
+impl PartialEq for LogicPlan {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                Self::UpStream {
+                    schema: l_schema, ..
+                },
+                Self::UpStream {
+                    schema: r_schema, ..
+                },
+            ) => l_schema == r_schema,
+            (
+                Self::TableScan {
+                    path: l_path,
+                    predicate: l_predicate,
+                    projections: l_projections,
+                    schema: l_schema,
+                },
+                Self::TableScan {
+                    path: r_path,
+                    predicate: r_predicate,
+                    projections: r_projections,
+                    schema: r_schema,
+                },
+            ) => {
+                l_path == r_path
+                    && l_predicate == r_predicate
+                    && l_projections == r_projections
+                    && l_schema == r_schema
+            }
+            (
+                Self::Filter {
+                    predicate: l_predicate,
+                    input: l_input,
+                },
+                Self::Filter {
+                    predicate: r_predicate,
+                    input: r_input,
+                },
+            ) => l_predicate == r_predicate && l_input == r_input,
+            (
+                Self::Select {
+                    columns: l_columns,
+                    input: l_input,
+                },
+                Self::Select {
+                    columns: r_columns,
+                    input: r_input,
+                },
+            ) => l_columns == r_columns && l_input == r_input,
+            (Self::Shuffle { input: l_input }, Self::Shuffle { input: r_input }) => {
+                l_input == r_input
+            }
+            (
+                Self::GroupBy {
+                    key: l_key,
+                    input: l_input,
+                },
+                Self::GroupBy {
+                    key: r_key,
+                    input: r_input,
+                },
+            ) => l_key == r_key && l_input == r_input,
+            (Self::DropKey { input: l_input }, Self::DropKey { input: r_input }) => {
+                l_input == r_input
+            }
+            (Self::CollectVec { input: l_input }, Self::CollectVec { input: r_input }) => {
+                l_input == r_input
+            }
+            (
+                Self::DropColumns {
+                    input: l_input,
+                    columns: l_columns,
+                },
+                Self::DropColumns {
+                    input: r_input,
+                    columns: r_columns,
+                },
+            ) => l_input == r_input && l_columns == r_columns,
+            (
+                Self::Join {
+                    input_left: l_input_left,
+                    input_right: l_input_right,
+                    left_on: l_left_on,
+                    right_on: l_right_on,
+                    join_type: l_join_type,
+                },
+                Self::Join {
+                    input_left: r_input_left,
+                    input_right: r_input_right,
+                    left_on: r_left_on,
+                    right_on: r_right_on,
+                    join_type: r_join_type,
+                },
+            ) => {
+                l_input_left == r_input_left
+                    && l_input_right == r_input_right
+                    && l_left_on == r_left_on
+                    && l_right_on == r_right_on
+                    && l_join_type == r_join_type
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Debug for LogicPlan {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UpStream { schema, .. } => f
+                .debug_struct("ParallelIterator")
+                .field("schema", schema)
+                .finish(),
+            Self::TableScan {
+                path,
+                predicate,
+                projections,
+                schema,
+            } => f
+                .debug_struct("TableScan")
+                .field("path", path)
+                .field("predicate", predicate)
+                .field("projections", projections)
+                .field("schema", schema)
+                .finish(),
+            Self::Filter { predicate, input } => f
+                .debug_struct("Filter")
+                .field("predicate", predicate)
+                .field("input", input)
+                .finish(),
+            Self::Select { columns, input } => f
+                .debug_struct("Select")
+                .field("columns", columns)
+                .field("input", input)
+                .finish(),
+            Self::Shuffle { input } => f.debug_struct("Shuffle").field("input", input).finish(),
+            Self::GroupBy { key, input } => f
+                .debug_struct("GroupBy")
+                .field("key", key)
+                .field("input", input)
+                .finish(),
+            Self::DropKey { input } => f.debug_struct("DropKey").field("input", input).finish(),
+            Self::CollectVec { input } => {
+                f.debug_struct("CollectVec").field("input", input).finish()
+            }
+            Self::DropColumns { input, columns } => f
+                .debug_struct("DropColumns")
+                .field("input", input)
+                .field("columns", columns)
+                .finish(),
+            Self::Join {
+                input_left,
+                input_right,
+                left_on,
+                right_on,
+                join_type,
+            } => f
+                .debug_struct("Join")
+                .field("input_left", input_left)
+                .field("input_right", input_right)
+                .field("left_on", left_on)
+                .field("right_on", right_on)
+                .field("join_type", join_type)
+                .finish(),
+        }
+    }
 }
 
 impl Display for JoinType {
@@ -123,11 +294,8 @@ impl Display for LogicPlan {
                     input_left, input_right, join_type, left_on, right_on
                 )
             }
-            LogicPlan::ParallelIterator {
-                generator: _,
-                schema,
-            } => {
-                write!(f, "ParallelIterator({:?})", schema)
+            LogicPlan::UpStream { stream: _, schema } => {
+                write!(f, "UpStream({:?})", schema)
             }
         }
     }
@@ -207,7 +375,7 @@ impl LogicPlan {
     pub(crate) fn set_schema(&mut self, schema: Schema) {
         match self {
             LogicPlan::TableScan { schema: s, .. } => *s = Some(schema),
-            LogicPlan::ParallelIterator { schema: s, .. } => *s = schema,
+            LogicPlan::UpStream { schema: s, .. } => *s = Some(schema),
             LogicPlan::Filter { input, .. } => input.set_schema(schema),
             LogicPlan::Select { input, .. } => input.set_schema(schema),
             LogicPlan::Shuffle { input } => input.set_schema(schema),
@@ -225,20 +393,16 @@ impl LogicPlan {
                 schema,
                 projections,
                 ..
-            } => {
-                match (schema, projections) {
-                    (Some(schema), Some(projections)) => Schema {
-                        columns: projections
-                            .clone()
-                            .into_iter()
-                            .map(|i| schema.columns[i])
-                            .collect(),
-                    },
-                    (Some(schema), None) => schema.clone(),
-                    _ => panic!(
-                        "Schema not found. You should set the schema as first operation after the source."
-                    ),
-                }
+            } => match (schema, projections) {
+                (Some(schema), Some(projections)) => Schema {
+                    columns: projections
+                        .clone()
+                        .into_iter()
+                        .map(|i| schema.columns[i])
+                        .collect(),
+                },
+                (Some(schema), None) => schema.clone(),
+                _ => panic!("Schema not found. You should set the schema."),
             },
             LogicPlan::Filter { input, .. } => input.get_schema(),
             LogicPlan::Select { input, .. } => input.get_schema(),
@@ -252,10 +416,35 @@ impl LogicPlan {
                 input_right,
                 ..
             } => input_left.get_schema().merge(input_right.get_schema()),
-            LogicPlan::ParallelIterator {
-                generator: _,
-                schema,
-            } => schema.clone(),
+            LogicPlan::UpStream { stream: _, schema } => schema.clone().expect(
+                "Schema not found. You should set the schema after the conversion to OptStream.",
+            ),
+        }
+    }
+
+    pub(crate) fn infer_schema(&mut self) {
+        match self {
+            LogicPlan::TableScan { path, schema, .. } => {
+                *schema = Some(Schema::infer_from_file(path.clone()))
+            }
+            LogicPlan::Filter { input, .. } => input.infer_schema(),
+            LogicPlan::Select { input, .. } => input.infer_schema(),
+            LogicPlan::Shuffle { input } => input.infer_schema(),
+            LogicPlan::GroupBy { input, .. } => input.infer_schema(),
+            LogicPlan::DropKey { input } => input.infer_schema(),
+            LogicPlan::CollectVec { input } => input.infer_schema(),
+            LogicPlan::DropColumns { input, .. } => input.infer_schema(),
+            LogicPlan::Join {
+                input_left,
+                input_right,
+                ..
+            } => {
+                input_left.infer_schema();
+                input_right.infer_schema();
+            }
+            LogicPlan::UpStream { .. } => {
+                panic!("Cannot infer schema from UpStream, set it manually.")
+            }
         }
     }
 }

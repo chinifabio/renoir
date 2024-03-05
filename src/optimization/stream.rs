@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use itertools::Itertools;
+
 use crate::data_type::noir_type::NoirType;
 use crate::data_type::schema::Schema;
 use crate::data_type::stream_item::StreamItem;
@@ -12,7 +14,6 @@ use crate::{
     Stream,
 };
 
-use super::dsl::expressions::AggregateOp;
 use super::optimizer::OptimizationOptions;
 use super::{
     logical_plan::{JoinType, LogicPlan},
@@ -28,43 +29,41 @@ where
     }
 
     pub fn select(self, columns: Vec<Expr>) -> Stream<BoxedOperator<StreamItem>> {
-        let projections = columns.clone();
-        let temp_stream = self.map(move |item| {
-            projections
-                .iter()
-                .map(|expr| expr.evaluate(item.get_value()))
-                .collect()
-        });
         if columns.iter().any(|e| e.is_aggregator()) {
-            let accumulator = columns
-                .into_iter()
-                .map(|e| e.into_accumulator_state())
-                .collect::<Vec<AggregateOp>>();
-            temp_stream
-                .fold(accumulator, |acc, value: Vec<NoirType>| {
-                    for i in 0..acc.len() {
-                        acc[i].accumulate(value[i]);
-                    }
-                })
-                .map(|acc| {
-                    acc.into_iter()
-                        .map(|a| a.finalize())
-                        .collect::<Vec<NoirType>>()
-                })
-                .map(StreamItem::from)
-                .into_box()
+            let projections = columns.clone();
+            let accumulator = columns.into_iter().map(|e| e.accumulator()).collect_vec();
+            self.fold(accumulator, move |acc, value| {
+                let temp: Vec<NoirType> = projections
+                    .iter()
+                    .map(|expr| expr.evaluate(&value))
+                    .collect();
+                for i in 0..acc.len() {
+                    acc[i].accumulate(temp[i]);
+                }
+            })
+            .map(|acc| {
+                acc.into_iter()
+                    .map(|a| a.finalize())
+                    .collect::<Vec<NoirType>>()
+            })
+            .map(StreamItem::from)
+            .into_box()
         } else {
+            let temp_stream = self.map(move |item| {
+                columns
+                    .iter()
+                    .map(|expr| expr.evaluate(&item))
+                    .collect_vec()
+            });
             temp_stream.map(StreamItem::from).into_box()
         }
     }
 
     pub fn group_by_expr(self, keys: Vec<Expr>) -> Stream<BoxedOperator<StreamItem>> {
-        self.group_by(move |item: &StreamItem| {
-            keys.iter().map(|k| k.evaluate(item.get_value())).collect()
-        })
-        .0
-        .map(|(k, v)| v.absorb_key(k))
-        .into_box()
+        self.group_by(move |item: &StreamItem| keys.iter().map(|k| k.evaluate(item)).collect())
+            .0
+            .map(|(k, v)| v.absorb_key(k))
+            .into_box()
     }
 }
 
@@ -160,6 +159,11 @@ impl OptStream {
         self
     }
 
+    pub fn infer_schema(mut self) -> Self {
+        self.logic_plan.infer_schema();
+        self
+    }
+
     pub fn with_optimizations(self, optimizations: OptimizationOptions) -> Self {
         Self {
             optimizations,
@@ -215,14 +219,17 @@ impl crate::StreamEnvironment {
         }
     }
 
-    pub fn stream_par_optimized(
+    pub fn optimized_from_stream(
         &mut self,
-        generator: fn(u64, u64) -> Box<dyn Iterator<Item = StreamItem> + Send>,
+        stream: Stream<BoxedOperator<StreamItem>>,
         schema: Schema,
     ) -> OptStream {
         OptStream {
             inner: self.inner.clone(),
-            logic_plan: LogicPlan::ParallelIterator { generator, schema },
+            logic_plan: LogicPlan::UpStream {
+                stream,
+                schema: Some(schema),
+            },
             optimizations: OptimizationOptions::default(),
             csv_options: None,
         }

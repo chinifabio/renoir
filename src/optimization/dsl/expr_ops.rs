@@ -199,11 +199,11 @@ impl Div<Expr> for f32 {
 
 // ----- Mod -----
 
-impl Rem for Expr {
+impl<T: Into<Expr>> Rem<T> for Expr {
     type Output = Expr;
 
-    fn rem(self, rhs: Expr) -> Self::Output {
-        binary_expr(self, BinaryOp::Mod, rhs)
+    fn rem(self, rhs: T) -> Self::Output {
+        binary_expr(self, BinaryOp::Mod, rhs.into())
     }
 }
 

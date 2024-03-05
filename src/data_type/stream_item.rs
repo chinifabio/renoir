@@ -1,5 +1,5 @@
-use crate::data_type::noir_data::NoirData;
 use crate::data_type::noir_type::NoirType;
+use crate::{data_type::noir_data::NoirData, optimization::dsl::expressions::ExprEvaluable};
 use core::panic;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -46,11 +46,11 @@ impl StreamItem {
         }
     }
 
-    pub fn get_key(&self) -> Option<&[NoirType]> {
+    pub fn get_key(&self) -> Option<Vec<NoirType>> {
         if self.values_from == 0 {
             None
         } else {
-            Some(&self.values[0..self.values_from])
+            Some(self.values[0..self.values_from].to_vec())
         }
     }
 
@@ -151,5 +151,11 @@ impl IndexMut<usize> for StreamItem {
         }
 
         &mut self.values[index]
+    }
+}
+
+impl ExprEvaluable for StreamItem {
+    fn as_ptr(&self) -> *const NoirType {
+        unsafe { self.values.as_ptr().add(self.values_from) }
     }
 }

@@ -51,20 +51,18 @@ impl Schema {
     }
 
     pub(crate) fn compute_result_type(&self, expr: &Expr) -> NoirTypeKind {
-        expr.evaluate(
-            self.columns
-                .iter()
-                .map(|c| match c {
-                    NoirTypeKind::Int32 => NoirType::Int32(0),
-                    NoirTypeKind::Float32 => NoirType::Float32(0.0),
-                    NoirTypeKind::Bool => NoirType::Bool(false),
-                    NoirTypeKind::None => NoirType::None(),
-                    NoirTypeKind::NaN => NoirType::NaN(),
-                })
-                .collect_vec()
-                .as_slice(),
-        )
-        .kind()
+        let input = self
+            .columns
+            .iter()
+            .map(|c| match c {
+                NoirTypeKind::Int32 => NoirType::Int32(0),
+                NoirTypeKind::Float32 => NoirType::Float32(0.0),
+                NoirTypeKind::Bool => NoirType::Bool(false),
+                NoirTypeKind::None => NoirType::None(),
+                NoirTypeKind::NaN => NoirType::NaN(),
+            })
+            .collect_vec();
+        expr.evaluate(&input).kind()
     }
 
     pub(crate) fn with_projections(&self, projections: &Option<Vec<usize>>) -> Schema {

@@ -1,5 +1,6 @@
 use core::panic;
 use std::fmt::{Debug, Display};
+use std::ops::Index;
 
 use serde::{Deserialize, Serialize};
 
@@ -138,6 +139,16 @@ impl Display for Expr {
     }
 }
 
+pub trait ExprEvaluable: Index<usize, Output = NoirType> {
+    fn as_ptr(&self) -> *const NoirType;
+}
+
+impl ExprEvaluable for Vec<NoirType> {
+    fn as_ptr(&self) -> *const NoirType {
+        self.as_ptr()
+    }
+}
+
 impl Expr {
     pub fn floor(self) -> Expr {
         unary_expr(UnaryOp::Floor, self)
@@ -241,10 +252,6 @@ impl Expr {
     }
 
     pub fn compile(self, schema: &Schema, jit_compiler: &mut JitCompiler) -> Expr {
-        // if self.depth() <= 2 {
-        //     return self;
-        // }
-
         if let Expr::AggregateExpr { op, expr } = self {
             return Expr::AggregateExpr {
                 op,
@@ -259,7 +266,7 @@ impl Expr {
         }
     }
 
-    pub fn evaluate(&self, item: &[NoirType]) -> NoirType {
+    pub fn evaluate(&self, item: &impl ExprEvaluable) -> NoirType {
         match self {
             Expr::Literal(value) => *value,
             Expr::NthColumn(n) => item[*n],
@@ -338,7 +345,7 @@ impl Expr {
         matches!(self, Expr::AggregateExpr { .. })
     }
 
-    pub fn into_accumulator_state(self) -> AggregateOp {
+    pub fn accumulator(self) -> AggregateOp {
         match self {
             Expr::AggregateExpr { op, .. } => op,
             _ => AggregateOp::Val(Val::new()),
@@ -379,14 +386,14 @@ impl Expr {
 }
 
 impl AggregateOp {
-    pub(crate) fn accumulate(&self, value: NoirType) {
+    pub(crate) fn accumulate(&mut self, value: NoirType) {
         match self {
-            AggregateOp::Sum(mut state) => state.aggregate(value),
-            AggregateOp::Count(mut state) => state.aggregate(value),
-            AggregateOp::Min(mut state) => state.aggregate(value),
-            AggregateOp::Max(mut state) => state.aggregate(value),
-            AggregateOp::Avg(mut state) => state.aggregate(value),
-            AggregateOp::Val(mut state) => state.aggregate(value),
+            AggregateOp::Sum(ref mut state) => state.accumulate(value),
+            AggregateOp::Count(ref mut state) => state.accumulate(value),
+            AggregateOp::Min(ref mut state) => state.accumulate(value),
+            AggregateOp::Max(ref mut state) => state.accumulate(value),
+            AggregateOp::Avg(ref mut state) => state.accumulate(value),
+            AggregateOp::Val(ref mut state) => state.accumulate(value),
         }
     }
 
@@ -398,6 +405,19 @@ impl AggregateOp {
             AggregateOp::Max(state) => state.finalize(),
             AggregateOp::Avg(state) => state.finalize(),
             AggregateOp::Val(state) => state.finalize(),
+        }
+    }
+
+    #[allow(unused)]
+    pub(crate) fn include(&mut self, other: AggregateOp) {
+        match (self, other) {
+            (AggregateOp::Sum(state), AggregateOp::Sum(other)) => state.include(other),
+            (AggregateOp::Count(state), AggregateOp::Count(other)) => state.include(other),
+            (AggregateOp::Min(state), AggregateOp::Min(other)) => state.include(other),
+            (AggregateOp::Max(state), AggregateOp::Max(other)) => state.include(other),
+            (AggregateOp::Avg(state), AggregateOp::Avg(other)) => state.include(other),
+            (AggregateOp::Val(state), AggregateOp::Val(other)) => state.include(other),
+            _ => panic!("Invalid aggregate operation"),
         }
     }
 }

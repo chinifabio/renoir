@@ -8,7 +8,8 @@ use crate::data_type::noir_data::NoirData;
 use crate::data_type::noir_type::NoirType;
 use crate::data_type::schema::Schema;
 use crate::data_type::stream_item::StreamItem;
-use crate::operator::source::{CsvOptions, ParallelIteratorSource};
+use crate::operator::source::CsvOptions;
+
 use crate::{
     box_op::BoxedOperator,
     environment::StreamEnvironmentInner,
@@ -17,7 +18,6 @@ use crate::{
     Stream,
 };
 
-use super::dsl::expressions::AggregateOp;
 use super::logical_plan::{JoinType, LogicPlan};
 
 #[allow(clippy::type_complexity)]
@@ -92,17 +92,7 @@ pub(crate) fn to_stream(
                 to_stream(*input_left, env, csv_options).outer_join(rhs, left_on, right_on, schema)
             }
         },
-        LogicPlan::ParallelIterator {
-            generator,
-            schema: _,
-        } => {
-            let source = ParallelIteratorSource::new(move |i, n| {
-                let boxed_iter = generator(i, n);
-                boxed_iter.into_iter()
-            });
-            let stream = StreamEnvironmentInner::stream(env, source).into_box();
-            StreamType::Stream(stream)
-        }
+        LogicPlan::UpStream { stream, schema: _ } => StreamType::Stream(stream),
     }
 }
 
@@ -144,73 +134,42 @@ impl StreamType {
     }
 
     pub(crate) fn select(self, columns: Vec<Expr>) -> Self {
-        let projections = columns.clone();
         match self {
-            StreamType::Stream(stream) => {
-                let temp_stream = stream.map(move |item| {
-                    projections
-                        .iter()
-                        .map(|expr| expr.evaluate(item.get_value()))
-                        .collect_vec()
-                });
+            StreamType::Stream(stream) => StreamType::Stream(stream.select(columns)),
+            StreamType::KeyedStream(stream) => {
                 if columns.iter().any(|e| e.is_aggregator()) {
-                    let accumulator = columns
-                        .into_iter()
-                        .map(|e| e.into_accumulator_state())
-                        .collect_vec();
-                    let stream = temp_stream
-                        .fold(accumulator, |acc, value: Vec<NoirType>| {
+                    let projections = columns.clone();
+                    let accumulator = columns.into_iter().map(|e| e.accumulator()).collect_vec();
+                    let stream = stream
+                        .key_by(|item| item.get_key().unwrap())
+                        .fold(accumulator, move |acc, value| {
+                            let temp: Vec<NoirType> = projections
+                                .iter()
+                                .map(|expr| expr.evaluate(&value))
+                                .collect();
                             for i in 0..acc.len() {
-                                acc[i].accumulate(value[i]);
+                                acc[i].accumulate(temp[i]);
                             }
                         })
-                        .map(|acc| acc.into_iter().map(|a| a.finalize()).collect_vec())
-                        .map(StreamItem::from)
-                        .into_box();
-                    StreamType::Stream(stream)
-                } else {
-                    StreamType::Stream(temp_stream.map(StreamItem::from).into_box())
-                }
-            }
-            StreamType::KeyedStream(stream) => {
-                let temp_stream = stream.map(move |item| {
-                    let temp: Vec<NoirType> = projections
-                        .iter()
-                        .map(|expr| expr.evaluate(item.get_value()))
-                        .collect();
-                    StreamItem::from(temp).absorb_key(item.get_key().unwrap().to_vec())
-                });
-                if columns.iter().any(|e| e.is_aggregator()) {
-                    let accumulator = columns
-                        .into_iter()
-                        .map(|e| e.into_accumulator_state())
-                        .collect_vec();
-                    let stream = temp_stream
-                        .group_by_fold(
-                            |item| item.get_key().unwrap().to_vec(),
-                            accumulator,
-                            |acc: &mut Vec<AggregateOp>, value: StreamItem| {
-                                for i in 0..acc.len() {
-                                    acc[i].accumulate(value[i]);
-                                }
-                            },
-                            |acc, _| {
-                                for _ in 0..acc.len() {
-                                    // todo: merge the accumulators
-                                }
-                            },
-                        )
-                        .map(|(_, data)| data.into_iter().map(|item| item.finalize()).collect_vec())
                         .0
                         .map(|(mut key, data)| {
+                            let values = data.into_iter().map(|item| item.finalize());
                             let key_len = key.len();
-                            key.extend(data);
+                            key.extend(values);
                             StreamItem::new_with_key(key, key_len)
                         })
                         .into_box();
                     StreamType::KeyedStream(stream)
                 } else {
-                    StreamType::KeyedStream(temp_stream.into_box())
+                    let temp_stream =
+                        stream
+                            .key_by(|item| item.get_key().unwrap())
+                            .map(move |(_, item)| {
+                                let temp: Vec<NoirType> =
+                                    columns.iter().map(|expr| expr.evaluate(&item)).collect();
+                                StreamItem::from(temp).absorb_key(item.get_key().unwrap().to_vec())
+                            });
+                    StreamType::KeyedStream(temp_stream.drop_key().into_box())
                 }
             }
             _ => panic!("Cannot select on a {}", self),
@@ -234,10 +193,7 @@ impl StreamType {
     }
 
     fn keyer(item: &StreamItem, conditions: &[Expr]) -> Vec<NoirType> {
-        conditions
-            .iter()
-            .map(|expr| expr.evaluate(item.get_value()))
-            .collect()
+        conditions.iter().map(|expr| expr.evaluate(item)).collect()
     }
 
     pub(crate) fn inner_join(self, rhs: Self, left_on: Vec<Expr>, right_on: Vec<Expr>) -> Self {

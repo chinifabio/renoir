@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use criterion::{criterion_group, criterion_main};
 use criterion::{BenchmarkId, Criterion, Throughput};
+use itertools::Itertools;
 use noir_compute::data_type::schema::Schema;
 use noir_compute::optimization::arena::Arena;
 use noir_compute::optimization::dsl::expressions::*;
@@ -16,9 +17,9 @@ use noir_compute::optimization::dsl::jit::JitCompiler;
 use rand::rngs::{SmallRng, ThreadRng};
 use rand::{Rng, RngCore, SeedableRng};
 
-const SAMPLE_SIZE: usize = 25;
+const SAMPLE_SIZE: usize = 20;
 const WARM_UP_TIME: Duration = Duration::from_secs(5);
-const MEASUREMENT_TIME: Duration = Duration::from_secs(10);
+const MEASUREMENT_TIME: Duration = Duration::from_secs(20);
 
 fn predicate_pushdown(c: &mut Criterion) {
     let mut group = c.benchmark_group("Predicate pushdown");
@@ -276,7 +277,7 @@ fn expr_vs_closures(c: &mut Criterion) {
             let expr = col(3).modulo(i(7)).eq(i(0));
             b.iter(move || {
                 for item in items.iter() {
-                    expr.evaluate(item.get_value());
+                    expr.evaluate(item);
                 }
             });
         });
@@ -305,7 +306,7 @@ fn expr_vs_closures(c: &mut Criterion) {
                 let compiled_expr = expr.compile(&schema, &mut JitCompiler::default());
                 b.iter(move || {
                     for item in items.iter() {
-                        compiled_expr.evaluate(item.get_value());
+                        compiled_expr.evaluate(item);
                     }
                 });
             },
@@ -316,157 +317,61 @@ fn expr_vs_closures(c: &mut Criterion) {
 }
 
 fn is_compiled_faster(c: &mut Criterion) {
+    unsafe { backtrace_on_stack_overflow::enable() };
     let mut group = c.benchmark_group("Compiled vs Interpreted");
     group.sample_size(SAMPLE_SIZE);
     group.measurement_time(MEASUREMENT_TIME);
     group.warm_up_time(WARM_UP_TIME);
 
-    group.throughput(Throughput::Elements(10000_u64));
+    let n_col = 5;
+    for n_row in [100000, 1000000, 10000000, 100000000] {
+        group.throughput(Throughput::Elements(n_row));
 
-    group.bench_function(BenchmarkId::new("Interpreted", 10000), |b| {
-        noir_bench_default(b, |env| {
-            env.stream_par_optimized(
-                |i, n| {
-                    let mut rng = SmallRng::seed_from_u64(i ^ 0xfeeddabeef);
-                    Box::new(
-                        (0..10000 / n)
+        group.bench_function(BenchmarkId::new("Interpreted", n_row), |b| {
+            noir_bench_default(b, |env| {
+                let s = env
+                    .stream_par_iter(move |_i, n| {
+                        let mut rng = SmallRng::seed_from_u64(0xdeadbeef);
+                        (0..(n_row / n))
                             .map(move |_| {
-                                (0..5)
-                                    .map(|_| NoirType::Int32(rng.gen_range(0..100)))
-                                    .collect()
+                                (0..n_col)
+                                    .map(|_| rng.gen_range(0..100))
+                                    .map(NoirType::Int32)
+                                    .collect_vec()
                             })
-                            .map(StreamItem::new),
-                    )
-                },
-                Schema::same_type(5, NoirTypeKind::Int32),
-            )
-            .filter(((col(0) + col(1)) / 2).gte(50))
-            .select(&[col(0), col(1), col(1) + col(1)])
-            .collect_vec();
+                            .map(StreamItem::from)
+                    })
+                    .into_box();
+                env.optimized_from_stream(s, Schema::same_type(5, NoirTypeKind::Int32))
+                    .filter(((col(0) + col(1)) / 2).gte(50))
+                    // .select(&[col(0), col(1), col(1) + col(1)])
+                    .collect_vec();
+            })
         });
-    });
 
-    group.bench_function(BenchmarkId::new("Compiled", 10000), |b| {
-        noir_bench_default(b, |env| {
-            env.stream_par_optimized(
-                |i, n| {
-                    let mut rng = SmallRng::seed_from_u64(i ^ 0xfeeddabeef);
-                    Box::new(
-                        (0..10000 / n)
+        group.bench_function(BenchmarkId::new("Compiled", n_row), |b| {
+            noir_bench_default(b, |env| {
+                let s = env
+                    .stream_par_iter(move |_i, n| {
+                        let mut rng = SmallRng::seed_from_u64(0xdeadbeef);
+                        (0..(n_row / n))
                             .map(move |_| {
-                                (0..5)
-                                    .map(|_| NoirType::Int32(rng.gen_range(0..100)))
-                                    .collect()
+                                (0..n_col)
+                                    .map(|_| rng.gen_range(0..100))
+                                    .map(NoirType::Int32)
+                                    .collect_vec()
                             })
-                            .map(StreamItem::new),
-                    )
-                },
-                Schema::same_type(5, NoirTypeKind::Int32),
-            )
-            .with_compiled_expressions(true)
-            .filter(((col(0) + col(1)) / 2).gte(50))
-            .select(&[col(0), col(1), col(1) + col(1)])
-            .collect_vec();
+                            .map(StreamItem::from)
+                    })
+                    .into_box();
+                env.optimized_from_stream(s, Schema::same_type(5, NoirTypeKind::Int32))
+                    .with_compiled_expressions(true)
+                    .filter(((col(0) + col(1)) / 2).gte(50))
+                    // .select(&[col(0), col(1), col(1) + col(1)])
+                    .collect_vec();
+            })
         });
-    });
-
-    group.throughput(Throughput::Elements(100000_u64));
-
-    group.bench_function(BenchmarkId::new("Interpreted", 100000), |b| {
-        noir_bench_default(b, |env| {
-            env.stream_par_optimized(
-                |i, n| {
-                    let mut rng = SmallRng::seed_from_u64(i ^ 0xfeeddabeef);
-                    Box::new(
-                        (0..100000 / n)
-                            .map(move |_| {
-                                (0..5)
-                                    .map(|_| NoirType::Int32(rng.gen_range(0..100)))
-                                    .collect()
-                            })
-                            .map(StreamItem::new),
-                    )
-                },
-                Schema::same_type(5, NoirTypeKind::Int32),
-            )
-            .filter(((col(0) + col(1)) / 2).gte(50))
-            .select(&[col(0), col(1), col(1) + col(1)])
-            .collect_vec();
-        });
-    });
-
-    group.bench_function(BenchmarkId::new("Compiled", 100000), |b| {
-        noir_bench_default(b, |env| {
-            env.stream_par_optimized(
-                |i, n| {
-                    let mut rng = SmallRng::seed_from_u64(i ^ 0xfeeddabeef);
-                    Box::new(
-                        (0..100000 / n)
-                            .map(move |_| {
-                                (0..5)
-                                    .map(|_| NoirType::Int32(rng.gen_range(0..100)))
-                                    .collect()
-                            })
-                            .map(StreamItem::new),
-                    )
-                },
-                Schema::same_type(5, NoirTypeKind::Int32),
-            )
-            .with_compiled_expressions(true)
-            .filter(((col(0) + col(1)) / 2).gte(50))
-            .select(&[col(0), col(1), col(1) + col(1)])
-            .collect_vec();
-        });
-    });
-
-    group.throughput(Throughput::Elements(1000000_u64));
-
-    group.bench_function(BenchmarkId::new("Interpreted", 1000000), |b| {
-        noir_bench_default(b, |env| {
-            env.stream_par_optimized(
-                |i, n| {
-                    let mut rng = SmallRng::seed_from_u64(i ^ 0xfeeddabeef);
-                    Box::new(
-                        (0..1000000 / n)
-                            .map(move |_| {
-                                (0..5)
-                                    .map(|_| NoirType::Int32(rng.gen_range(0..100)))
-                                    .collect()
-                            })
-                            .map(StreamItem::new),
-                    )
-                },
-                Schema::same_type(5, NoirTypeKind::Int32),
-            )
-            .filter(((col(0) + col(1)) / 2).gte(50))
-            .select(&[col(0), col(1), col(1) + col(1)])
-            .collect_vec();
-        });
-    });
-
-    group.bench_function(BenchmarkId::new("Compiled", 1000000), |b| {
-        noir_bench_default(b, |env| {
-            env.stream_par_optimized(
-                |i, n| {
-                    let mut rng = SmallRng::seed_from_u64(i ^ 0xfeeddabeef);
-                    Box::new(
-                        (0..1000000 / n)
-                            .map(move |_| {
-                                (0..5)
-                                    .map(|_| NoirType::Int32(rng.gen_range(0..100)))
-                                    .collect()
-                            })
-                            .map(StreamItem::new),
-                    )
-                },
-                Schema::same_type(5, NoirTypeKind::Int32),
-            )
-            .with_compiled_expressions(true)
-            .filter(((col(0) + col(1)) / 2).gte(50))
-            .select(&[col(0), col(1), col(1) + col(1)])
-            .collect_vec();
-        });
-    });
+    }
 
     group.finish();
 }

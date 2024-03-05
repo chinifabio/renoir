@@ -178,9 +178,7 @@ impl ProjectionPushdown {
                     join_type,
                 })
             }
-            LogicPlan::ParallelIterator { generator, schema } => {
-                Ok(LogicPlan::ParallelIterator { generator, schema })
-            }
+            LogicPlan::UpStream { stream, schema } => Ok(LogicPlan::UpStream { stream, schema }),
         }
     }
 
