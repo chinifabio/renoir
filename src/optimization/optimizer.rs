@@ -105,4 +105,13 @@ impl OptimizationOptions {
             ..self
         }
     }
+
+    pub fn none() -> OptimizationOptions {
+        OptimizationOptions {
+            projection_pushdown: false,
+            predicate_pushdown: false,
+            compile_expressions: false,
+            expression_rewrite: false,
+        }
+    }
 }

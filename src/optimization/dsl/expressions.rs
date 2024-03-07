@@ -579,4 +579,33 @@ pub mod test {
         let expr = col(0).neq(i(0));
         assert_eq!(expr.evaluate(&data), NoirType::Bool(true));
     }
+
+    #[test]
+    fn expression_structure() {
+        let expr = ((col(0) + col(1)) % 5).eq(0);
+
+        let handmade = Expr::BinaryExpr {
+            left: Box::new(Expr::BinaryExpr {
+                left: Box::new(Expr::BinaryExpr {
+                    left: Box::new(Expr::NthColumn(0)),
+                    op: BinaryOp::Plus,
+                    right: Box::new(Expr::NthColumn(1)),
+                }),
+                op: BinaryOp::Mod,
+                right: Box::new(Expr::Literal(NoirType::Int32(5))),
+            }),
+            op: BinaryOp::Eq,
+            right: Box::new(Expr::Literal(NoirType::Int32(0))),
+        };
+
+        assert_eq!(handmade, expr);
+        assert_eq!(
+            expr.evaluate(&vec![NoirType::Int32(1), NoirType::Int32(2)]),
+            NoirType::Bool(false)
+        );
+        assert_eq!(
+            expr.evaluate(&vec![NoirType::Int32(2), NoirType::Int32(3)]),
+            NoirType::Bool(true)
+        );
+    }
 }

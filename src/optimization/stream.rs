@@ -121,7 +121,6 @@ impl OptStream {
             logic_plan: self
                 .logic_plan
                 .join(other.logic_plan, left_on, right_on, JoinType::Inner),
-
             ..self
         }
     }
@@ -192,6 +191,13 @@ impl OptStream {
             optimizations: self
                 .optimizations
                 .with_projection_pushdown(projection_pushdown),
+            ..self
+        }
+    }
+
+    pub fn without_optimizations(self) -> Self {
+        Self {
+            optimizations: OptimizationOptions::none(),
             ..self
         }
     }

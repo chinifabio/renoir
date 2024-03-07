@@ -363,11 +363,18 @@ impl LogicPlan {
         right_on: E,
         join_type: JoinType,
     ) -> LogicPlan {
+        let left_vec = left_on.as_ref().to_vec();
+        let right_vec = right_on.as_ref().to_vec();
+        assert_eq!(
+            left_vec.len(),
+            right_vec.len(),
+            "Left and right keys must have the same length."
+        );
         LogicPlan::Join {
             input_left: Box::new(self),
             input_right: Box::new(other),
-            left_on: left_on.as_ref().to_vec(),
-            right_on: right_on.as_ref().to_vec(),
+            left_on: left_vec,
+            right_on: right_vec,
             join_type,
         }
     }

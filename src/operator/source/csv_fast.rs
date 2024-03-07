@@ -458,24 +458,20 @@ impl RowCsvSource {
             for index in projections {
                 match schema.columns[*index] {
                     NoirTypeKind::Int32 => {
-                        let f = self.record.get(*index).unwrap();
-                        if f.is_empty() {
-                            data.push(NoirType::None());
-                        } else if let Ok(int_value) = f.parse::<i32>() {
-                            data.push(NoirType::Int32(int_value));
-                        } else {
-                            data.push(NoirType::None());
-                        }
+                        let field = self.record.get(*index).unwrap();
+                        let item = field
+                            .parse::<i32>()
+                            .map(NoirType::Int32)
+                            .unwrap_or(NoirType::None());
+                        data.push(item);
                     }
                     NoirTypeKind::Float32 => {
                         let f = self.record.get(*index).unwrap();
-                        if f.is_empty() {
-                            data.push(NoirType::None());
-                        } else if let Ok(float_value) = f.parse::<f32>() {
-                            data.push(NoirType::Float32(float_value));
-                        } else {
-                            data.push(NoirType::None());
-                        }
+                        let item = f
+                            .parse::<f32>()
+                            .map(NoirType::Float32)
+                            .unwrap_or(NoirType::None());
+                        data.push(item);
                     }
                     _ => return Some(NoirData::NoirType(NoirType::None())),
                 }

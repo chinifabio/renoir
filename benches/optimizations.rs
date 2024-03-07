@@ -5,15 +5,14 @@ use criterion::{criterion_group, criterion_main};
 use criterion::{BenchmarkId, Criterion, Throughput};
 use itertools::Itertools;
 use noir_compute::data_type::schema::Schema;
-use noir_compute::optimization::arena::Arena;
 use noir_compute::optimization::dsl::expressions::*;
 
 mod common;
 use common::*;
-use noir_compute::data_type::noir_data::NoirData;
 use noir_compute::data_type::noir_type::{NoirType, NoirTypeKind};
 use noir_compute::data_type::stream_item::StreamItem;
 use noir_compute::optimization::dsl::jit::JitCompiler;
+use noir_compute::optimization::optimizer::OptimizationOptions;
 use rand::rngs::{SmallRng, ThreadRng};
 use rand::{Rng, RngCore, SeedableRng};
 
@@ -21,104 +20,42 @@ const SAMPLE_SIZE: usize = 20;
 const WARM_UP_TIME: Duration = Duration::from_secs(5);
 const MEASUREMENT_TIME: Duration = Duration::from_secs(20);
 
-fn predicate_pushdown(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Predicate pushdown");
+fn projection_pushdown_filter(c: &mut Criterion) {
+    let mut group = c.benchmark_group("ProjectionPushdown(filter)");
     group.sample_size(SAMPLE_SIZE);
     group.measurement_time(MEASUREMENT_TIME);
     group.warm_up_time(WARM_UP_TIME);
 
-    let n_col = 100;
-    for n_row in [1000, 10000, 100000] {
-        let source_file = PathBuf::from(format!("test_csv/{}_{}.csv", n_row, n_col));
+    let n_row = 10000;
+    for n_col in [10, 100, 1000] {
+        let source_file = PathBuf::from(format!("../py-evaluation/data/{}_{}.csv", n_row, n_col));
         group.throughput(Throughput::Elements(n_row as u64));
 
         group.bench_with_input(
-            BenchmarkId::new("Vanilla filter > select", n_row),
+            BenchmarkId::new("Without", n_col),
             &source_file,
-            |b, path| {
+            |b, source_file| {
                 noir_bench_default(b, |env| {
-                    env.stream_csv_noirdata(path.to_path_buf())
-                        .filter(|item| item[0].modulo(10) == item[99].modulo(10))
-                        .map(|item| NoirData::NoirType(item[0] + item[99]))
+                    env.stream_csv_optimized(source_file)
+                        .filter(col(0).gte(50))
+                        .select([avg(col(1) + col(2))])
+                        .without_optimizations()
                         .collect_vec();
                 });
             },
         );
 
         group.bench_with_input(
-            BenchmarkId::new("Optimized filter > select", n_row),
+            BenchmarkId::new("With", n_col),
             &source_file,
-            |b, path| {
+            |b, source_file| {
                 noir_bench_default(b, |env| {
-                    env.stream_csv_optimized(path.to_path_buf())
-                        .with_schema(Schema::same_type(100, NoirTypeKind::Int32))
-                        .filter(col(0).modulo(i(10)).eq(col(99).modulo(i(10))))
-                        .select(&[col(0) + col(99)])
-                        .collect_vec();
-                });
-            },
-        );
-
-        group.bench_with_input(
-            BenchmarkId::new("Vanilla group-by", n_row),
-            &source_file,
-            |b, path| {
-                noir_bench_default(b, |env| {
-                    env.stream_csv_noirdata(path.to_path_buf())
-                        .group_by(|item| item[0].floor())
-                        .filter(|(_, item)| (item[0] / item[1]).round() == NoirType::Int32(1))
-                        .collect_vec();
-                });
-            },
-        );
-
-        group.bench_with_input(
-            BenchmarkId::new("Optimized group-by", n_row),
-            &source_file,
-            |b, path| {
-                noir_bench_default(b, |env| {
-                    env.stream_csv_optimized(path.to_path_buf())
-                        .with_schema(Schema::same_type(n_col, NoirTypeKind::Int32))
-                        .group_by([col(0).floor()])
-                        .filter((col(0) / col(1)).round().eq(i(1)))
-                        .collect_vec();
-                });
-            },
-        );
-
-        group.bench_with_input(
-            BenchmarkId::new("Vanilla join > filter", n_row),
-            &source_file,
-            |b, path| {
-                noir_bench_default(b, |env| {
-                    let left = env.stream_csv_noirdata(path.to_path_buf());
-                    let right = env.stream_csv_noirdata(path.to_path_buf());
-                    left.join(
-                        right,
-                        |item| vec![item[0], item[1]],
-                        |item| vec![item[0], item[1]],
-                    )
-                    .filter(|(_, (item_left, item_right))| {
-                        item_left[2] == NoirType::Int32(10) && item_right[2] == NoirType::Int32(10)
-                    })
-                    .collect_vec();
-                });
-            },
-        );
-
-        group.bench_with_input(
-            BenchmarkId::new("Optimize join > filter", n_row),
-            &source_file,
-            |b, path| {
-                noir_bench_default(b, |env| {
-                    let left = env
-                        .stream_csv_optimized(path.to_path_buf())
-                        .with_schema(Schema::same_type(100, NoirTypeKind::Int32));
-                    let right = env
-                        .stream_csv_optimized(path.to_path_buf())
-                        .with_schema(Schema::same_type(100, NoirTypeKind::Int32));
-                    left.join(right, &[col(0), col(1)], &[col(0), col(1)])
-                        .filter(col(2).eq(i(10)).and(col(102).eq(i(10))))
+                    env.stream_csv_optimized(source_file)
+                        .filter(col(0).gte(50))
+                        .select([avg(col(1) + col(2))])
+                        .with_optimizations(
+                            OptimizationOptions::none().with_projection_pushdown(true),
+                        )
                         .collect_vec();
                 });
             },
@@ -128,104 +65,289 @@ fn predicate_pushdown(c: &mut Criterion) {
     group.finish();
 }
 
-fn projection_pushdown(c: &mut Criterion) {
-    let mut group = c.benchmark_group("Projection pushdown");
+fn projection_pushdown_groupby(c: &mut Criterion) {
+    let mut group = c.benchmark_group("ProjectionPushdown(groupby)");
     group.sample_size(SAMPLE_SIZE);
     group.measurement_time(MEASUREMENT_TIME);
     group.warm_up_time(WARM_UP_TIME);
 
-    let n_row = 100000;
-    for n_col in &[10, 100, 1000] {
-        let source_file = PathBuf::from(format!("test_csv/{}_{}.csv", n_row, n_col));
-        group.throughput(Throughput::Elements(*n_col as u64));
+    let n_row = 10000;
+    for n_col in [10, 100, 1000] {
+        let source_file = PathBuf::from(format!("../py-evaluation/data/{}_{}.csv", n_row, n_col));
+        group.throughput(Throughput::Elements(n_row as u64));
 
         group.bench_with_input(
-            BenchmarkId::new("Vanilla filter > select", n_col),
+            BenchmarkId::new("Without", n_col),
             &source_file,
-            |b, path| {
+            |b, source_file| {
                 noir_bench_default(b, |env| {
-                    env.stream_csv_noirdata(path.to_path_buf())
-                        .filter(|item| item[0].modulo(10) == item[*n_col - 1].modulo(10))
-                        .map(|item| NoirData::NoirType(item[0] + item[*n_col - 1]))
+                    env.stream_csv_optimized(source_file)
+                        .group_by([col(0) % 5])
+                        .select([avg(col(1) + col(2))])
+                        .without_optimizations()
                         .collect_vec();
                 });
             },
         );
 
         group.bench_with_input(
-            BenchmarkId::new("Optimized filter > select", n_col),
+            BenchmarkId::new("With", n_col),
             &source_file,
-            |b, path| {
+            |b, source_file| {
                 noir_bench_default(b, |env| {
-                    env.stream_csv_optimized(path.to_path_buf())
-                        .with_schema(Schema::same_type(*n_col, NoirTypeKind::Int32))
-                        .filter(col(0).modulo(i(10)).eq(col(n_col - 1).modulo(i(10))))
-                        .select(&[col(0) + col(n_col - 1)])
+                    env.stream_csv_optimized(source_file)
+                        .group_by([col(0) % 5])
+                        .select([avg(col(1) + col(2))])
+                        .with_optimizations(
+                            OptimizationOptions::none().with_projection_pushdown(true),
+                        )
+                        .collect_vec();
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+fn projection_pushdown_join(c: &mut Criterion) {
+    let mut group = c.benchmark_group("ProjectionPushdown(join)");
+    group.sample_size(SAMPLE_SIZE);
+    group.measurement_time(MEASUREMENT_TIME);
+    group.warm_up_time(WARM_UP_TIME);
+
+    let n_row = 10000;
+    for n_col in [10, 100, 1000] {
+        let source_file_a = PathBuf::from(format!("../py-evaluation/data/{}_{}.csv", n_row, n_col));
+        let source_file_b = PathBuf::from(format!("../py-evaluation/data/{}_{}.csv", 1000, 10));
+        group.throughput(Throughput::Elements(n_row as u64));
+
+        group.bench_with_input(
+            BenchmarkId::new("Without", n_col),
+            &(source_file_a.clone(), source_file_b.clone()),
+            |b, (file_a, file_b)| {
+                noir_bench_default(b, |env| {
+                    let other = env.stream_csv_optimized(file_b);
+                    env.stream_csv_optimized(file_a)
+                        .join(other, [col(0)], [col(3)])
+                        .filter(col(1).gte(col(n_col + 1)))
+                        .without_optimizations()
                         .collect_vec();
                 });
             },
         );
 
         group.bench_with_input(
-            BenchmarkId::new("Vanilla group-by", n_col),
-            &source_file,
-            |b, path| {
+            BenchmarkId::new("With", n_col),
+            &(source_file_a, source_file_b),
+            |b, (file_a, file_b)| {
                 noir_bench_default(b, |env| {
-                    env.stream_csv_noirdata(path.to_path_buf())
-                        .group_by(|item| item[0].floor())
-                        .filter(|(_, item)| (item[0] / item[1]).round() == NoirType::Int32(1))
+                    let other = env
+                        .stream_csv_optimized(file_b)
+                        .with_schema(Schema::same_type(10, NoirTypeKind::Int32));
+                    env.stream_csv_optimized(file_a)
+                        .with_schema(Schema::same_type(n_col, NoirTypeKind::Int32))
+                        .join(other, [col(0)], [col(3)])
+                        .filter(col(1).gte(col(n_col + 1)))
+                        .with_optimizations(
+                            OptimizationOptions::none().with_projection_pushdown(true),
+                        )
+                        .collect_vec();
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+fn predicate_pushdown_groupby_row(c: &mut Criterion) {
+    let mut group = c.benchmark_group("PredicatePushdown(groupby)(row)");
+    group.sample_size(SAMPLE_SIZE);
+    group.measurement_time(MEASUREMENT_TIME);
+    group.warm_up_time(WARM_UP_TIME);
+
+    let n_col = 10;
+    for n_row in [10_000, 100_000, 1_000_000, 10_000_000] {
+        let source_file = PathBuf::from(format!("../py-evaluation/data/{}_{}.csv", n_row, n_col));
+        group.throughput(Throughput::Elements(n_row as u64));
+
+        group.bench_with_input(
+            BenchmarkId::new("Without", n_row),
+            &source_file,
+            |b, source_file| {
+                noir_bench_default(b, |env| {
+                    env.stream_csv_optimized(source_file)
+                        .group_by([col(0) % 5])
+                        .filter(col(0).gte(50))
+                        .without_optimizations()
                         .collect_vec();
                 });
             },
         );
 
         group.bench_with_input(
-            BenchmarkId::new("Optimized group-by", n_col),
+            BenchmarkId::new("With", n_row),
             &source_file,
-            |b, path| {
+            |b, source_file| {
                 noir_bench_default(b, |env| {
-                    env.stream_csv_optimized(path.to_path_buf())
-                        .with_schema(Schema::same_type(*n_col, NoirTypeKind::Int32))
-                        .group_by([col(0).floor()])
-                        .filter((col(0) / col(1)).round().eq(i(1)))
+                    env.stream_csv_optimized(source_file)
+                        .with_schema(Schema::same_type(n_col, NoirTypeKind::Int32))
+                        .group_by([col(0) % 5])
+                        .filter(col(0).gte(50))
+                        .with_optimizations(
+                            OptimizationOptions::none().with_predicate_pushdown(true),
+                        )
+                        .collect_vec();
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+fn predicate_pushdown_groupby_selectivity(c: &mut Criterion) {
+    let mut group = c.benchmark_group("PredicatePushdown-selectivity(groupby)(selectivity)");
+    group.sample_size(SAMPLE_SIZE);
+    group.measurement_time(MEASUREMENT_TIME);
+    group.warm_up_time(WARM_UP_TIME);
+
+    let n_col = 10;
+    let n_row = 100_000;
+    for selectivity in [20, 40, 60, 80] {
+        let source_file = PathBuf::from(format!("../py-evaluation/data/{}_{}.csv", n_row, n_col));
+        group.throughput(Throughput::Elements(n_row as u64));
+
+        group.bench_with_input(
+            BenchmarkId::new("Without", selectivity),
+            &source_file,
+            |b, source_file| {
+                noir_bench_default(b, |env| {
+                    env.stream_csv_optimized(source_file)
+                        .group_by([col(0) % 5])
+                        .filter(col(0).gte(selectivity))
+                        .without_optimizations()
                         .collect_vec();
                 });
             },
         );
 
         group.bench_with_input(
-            BenchmarkId::new("Vanilla join > filter", n_col),
+            BenchmarkId::new("With", selectivity),
             &source_file,
-            |b, path| {
+            |b, source_file| {
                 noir_bench_default(b, |env| {
-                    let left = env.stream_csv_noirdata(path.to_path_buf());
-                    let right = env.stream_csv_noirdata(path.to_path_buf());
-                    left.join(
-                        right,
-                        |item| vec![item[0], item[1]],
-                        |item| vec![item[0], item[1]],
-                    )
-                    .filter(|(_, (item_left, item_right))| {
-                        item_left[2] == NoirType::Int32(10) && item_right[2] == NoirType::Int32(10)
-                    })
-                    .collect_vec();
+                    env.stream_csv_optimized(source_file)
+                        .with_schema(Schema::same_type(n_col, NoirTypeKind::Int32))
+                        .group_by([col(0) % 5])
+                        .filter(col(0).gte(selectivity))
+                        .with_optimizations(
+                            OptimizationOptions::none().with_predicate_pushdown(true),
+                        )
+                        .collect_vec();
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+fn predicate_pushdown_join_row(c: &mut Criterion) {
+    let mut group = c.benchmark_group("PredicatePushdown(join)(row)");
+    group.sample_size(SAMPLE_SIZE);
+    group.measurement_time(MEASUREMENT_TIME);
+    group.warm_up_time(WARM_UP_TIME);
+
+    let n_col = 10;
+    for n_row in [10_000, 100_000, 1_000_000, 10_000_000] {
+        let source_file_a = PathBuf::from(format!("../py-evaluation/data/{}_{}.csv", n_row, n_col));
+        let source_file_b = PathBuf::from(format!("../py-evaluation/data/{}_{}.csv", 1000, 10));
+        group.throughput(Throughput::Elements(n_row as u64));
+
+        group.bench_with_input(
+            BenchmarkId::new("Without", n_row),
+            &(source_file_a.clone(), source_file_b.clone()),
+            |b, (file_a, file_b)| {
+                noir_bench_default(b, |env| {
+                    let other = env.stream_csv_optimized(file_a);
+                    env.stream_csv_optimized(file_b)
+                        .join(other, [col(0)], [col(3)])
+                        .filter(col(0).gte(50))
+                        .without_optimizations()
+                        .collect_vec();
                 });
             },
         );
 
         group.bench_with_input(
-            BenchmarkId::new("Optimize join > filter", n_col),
-            &source_file,
-            |b, path| {
+            BenchmarkId::new("With", n_row),
+            &(source_file_a, source_file_b),
+            |b, (file_a, file_b)| {
                 noir_bench_default(b, |env| {
-                    let left = env
-                        .stream_csv_optimized(path.to_path_buf())
-                        .with_schema(Schema::same_type(*n_col, NoirTypeKind::Int32));
-                    let right = env
-                        .stream_csv_optimized(path.to_path_buf())
-                        .with_schema(Schema::same_type(*n_col, NoirTypeKind::Int32));
-                    left.join(right, &[col(0), col(1)], &[col(0), col(1)])
-                        .filter(col(2).eq(i(10)).and(col(n_col + 2).eq(i(10))))
+                    let other = env
+                        .stream_csv_optimized(file_a)
+                        .with_schema(Schema::same_type(n_col, NoirTypeKind::Int32));
+                    env.stream_csv_optimized(file_b)
+                        .with_schema(Schema::same_type(n_col, NoirTypeKind::Int32))
+                        .join(other, [col(0)], [col(3)])
+                        .filter(col(0).gte(50))
+                        .with_optimizations(
+                            OptimizationOptions::none().with_predicate_pushdown(true),
+                        )
+                        .collect_vec();
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
+fn predicate_pushdown_join_selectivity(c: &mut Criterion) {
+    let mut group = c.benchmark_group("PredicatePushdown-selectivity(join)(selectivity)");
+    group.sample_size(SAMPLE_SIZE);
+    group.measurement_time(MEASUREMENT_TIME);
+    group.warm_up_time(WARM_UP_TIME);
+
+    let n_col = 10;
+    let n_row = 100_000;
+    for selectivity in [20, 40, 60, 80] {
+        let source_file_a = PathBuf::from(format!("../py-evaluation/data/{}_{}.csv", n_row, n_col));
+        let source_file_b = PathBuf::from(format!("../py-evaluation/data/{}_{}.csv", 1000, 10));
+        group.throughput(Throughput::Elements(n_row as u64));
+
+        group.bench_with_input(
+            BenchmarkId::new("Without", selectivity),
+            &(source_file_a.clone(), source_file_b.clone()),
+            |b, (file_a, file_b)| {
+                noir_bench_default(b, |env| {
+                    let other = env.stream_csv_optimized(file_a);
+                    env.stream_csv_optimized(file_b)
+                        .join(other, [col(0)], [col(3)])
+                        .filter(col(0).gte(selectivity))
+                        .without_optimizations()
+                        .collect_vec();
+                });
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("With", selectivity),
+            &(source_file_a, source_file_b),
+            |b, (file_a, file_b)| {
+                noir_bench_default(b, |env| {
+                    let other = env
+                        .stream_csv_optimized(file_a)
+                        .with_schema(Schema::same_type(n_col, NoirTypeKind::Int32));
+                    env.stream_csv_optimized(file_b)
+                        .with_schema(Schema::same_type(n_col, NoirTypeKind::Int32))
+                        .join(other, [col(0)], [col(3)])
+                        .filter(col(0).gte(selectivity))
+                        .with_optimizations(
+                            OptimizationOptions::none().with_predicate_pushdown(true),
+                        )
                         .collect_vec();
                 });
             },
@@ -244,7 +366,7 @@ fn random_row(rng: &mut ThreadRng) -> StreamItem {
     StreamItem::new(row)
 }
 
-fn expr_vs_closures(c: &mut Criterion) {
+fn expression_comparison(c: &mut Criterion) {
     let mut rng = rand::thread_rng();
 
     let inputs: Vec<_> = [1, 50, 100, 1000]
@@ -258,7 +380,7 @@ fn expr_vs_closures(c: &mut Criterion) {
         })
         .collect();
 
-    let mut group = c.benchmark_group("Expr vs Closures (Execution time)");
+    let mut group = c.benchmark_group("Expression (execution time)");
     group.sample_size(SAMPLE_SIZE);
     group.measurement_time(MEASUREMENT_TIME);
     group.warm_up_time(WARM_UP_TIME);
@@ -281,21 +403,6 @@ fn expr_vs_closures(c: &mut Criterion) {
                 }
             });
         });
-
-        group.bench_with_input(
-            BenchmarkId::new("Arena Expression", size),
-            &items,
-            |b, items| {
-                let expr = col(3).modulo(i(7)).eq(i(0));
-                let mut arena = Arena::new();
-                let expr = expr.into_arena(&mut arena);
-                b.iter(move || {
-                    for item in items.iter() {
-                        evaluate_arena_expr(&expr, item, &arena);
-                    }
-                });
-            },
-        );
 
         group.bench_with_input(
             BenchmarkId::new("Compiled Expression", size),
@@ -344,7 +451,6 @@ fn is_compiled_faster(c: &mut Criterion) {
                     .into_box();
                 env.optimized_from_stream(s, Schema::same_type(5, NoirTypeKind::Int32))
                     .filter(((col(0) + col(1)) / 2).gte(50))
-                    // .select(&[col(0), col(1), col(1) + col(1)])
                     .collect_vec();
             })
         });
@@ -367,7 +473,6 @@ fn is_compiled_faster(c: &mut Criterion) {
                 env.optimized_from_stream(s, Schema::same_type(5, NoirTypeKind::Int32))
                     .with_compiled_expressions(true)
                     .filter(((col(0) + col(1)) / 2).gte(50))
-                    // .select(&[col(0), col(1), col(1) + col(1)])
                     .collect_vec();
             })
         });
@@ -378,9 +483,14 @@ fn is_compiled_faster(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    // predicate_pushdown,
-    // projection_pushdown,
-    // expr_vs_closures,
+    projection_pushdown_filter,
+    projection_pushdown_join,
+    projection_pushdown_groupby,
+    predicate_pushdown_groupby_row,
+    predicate_pushdown_groupby_selectivity,
+    predicate_pushdown_join_row,
+    predicate_pushdown_join_selectivity,
+    expression_comparison,
     is_compiled_faster
 );
 criterion_main!(benches);
