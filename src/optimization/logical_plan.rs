@@ -61,6 +61,10 @@ pub enum LogicPlan {
         right_on: Vec<Expr>,
         join_type: JoinType,
     },
+    Mean {
+        input: Box<LogicPlan>,
+        skip_na: bool,
+    },
 }
 
 impl Eq for LogicPlan {}
@@ -229,6 +233,11 @@ impl Debug for LogicPlan {
                 .field("right_on", right_on)
                 .field("join_type", join_type)
                 .finish(),
+            Self::Mean { input, skip_na } => f
+                .debug_struct("Mean")
+                .field("input", input)
+                .field("skip_na", skip_na)
+                .finish(),
         }
     }
 }
@@ -297,6 +306,9 @@ impl Display for LogicPlan {
             LogicPlan::UpStream { stream: _, schema } => {
                 write!(f, "UpStream({:?})", schema)
             }
+            LogicPlan::Mean { input, .. } => {
+                write!(f, "{} -> Mean", input)
+            }
         }
     }
 }
@@ -356,6 +368,13 @@ impl LogicPlan {
         }
     }
 
+    pub(crate) fn mean(self, skip_na: bool) -> LogicPlan {
+        LogicPlan::Mean {
+            input: Box::new(self),
+            skip_na,
+        }
+    }
+
     pub(crate) fn join<E: AsRef<[Expr]>>(
         self,
         other: LogicPlan,
@@ -391,6 +410,7 @@ impl LogicPlan {
             LogicPlan::CollectVec { input } => input.set_schema(schema),
             LogicPlan::DropColumns { input, .. } => input.set_schema(schema),
             LogicPlan::Join { .. } => panic!("Schema should be set before the join operation."),
+            LogicPlan::Mean { input, .. } => input.set_schema(schema),
         }
     }
 
@@ -426,6 +446,7 @@ impl LogicPlan {
             LogicPlan::UpStream { stream: _, schema } => schema.clone().expect(
                 "Schema not found. You should set the schema after the conversion to OptStream.",
             ),
+            LogicPlan::Mean { input, .. } => input.get_schema(),
         }
     }
 
@@ -452,6 +473,7 @@ impl LogicPlan {
             LogicPlan::UpStream { .. } => {
                 panic!("Cannot infer schema from UpStream, set it manually.")
             }
+            LogicPlan::Mean { input, .. } => input.infer_schema(),
         }
     }
 }

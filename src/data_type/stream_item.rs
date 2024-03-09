@@ -1,7 +1,9 @@
 use crate::data_type::noir_type::NoirType;
+use crate::stream::KeyedItem;
 use crate::{data_type::noir_data::NoirData, optimization::dsl::expressions::ExprEvaluable};
 use core::panic;
 use serde::{Deserialize, Serialize};
+use std::ops::{AddAssign, Div, DivAssign};
 use std::{
     fmt::Display,
     ops::{Index, IndexMut},
@@ -11,6 +13,24 @@ use std::{
 pub struct StreamItem {
     values: Vec<NoirType>,
     values_from: usize,
+}
+
+impl KeyedItem for StreamItem {
+    type Key = usize;
+
+    type Value = Vec<NoirType>;
+
+    fn key(&self) -> &Self::Key {
+        &self.values_from
+    }
+
+    fn value(&self) -> &Self::Value {
+        &self.values
+    }
+
+    fn into_kv(self) -> (Self::Key, Self::Value) {
+        (self.values_from, self.values)
+    }
 }
 
 impl StreamItem {
@@ -157,5 +177,42 @@ impl IndexMut<usize> for StreamItem {
 impl ExprEvaluable for StreamItem {
     fn as_ptr(&self) -> *const NoirType {
         unsafe { self.values.as_ptr().add(self.values_from) }
+    }
+}
+
+impl<T: Into<StreamItem>> AddAssign<T> for StreamItem {
+    /// Add pariwise values
+    fn add_assign(&mut self, rhs: T) {
+        let rhs = rhs.into();
+        if self.len() != rhs.len() {
+            panic!("Cannot add StreamItems of different lengths")
+        }
+        for (l, r) in self
+            .values
+            .iter_mut()
+            .skip(self.values_from)
+            .zip(rhs.values.iter().skip(rhs.values_from))
+        {
+            *l += *r;
+        }
+    }
+}
+
+impl DivAssign<f64> for StreamItem {
+    fn div_assign(&mut self, rhs: f64) {
+        for l in self.values.iter_mut().skip(self.values_from) {
+            *l /= rhs;
+        }
+    }
+}
+
+impl Div<f64> for StreamItem {
+    type Output = StreamItem;
+
+    fn div(mut self, rhs: f64) -> Self::Output {
+        for l in self.values.iter_mut().skip(self.values_from) {
+            *l /= rhs;
+        }
+        self
     }
 }

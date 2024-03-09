@@ -411,12 +411,12 @@ impl AggregateOp {
     #[allow(unused)]
     pub(crate) fn include(&mut self, other: AggregateOp) {
         match (self, other) {
-            (AggregateOp::Sum(state), AggregateOp::Sum(other)) => state.include(other),
-            (AggregateOp::Count(state), AggregateOp::Count(other)) => state.include(other),
-            (AggregateOp::Min(state), AggregateOp::Min(other)) => state.include(other),
-            (AggregateOp::Max(state), AggregateOp::Max(other)) => state.include(other),
-            (AggregateOp::Avg(state), AggregateOp::Avg(other)) => state.include(other),
-            (AggregateOp::Val(state), AggregateOp::Val(other)) => state.include(other),
+            (AggregateOp::Sum(ref mut state), AggregateOp::Sum(other)) => state.include(other),
+            (AggregateOp::Count(ref mut state), AggregateOp::Count(other)) => state.include(other),
+            (AggregateOp::Min(ref mut state), AggregateOp::Min(other)) => state.include(other),
+            (AggregateOp::Max(ref mut state), AggregateOp::Max(other)) => state.include(other),
+            (AggregateOp::Avg(ref mut state), AggregateOp::Avg(other)) => state.include(other),
+            (AggregateOp::Val(ref mut state), AggregateOp::Val(other)) => state.include(other),
             _ => panic!("Invalid aggregate operation"),
         }
     }

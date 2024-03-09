@@ -205,6 +205,13 @@ impl PredicatePushdown {
                     input: Box::new(new_input),
                 })
             }
+            LogicPlan::Mean { input, skip_na } => {
+                let new_input = Self::pushdown(*input, accumulator, i + 1)?;
+                Ok(LogicPlan::Mean {
+                    input: Box::new(new_input),
+                    skip_na,
+                })
+            }
             LogicPlan::Join {
                 input_left,
                 input_right,

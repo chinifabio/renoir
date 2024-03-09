@@ -91,6 +91,16 @@ impl ExpressionCompile {
                     schema,
                 ))
             }
+            LogicPlan::Mean { input, skip_na } => {
+                let (new_input, schema) = Self::compile(*input, jit_compiler)?;
+                Ok((
+                    LogicPlan::Mean {
+                        input: Box::new(new_input),
+                        skip_na,
+                    },
+                    schema,
+                ))
+            }
             LogicPlan::CollectVec { input } => {
                 let (new_input, schema) = Self::compile(*input, jit_compiler)?;
                 Ok((

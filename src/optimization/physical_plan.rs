@@ -93,6 +93,7 @@ pub(crate) fn to_stream(
             }
         },
         LogicPlan::UpStream { stream, schema: _ } => StreamType::Stream(stream),
+        LogicPlan::Mean { input, skip_na } => to_stream(*input, env, csv_options).mean(skip_na),
     }
 }
 
@@ -141,16 +142,24 @@ impl StreamType {
                     let projections = columns.clone();
                     let accumulator = columns.into_iter().map(|e| e.accumulator()).collect_vec();
                     let stream = stream
-                        .key_by(|item| item.get_key().unwrap())
-                        .fold(accumulator, move |acc, value| {
-                            let temp: Vec<NoirType> = projections
-                                .iter()
-                                .map(|expr| expr.evaluate(&value))
-                                .collect();
-                            for i in 0..acc.len() {
-                                acc[i].accumulate(temp[i]);
-                            }
-                        })
+                        .group_by_fold(
+                            |item| item.get_key().unwrap(),
+                            accumulator,
+                            move |acc, value| {
+                                let temp: Vec<NoirType> = projections
+                                    .iter()
+                                    .map(|expr| expr.evaluate(&value))
+                                    .collect();
+                                for i in 0..acc.len() {
+                                    acc[i].accumulate(temp[i]);
+                                }
+                            },
+                            |acc, val| {
+                                for i in 0..acc.len() {
+                                    acc[i].include(val[i]);
+                                }
+                            },
+                        )
                         .0
                         .map(|(mut key, data)| {
                             let values = data.into_iter().map(|item| item.finalize());
@@ -261,6 +270,28 @@ impl StreamType {
                 StreamType::KeyedStream(stream)
             }
             (lhs, rhs) => panic!("Cannot join {} with {}", lhs, rhs),
+        }
+    }
+
+    pub(crate) fn mean(self, skip_na: bool) -> Self {
+        match self {
+            StreamType::Stream(stream) => {
+                let stream = stream
+                    .map(NoirData::from)
+                    .mean_noir_data(skip_na)
+                    .map(StreamItem::from)
+                    .into_box();
+                StreamType::Stream(stream)
+            }
+            StreamType::KeyedStream(stream) => {
+                let stream = stream
+                    .key_by(|item| item.get_key().unwrap())
+                    .0
+                    .mean(|(_, item)| item.clone())
+                    .into_box();
+                StreamType::Stream(stream)
+            }
+            _ => panic!("Cannot mean on a {}", self),
         }
     }
 

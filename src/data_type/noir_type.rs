@@ -149,6 +149,16 @@ impl From<f32> for NoirType {
     }
 }
 
+impl From<f64> for NoirType {
+    fn from(item: f64) -> Self {
+        if item.is_finite() {
+            NoirType::Float32(item as f32)
+        } else {
+            NoirType::NaN()
+        }
+    }
+}
+
 impl Hash for NoirType {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         match self {
@@ -258,16 +268,6 @@ impl DivAssign<usize> for NoirType {
             NoirType::Bool(_a) => panic!("Found Bool!"),
             NoirType::NaN() => panic!("Found NaN!"),
             NoirType::None() => panic!("Found None!"),
-        }
-    }
-}
-
-impl DivAssign<Self> for NoirType {
-    fn div_assign(&mut self, rhs: Self) {
-        match (self, rhs) {
-            (NoirType::Int32(a), NoirType::Int32(b)) => *a /= b,
-            (NoirType::Float32(a), NoirType::Float32(b)) => *a /= b,
-            (_, _) => panic!("Type mismatch!"),
         }
     }
 }
@@ -761,6 +761,17 @@ impl Display for NoirTypeKind {
             NoirTypeKind::Bool => write!(f, "Bool"),
             NoirTypeKind::NaN => write!(f, "NaN"),
             NoirTypeKind::None => write!(f, "None"),
+        }
+    }
+}
+
+impl<T: Into<NoirType>> DivAssign<T> for NoirType {
+    fn div_assign(&mut self, rhs: T) {
+        let rhs = rhs.into();
+        match (self, rhs) {
+            (NoirType::Int32(a), NoirType::Int32(b)) => *a /= b,
+            (NoirType::Float32(a), NoirType::Float32(b)) => *a /= b,
+            (_, _) => panic!("Type mismatch!"),
         }
     }
 }

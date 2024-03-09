@@ -32,15 +32,32 @@ where
         if columns.iter().any(|e| e.is_aggregator()) {
             let projections = columns.clone();
             let accumulator = columns.into_iter().map(|e| e.accumulator()).collect_vec();
-            self.fold(accumulator, move |acc, value| {
-                let temp: Vec<NoirType> = projections
-                    .iter()
-                    .map(|expr| expr.evaluate(&value))
-                    .collect();
-                for i in 0..acc.len() {
-                    acc[i].accumulate(temp[i]);
-                }
-            })
+            self.fold_assoc(
+                accumulator,
+                move |acc, value| {
+                    let temp: Vec<NoirType> = projections
+                        .iter()
+                        .map(|expr| expr.evaluate(&value))
+                        .collect();
+                    for i in 0..acc.len() {
+                        acc[i].accumulate(temp[i]);
+                    }
+                },
+                |acc, val| {
+                    for i in 0..acc.len() {
+                        acc[i].include(val[i])
+                    }
+                },
+            )
+            // self.fold(accumulator, move |acc, value| {
+            //     let temp: Vec<NoirType> = projections
+            //         .iter()
+            //         .map(|expr| expr.evaluate(&value))
+            //         .collect();
+            //     for i in 0..acc.len() {
+            //         acc[i].accumulate(temp[i]);
+            //     }
+            // })
             .map(|acc| {
                 acc.into_iter()
                     .map(|a| a.finalize())
@@ -112,6 +129,13 @@ impl OptStream {
     pub fn drop(self, cols: Vec<usize>) -> Self {
         OptStream {
             logic_plan: self.logic_plan.drop(cols),
+            ..self
+        }
+    }
+
+    pub fn mean(self, skip_na: bool) -> Self {
+        OptStream {
+            logic_plan: self.logic_plan.mean(skip_na),
             ..self
         }
     }
