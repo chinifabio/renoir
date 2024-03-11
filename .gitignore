@@ -7,3 +7,4 @@ target
 /bench_conf.toml
 /log.txt
 /test_csv/
+examples/prova.rs

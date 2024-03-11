@@ -1,6 +1,7 @@
 use super::{
     expression_compile::ExpressionCompile, logical_plan::LogicPlan,
     predicate_pushdown::PredicatePushdown, projection_pushdown::ProjectionPushdown,
+    stream_rewrite::StreamRewriter,
 };
 
 #[derive(Debug)]
@@ -35,6 +36,7 @@ pub struct OptimizationOptions {
     predicate_pushdown: bool,
     compile_expressions: bool,
     expression_rewrite: bool,
+    stream_rewrite: bool,
 }
 
 impl Default for OptimizationOptions {
@@ -44,6 +46,7 @@ impl Default for OptimizationOptions {
             predicate_pushdown: true,
             compile_expressions: false,
             expression_rewrite: false,
+            stream_rewrite: true,
         }
     }
 }
@@ -63,6 +66,10 @@ impl LogicPlanOptimizer {
 
         if options.expression_rewrite {
             todo!()
+        }
+
+        if options.stream_rewrite {
+            plan = StreamRewriter::optimize(plan)?;
         }
 
         if options.compile_expressions {
@@ -106,12 +113,20 @@ impl OptimizationOptions {
         }
     }
 
+    pub fn with_stream_rewrite(self, enable: bool) -> Self {
+        Self {
+            stream_rewrite: enable,
+            ..self
+        }
+    }
+
     pub fn none() -> OptimizationOptions {
         OptimizationOptions {
             projection_pushdown: false,
             predicate_pushdown: false,
             compile_expressions: false,
             expression_rewrite: false,
+            stream_rewrite: false,
         }
     }
 }

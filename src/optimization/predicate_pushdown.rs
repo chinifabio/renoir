@@ -187,6 +187,17 @@ impl PredicatePushdown {
                     skip_na,
                 })
             }
+            LogicPlan::GroupbySelect { input, keys, aggs } => {
+                accumulator
+                    .iter_mut()
+                    .for_each(|p| p.map_dependencies(&aggs));
+                let new_input = Self::pushdown(*input, accumulator, i + 1)?;
+                Ok(LogicPlan::GroupbySelect {
+                    input: Box::new(new_input),
+                    keys,
+                    aggs,
+                })
+            }
             LogicPlan::Join {
                 input_left,
                 input_right,

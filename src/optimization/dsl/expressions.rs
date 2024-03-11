@@ -387,14 +387,16 @@ impl Expr {
     pub(crate) fn map_dependencies(&mut self, columns: &[Expr]) -> Expr {
         match self {
             Expr::NthColumn(n) => {
-                let new_expr = columns.get(*n).expect("Invalid column index during Expr::map_dependencies");
+                let new_expr = columns
+                    .get(*n)
+                    .expect("Invalid column index during Expr::map_dependencies");
                 match new_expr {
                     Expr::AggregateExpr { op: _, expr } => *expr.clone(),
                     Expr::Empty => panic!("Empty expression"),
                     Expr::Compiled { .. } => panic!("You can't modify a compiled expression"),
                     e => e.clone(),
                 }
-            },
+            }
             Expr::Literal(value) => Expr::Literal(*value),
             Expr::BinaryExpr { left, op, right } => {
                 let left = Box::new(left.map_dependencies(columns));
@@ -409,7 +411,9 @@ impl Expr {
                 let expr = Box::new(expr.map_dependencies(columns));
                 Expr::UnaryExpr { op: *op, expr }
             }
-            Expr::AggregateExpr { .. } => panic!("You can't map dependencies on an aggregate expression"),
+            Expr::AggregateExpr { .. } => {
+                panic!("You can't map dependencies on an aggregate expression")
+            }
             Expr::Empty => panic!("Empty expression"),
             Expr::Compiled { .. } => panic!("You can't modify a compiled expression"),
         }

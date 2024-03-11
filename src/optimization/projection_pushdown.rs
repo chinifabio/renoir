@@ -114,6 +114,37 @@ impl ProjectionPushdown {
                     input: Box::new(new_input),
                 })
             }
+            LogicPlan::GroupbySelect { input, keys, aggs } => {
+                let mut new_accumulator = Vec::new();
+                for item in &keys {
+                    Self::accumulate_dependencies(
+                        &mut new_accumulator,
+                        item.extract_dependencies(),
+                    );
+                }
+                for item in &aggs {
+                    Self::accumulate_dependencies(
+                        &mut new_accumulator,
+                        item.extract_dependencies(),
+                    );
+                }
+
+                let new_input = Self::pushdown(*input, &mut new_accumulator)?;
+                let new_keys = keys
+                    .into_iter()
+                    .map(|item| Self::replace_dependencies(item, &new_accumulator))
+                    .collect();
+                let new_aggs = aggs
+                    .into_iter()
+                    .map(|item| Self::replace_dependencies(item, &new_accumulator))
+                    .collect();
+
+                Ok(LogicPlan::GroupbySelect {
+                    input: Box::new(new_input),
+                    keys: new_keys,
+                    aggs: new_aggs,
+                })
+            }
             LogicPlan::Join {
                 input_left,
                 input_right,

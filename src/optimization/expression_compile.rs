@@ -120,6 +120,23 @@ impl ExpressionCompile {
                     schema,
                 ))
             }
+            LogicPlan::GroupbySelect { input, keys, aggs } => {
+                let (new_input, schema) = Self::compile(*input, jit_compiler)?;
+                Ok((
+                    LogicPlan::GroupbySelect {
+                        input: Box::new(new_input),
+                        keys: keys
+                            .into_iter()
+                            .map(|k| k.compile(&schema, jit_compiler))
+                            .collect(),
+                        aggs: aggs
+                            .into_iter()
+                            .map(|k| k.compile(&schema, jit_compiler))
+                            .collect(),
+                    },
+                    schema,
+                ))
+            }
             LogicPlan::Join {
                 input_left,
                 input_right,

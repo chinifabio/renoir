@@ -583,16 +583,79 @@ fn is_compiled_faster(c: &mut Criterion) {
     group.finish();
 }
 
+fn new_predicate_pushdown(c: &mut Criterion) {
+    let mut group = c.benchmark_group("New Predicate Pushdown");
+    group.warm_up_time(WARM_UP_TIME);
+
+    let n_col = 10;
+    for n_row in [10_000, 100_000, 1_000_000] {
+        let source_file = PathBuf::from(format!("../py-evaluation/data/{}_{}.csv", n_row, n_col));
+        group.throughput(Throughput::Elements(n_row as u64));
+
+        group.bench_with_input(
+            BenchmarkId::new("Without", n_row),
+            &source_file,
+            |b, source_file| {
+                noir_bench_default(b, |env| {
+                    env.stream_csv_optimized(source_file)
+                        .group_by([col(0) % 5])
+                        .select([avg(col(1) + col(2))])
+                        .filter(col(0).gte(50))
+                        // .with_predicate_pushdown(false)
+                        .with_stream_rewrite(false)
+                        .collect_vec();
+                });
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("With", n_row),
+            &source_file,
+            |b, source_file| {
+                noir_bench_default(b, |env| {
+                    env.stream_csv_optimized(source_file)
+                        .group_by([col(0) % 5])
+                        .select([avg(col(1) + col(2))])
+                        .filter(col(0).gte(50))
+                        .collect_vec();
+                });
+            },
+        );
+
+        group.bench_with_input(
+            BenchmarkId::new("Closures", n_row),
+            &source_file,
+            |b, source_file| {
+                noir_bench_default(b, |env| {
+                    env.stream_csv_noirdata(source_file.clone())
+                        .group_by(|row| row[0] % NoirType::Int32(5))
+                        .fold((NoirType::Int32(0), 0), |acc, value| {
+                            acc.0 += value[1] + value[2];
+                            acc.1 += 1;
+                        })
+                        .filter(|(_, (sum, count))| {
+                            *sum / NoirType::Int32(*count) >= NoirType::Int32(50)
+                        })
+                        .collect_vec();
+                });
+            },
+        );
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
-    projection_pushdown_filter,
-    projection_pushdown_groupby,
-    projection_pushdown_join,
-    predicate_pushdown_groupby_row,
-    predicate_pushdown_groupby_selectivity,
-    predicate_pushdown_join_row,
-    predicate_pushdown_join_selectivity,
-    expression_comparison,
-    is_compiled_faster
+    // projection_pushdown_filter,
+    // projection_pushdown_groupby,
+    // projection_pushdown_join,
+    // predicate_pushdown_groupby_row,
+    // predicate_pushdown_groupby_selectivity,
+    // predicate_pushdown_join_row,
+    // predicate_pushdown_join_selectivity,
+    // expression_comparison,
+    // is_compiled_faster,
+    new_predicate_pushdown,
 );
 criterion_main!(benches);

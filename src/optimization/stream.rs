@@ -219,6 +219,13 @@ impl OptStream {
         }
     }
 
+    pub fn with_stream_rewrite(self, stream_rewrite: bool) -> Self {
+        Self {
+            optimizations: self.optimizations.with_stream_rewrite(stream_rewrite),
+            ..self
+        }
+    }
+
     pub fn without_optimizations(self) -> Self {
         Self {
             optimizations: OptimizationOptions::none(),

@@ -65,6 +65,11 @@ pub enum LogicPlan {
         input: Box<LogicPlan>,
         skip_na: bool,
     },
+    GroupbySelect {
+        input: Box<LogicPlan>,
+        keys: Vec<Expr>,
+        aggs: Vec<Expr>,
+    },
 }
 
 impl Eq for LogicPlan {}
@@ -238,6 +243,12 @@ impl Debug for LogicPlan {
                 .field("input", input)
                 .field("skip_na", skip_na)
                 .finish(),
+            Self::GroupbySelect { input, keys, aggs } => f
+                .debug_struct("GroupbyFold")
+                .field("input", input)
+                .field("keys", keys)
+                .field("aggs", aggs)
+                .finish(),
         }
     }
 }
@@ -308,6 +319,9 @@ impl Display for LogicPlan {
             }
             LogicPlan::Mean { input, .. } => {
                 write!(f, "{} -> Mean", input)
+            }
+            LogicPlan::GroupbySelect { input, keys, aggs } => {
+                write!(f, "{} -> GroupbyFold({:?}, {:?})", input, keys, aggs)
             }
         }
     }
@@ -411,6 +425,7 @@ impl LogicPlan {
             LogicPlan::DropColumns { input, .. } => input.set_schema(schema),
             LogicPlan::Join { .. } => panic!("Schema should be set before the join operation."),
             LogicPlan::Mean { input, .. } => input.set_schema(schema),
+            LogicPlan::GroupbySelect { input, .. } => input.set_schema(schema),
         }
     }
 
@@ -447,6 +462,7 @@ impl LogicPlan {
                 "Schema not found. You should set the schema after the conversion to OptStream.",
             ),
             LogicPlan::Mean { input, .. } => input.get_schema(),
+            LogicPlan::GroupbySelect { input, .. } => input.get_schema(),
         }
     }
 
@@ -474,6 +490,7 @@ impl LogicPlan {
                 panic!("Cannot infer schema from UpStream, set it manually.")
             }
             LogicPlan::Mean { input, .. } => input.infer_schema(),
+            LogicPlan::GroupbySelect { input, .. } => input.infer_schema(),
         }
     }
 }

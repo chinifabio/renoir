@@ -70,6 +70,9 @@ pub(crate) fn to_stream(
         LogicPlan::DropColumns { input, columns } => {
             to_stream(*input, env, csv_options).drop_columns(columns)
         }
+        LogicPlan::GroupbySelect { input, keys, aggs } => {
+            to_stream(*input, env, csv_options).groupby_select(keys, aggs)
+        }
         LogicPlan::Join {
             input_left,
             input_right,
@@ -190,6 +193,40 @@ impl StreamType {
             StreamType::Stream(_) => todo!(), // StreamType::Stream(stream.drop_columns(clone).into_box()),
             StreamType::KeyedStream(_) => todo!(),
             _ => panic!("Cannot drop columns on a {}", self),
+        }
+    }
+
+    pub(crate) fn groupby_select(self, keys: Vec<Expr>, aggs: Vec<Expr>) -> Self {
+        match self {
+            StreamType::Stream(stream) => {
+                let stream = stream
+                    .group_by_fold(
+                        move |item| Self::keyer(item, &keys),
+                        aggs.iter().map(|e| e.clone().accumulator()).collect_vec(),
+                        move |acc, value| {
+                            let temp: Vec<NoirType> =
+                                aggs.iter().map(|expr| expr.evaluate(&value)).collect();
+                            for i in 0..acc.len() {
+                                acc[i].accumulate(temp[i]);
+                            }
+                        },
+                        |acc, val| {
+                            for i in 0..acc.len() {
+                                acc[i].include(val[i]);
+                            }
+                        },
+                    )
+                    .0
+                    .map(|(mut key, data)| {
+                        let values = data.into_iter().map(|item| item.finalize());
+                        let key_len = key.len();
+                        key.extend(values);
+                        StreamItem::new_with_key(key, key_len)
+                    })
+                    .into_box();
+                StreamType::KeyedStream(stream)
+            }
+            _ => panic!("Cannot groupby select on a {}", self),
         }
     }
 
