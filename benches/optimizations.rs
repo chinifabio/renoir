@@ -379,7 +379,7 @@ fn predicate_pushdown_join_row(c: &mut Criterion) {
                         .join(other, |row| row[0], |row| row[3])
                         .filter(move |(_, (left_item, right_item))| {
                             left_item[0] >= NoirType::Int32(50)
-                                && right_item[n_col] >= NoirType::Int32(50)
+                                && right_item[0] >= NoirType::Int32(50)
                         })
                         .collect_vec();
                 });
@@ -448,7 +448,7 @@ fn predicate_pushdown_join_selectivity(c: &mut Criterion) {
                         .join(other, |row| row[0], |row| row[3])
                         .filter(move |(_, (left_item, right_item))| {
                             left_item[0] >= NoirType::Int32(selectivity)
-                                && right_item[n_col] >= NoirType::Int32(selectivity)
+                                && right_item[0] >= NoirType::Int32(selectivity)
                         })
                         .collect_vec();
                 });

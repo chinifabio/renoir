@@ -15,7 +15,6 @@ pub(crate) struct PredicatePushdown {}
 struct PredicateWrapper {
     predicate: Option<Expr>,
     level: u32,
-    locked_at: Option<u32>,
 }
 
 impl PredicateWrapper {
@@ -23,26 +22,11 @@ impl PredicateWrapper {
         Self {
             predicate: Some(predicate),
             level: i,
-            locked_at: None,
         }
-    }
-
-    fn lock(&mut self, i: u32) {
-        self.locked_at = Some(i);
-    }
-
-    fn unlock(&mut self, i: u32) {
-        if self.locked_at == Some(i) {
-            self.locked_at = None;
-        }
-    }
-
-    fn is_locked(&self) -> bool {
-        self.locked_at.is_some()
     }
 
     fn is_available(&self, i: u32) -> bool {
-        self.predicate.is_some() && !self.is_locked() && self.level <= i
+        self.predicate.is_some() && self.level <= i
     }
 
     fn take(&mut self, i: u32) -> Self {
@@ -50,7 +34,6 @@ impl PredicateWrapper {
         Self {
             predicate: self.predicate.take(),
             level: i,
-            locked_at: None,
         }
     }
 
@@ -85,7 +68,12 @@ impl PredicateWrapper {
         PredicateWrapper {
             predicate: Some(predicate),
             level: self.level,
-            locked_at: self.locked_at,
+        }
+    }
+
+    fn map_dependencies(&mut self, columns: &[Expr]) {
+        if let Some(predicate) = &mut self.predicate {
+            *predicate = predicate.map_dependencies(columns);
         }
     }
 }
@@ -150,27 +138,14 @@ impl PredicatePushdown {
                 }
             }
             LogicPlan::Select { columns, input } => {
-                // TODO devo controllare se tutte le dipendenze del filter sono colonne semplici.
-                // se lo sono allora posso rimappare le dipendenze e porare su il filtro
-                accumulator.iter_mut().for_each(|p| p.lock(i));
-                let mut new_input = Self::pushdown(*input, accumulator, i + 1)?;
-                accumulator.iter_mut().for_each(|p| p.unlock(i));
-                match Self::take_action(accumulator, i) {
-                    Some(predicate) => {
-                        new_input = LogicPlan::Select {
-                            columns,
-                            input: Box::new(new_input),
-                        };
-                        Ok(LogicPlan::Filter {
-                            predicate,
-                            input: Box::new(new_input),
-                        })
-                    }
-                    None => Ok(LogicPlan::Select {
-                        columns,
-                        input: Box::new(new_input),
-                    }),
-                }
+                accumulator
+                    .iter_mut()
+                    .for_each(|p| p.map_dependencies(&columns));
+                let new_input = Self::pushdown(*input, accumulator, i + 1)?;
+                Ok(LogicPlan::Select {
+                    columns,
+                    input: Box::new(new_input),
+                })
             }
             LogicPlan::DropColumns { input, columns } => {
                 // TODO come select
@@ -337,17 +312,14 @@ pub mod test {
             PredicateWrapper {
                 predicate: None,
                 level: 1,
-                locked_at: None,
             },
             PredicateWrapper {
                 predicate: Some((col(0) + 1).eq(i(3))),
                 level: 3,
-                locked_at: None,
             },
             PredicateWrapper {
                 predicate: Some((col(1) / col(2)).neq(f(1.5))),
                 level: 3,
-                locked_at: None,
             },
         ];
         let predicate = PredicatePushdown::take_action(&mut accumulator, 4);
@@ -461,13 +433,38 @@ pub mod test {
         let optimized = PredicatePushdown::optimize(target_plan).unwrap();
 
         let exprected = LogicPlan::CollectVec {
-            input: Box::new(LogicPlan::Filter {
-                predicate: col(1).lt(i(0)),
-                input: Box::new(LogicPlan::Select {
-                    columns: vec![col(0), col(1)],
+            input: Box::new(LogicPlan::Select {
+                columns: vec![col(0), col(1)],
+                input: Box::new(LogicPlan::TableScan {
+                    path: "test.csv".into(),
+                    predicate: Some(col(0).gt(i(0)).and(col(1).lt(i(0)))),
+                    projections: None,
+                    schema: Some(Schema::same_type(10, NoirTypeKind::Int32)),
+                }),
+            }),
+        };
+
+        assert_eq!(optimized, exprected);
+    }
+
+    #[test]
+    fn select_with_aggregation() {
+        let target_plan = create_scan()
+            .group_by([(col(0) % 5).eq(0)])
+            .select([col(0), avg(col(1) + col(2))])
+            .filter(col(1).lt(10))
+            .collect_vec();
+
+        let optimized = PredicatePushdown::optimize(target_plan).unwrap();
+
+        let exprected = LogicPlan::CollectVec {
+            input: Box::new(LogicPlan::Select {
+                columns: vec![col(0), avg(col(1) + col(2))],
+                input: Box::new(LogicPlan::GroupBy {
+                    key: vec![(col(0) % 5).eq(0)],
                     input: Box::new(LogicPlan::TableScan {
                         path: "test.csv".into(),
-                        predicate: Some(col(0).gt(i(0))),
+                        predicate: Some((col(1) + col(2)).lt(10)),
                         projections: None,
                         schema: Some(Schema::same_type(10, NoirTypeKind::Int32)),
                     }),
