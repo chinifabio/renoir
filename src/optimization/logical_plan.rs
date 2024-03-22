@@ -72,6 +72,72 @@ pub enum LogicPlan {
     },
 }
 
+impl Clone for LogicPlan {
+    fn clone(&self) -> Self {
+        match self {
+            Self::UpStream { .. } => panic!("UpStream cannot be cloned."),
+            Self::TableScan {
+                path,
+                predicate,
+                projections,
+                schema,
+            } => Self::TableScan {
+                path: path.clone(),
+                predicate: predicate.clone(),
+                projections: projections.clone(),
+                schema: schema.clone(),
+            },
+            Self::Filter { predicate, input } => Self::Filter {
+                predicate: predicate.clone(),
+                input: input.clone(),
+            },
+            Self::Select { columns, input } => Self::Select {
+                columns: columns.clone(),
+                input: input.clone(),
+            },
+            Self::Shuffle { input } => Self::Shuffle {
+                input: input.clone(),
+            },
+            Self::GroupBy { key, input } => Self::GroupBy {
+                key: key.clone(),
+                input: input.clone(),
+            },
+            Self::DropKey { input } => Self::DropKey {
+                input: input.clone(),
+            },
+            Self::CollectVec { input } => Self::CollectVec {
+                input: input.clone(),
+            },
+            Self::DropColumns { input, columns } => Self::DropColumns {
+                input: input.clone(),
+                columns: columns.clone(),
+            },
+            Self::Join {
+                input_left,
+                input_right,
+                left_on,
+                right_on,
+                join_type,
+            } => Self::Join {
+                input_left: input_left.clone(),
+                input_right: input_right.clone(),
+                left_on: left_on.clone(),
+                right_on: right_on.clone(),
+                join_type: join_type.clone(),
+            },
+            Self::Mean { input, skip_na } => Self::Mean {
+                input: input.clone(),
+                skip_na: skip_na.clone(),
+            },
+            Self::GroupbySelect { input, keys, aggs } => Self::GroupbySelect {
+                input: input.clone(),
+                keys: keys.clone(),
+                aggs: aggs.clone(),
+            },
+        }
+    }
+}
+
 impl Eq for LogicPlan {}
 
 impl PartialEq for LogicPlan {

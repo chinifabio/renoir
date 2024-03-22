@@ -31,6 +31,13 @@ impl KeyedItem for StreamItem {
     fn into_kv(self) -> (Self::Key, Self::Value) {
         (self.values_from, self.values)
     }
+
+    fn from_kv(key: Self::Key, value: Self::Value) -> Self {
+        StreamItem {
+            values: value,
+            values_from: key,
+        }
+    }
 }
 
 impl StreamItem {
@@ -128,11 +135,9 @@ impl From<(Vec<NoirType>, NoirData)> for StreamItem {
 impl From<(Vec<NoirType>, (StreamItem, StreamItem))> for StreamItem {
     fn from(data: (Vec<NoirType>, (StreamItem, StreamItem))) -> Self {
         let (mut key, (left, right)) = data;
-        let mut data: Vec<NoirType> = Vec::with_capacity(left.len() + right.len());
-        data.extend(left.get_value());
-        data.extend(right.get_value());
         let len = key.len();
-        key.extend(data);
+        key.extend(right.get_value());
+        key.extend(left.get_value());
         StreamItem::new_with_key(key, len)
     }
 }

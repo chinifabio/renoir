@@ -49,15 +49,6 @@ where
                     }
                 },
             )
-            // self.fold(accumulator, move |acc, value| {
-            //     let temp: Vec<NoirType> = projections
-            //         .iter()
-            //         .map(|expr| expr.evaluate(&value))
-            //         .collect();
-            //     for i in 0..acc.len() {
-            //         acc[i].accumulate(temp[i]);
-            //     }
-            // })
             .map(|acc| {
                 acc.into_iter()
                     .map(|a| a.finalize())

@@ -42,6 +42,7 @@ pub trait KeyedItem {
     fn key(&self) -> &Self::Key;
     fn value(&self) -> &Self::Value;
     fn into_kv(self) -> (Self::Key, Self::Value);
+    fn from_kv(key: Self::Key, value: Self::Value) -> Self;
 }
 
 impl<K: DataKey, V> KeyedItem for (K, V) {
@@ -55,6 +56,9 @@ impl<K: DataKey, V> KeyedItem for (K, V) {
     }
     fn into_kv(self) -> (Self::Key, Self::Value) {
         self
+    }
+    fn from_kv(key: Self::Key, value: Self::Value) -> Self {
+        (key, value)
     }
 }
 

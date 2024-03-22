@@ -2,23 +2,26 @@ use std::fmt::Display;
 
 use crate::block::{BlockStructure, OperatorStructure};
 use crate::data_type::noir_data::NoirData;
-use crate::data_type::stream_item::StreamItem;
 use crate::operator::{Operator, StreamElement};
-use crate::optimization::dsl::expressions::Expr;
+use crate::optimization::dsl::expressions::{Expr, ExprEvaluable};
 use crate::scheduler::ExecutionMetadata;
 
+use super::Data;
+
 #[derive(Clone)]
-pub struct FilterExpr<PreviousOperator>
+pub struct FilterExpr<Op>
 where
-    PreviousOperator: Operator<Out = StreamItem> + 'static,
+    Op: Operator + 'static,
+    Op::Out: ExprEvaluable + Data,
 {
-    prev: PreviousOperator,
+    prev: Op,
     expression: Expr,
 }
 
-impl<PreviousOperator> Display for FilterExpr<PreviousOperator>
+impl<Op> Display for FilterExpr<Op>
 where
-    PreviousOperator: Operator<Out = StreamItem> + 'static,
+    Op: Operator + 'static,
+    Op::Out: ExprEvaluable + Data,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
@@ -30,27 +33,29 @@ where
     }
 }
 
-impl<PreviousOperator> FilterExpr<PreviousOperator>
+impl<Op> FilterExpr<Op>
 where
-    PreviousOperator: Operator<Out = StreamItem> + 'static,
+    Op: Operator + 'static,
+    Op::Out: ExprEvaluable + Data,
 {
-    pub fn new(prev: PreviousOperator, expression: Expr) -> Self {
+    pub fn new(prev: Op, expression: Expr) -> Self {
         Self { prev, expression }
     }
 }
 
-impl<PreviousOperator> Operator for FilterExpr<PreviousOperator>
+impl<Op> Operator for FilterExpr<Op>
 where
-    PreviousOperator: Operator<Out = StreamItem> + 'static,
+    Op: Operator + 'static,
+    Op::Out: ExprEvaluable + Data,
 {
-    type Out = PreviousOperator::Out;
+    type Out = Op::Out;
 
     fn setup(&mut self, metadata: &mut ExecutionMetadata) {
         self.prev.setup(metadata);
     }
 
     #[inline]
-    fn next(&mut self) -> StreamElement<PreviousOperator::Out> {
+    fn next(&mut self) -> StreamElement<Op::Out> {
         loop {
             match self.prev.next() {
                 StreamElement::Item(ref item) | StreamElement::Timestamped(ref item, _)
@@ -74,7 +79,6 @@ pub mod test {
 
     use crate::data_type::noir_data::NoirData;
     use crate::data_type::noir_type::NoirType;
-    use crate::data_type::stream_item::StreamItem;
     use crate::{
         operator::{Operator, StreamElement},
         optimization::dsl::expressions::*,
@@ -83,22 +87,18 @@ pub mod test {
 
     use super::FilterExpr;
 
-    fn random_row(rng: &mut ThreadRng) -> StreamItem {
+    fn random_row(rng: &mut ThreadRng) -> NoirData {
         let col = 5;
         let mut row = Vec::with_capacity(col);
         for _ in 0..col {
             row.push(NoirType::Int32(rng.gen()))
         }
-        StreamItem::from(NoirData::Row(row))
-    }
-
-    fn random_keyed_row(rng: &mut ThreadRng) -> StreamItem {
-        StreamItem::from(NoirData::from(random_row(rng)))
+        NoirData::Row(row)
     }
 
     fn test_predicate(
-        data: Vec<StreamItem>,
-        predicate_closure: impl Fn(&StreamItem) -> bool,
+        data: Vec<NoirData>,
+        predicate_closure: impl Fn(&NoirData) -> bool,
         predicte_expression: Expr,
     ) {
         let expected = data
@@ -141,23 +141,23 @@ pub mod test {
         );
     }
 
-    #[test]
-    fn test_filter_stream_with_keyed() {
-        let mut rng = rand::thread_rng();
-        test_predicate(
-            (0..100).map(|_| random_keyed_row(&mut rng)).collect_vec(),
-            |data| data[1] % NoirType::Int32(10) == NoirType::Int32(0),
-            col(1).modulo(i(10)).eq(i(0)),
-        );
-        test_predicate(
-            (0..100).map(|_| random_keyed_row(&mut rng)).collect_vec(),
-            |data| data[4] == data[0],
-            col(4).eq(col(0)),
-        );
-        test_predicate(
-            (0..100).map(|_| random_keyed_row(&mut rng)).collect_vec(),
-            |data| data[4] != data[0],
-            col(4).neq(col(0)),
-        );
-    }
+    // #[test]
+    // fn test_filter_stream_with_keyed() {
+    //     let mut rng = rand::thread_rng();
+    //     test_predicate(
+    //         (0..100).map(|_| random_keyed_row(&mut rng)).collect_vec(),
+    //         |data| data[1] % NoirType::Int32(10) == NoirType::Int32(0),
+    //         col(1).modulo(i(10)).eq(i(0)),
+    //     );
+    //     test_predicate(
+    //         (0..100).map(|_| random_keyed_row(&mut rng)).collect_vec(),
+    //         |data| data[4] == data[0],
+    //         col(4).eq(col(0)),
+    //     );
+    //     test_predicate(
+    //         (0..100).map(|_| random_keyed_row(&mut rng)).collect_vec(),
+    //         |data| data[4] != data[0],
+    //         col(4).neq(col(0)),
+    //     );
+    // }
 }

@@ -601,7 +601,6 @@ fn new_predicate_pushdown(c: &mut Criterion) {
                         .group_by([col(0) % 5])
                         .select([avg(col(1) + col(2))])
                         .filter(col(0).gte(50))
-                        // .with_predicate_pushdown(false)
                         .with_stream_rewrite(false)
                         .collect_vec();
                 });
@@ -647,15 +646,15 @@ fn new_predicate_pushdown(c: &mut Criterion) {
 
 criterion_group!(
     benches,
-    // projection_pushdown_filter,
-    // projection_pushdown_groupby,
-    // projection_pushdown_join,
-    // predicate_pushdown_groupby_row,
-    // predicate_pushdown_groupby_selectivity,
-    // predicate_pushdown_join_row,
-    // predicate_pushdown_join_selectivity,
-    // expression_comparison,
-    // is_compiled_faster,
+    projection_pushdown_filter,
+    projection_pushdown_groupby,
+    projection_pushdown_join,
+    predicate_pushdown_groupby_row,
+    predicate_pushdown_groupby_selectivity,
+    predicate_pushdown_join_row,
+    predicate_pushdown_join_selectivity,
+    expression_comparison,
+    is_compiled_faster,
     new_predicate_pushdown,
 );
 criterion_main!(benches);
