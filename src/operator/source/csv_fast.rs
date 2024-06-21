@@ -1,104 +1,27 @@
 use std::fmt::Display;
 use std::fs::File;
-use std::io;
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
-use std::marker::PhantomData;
+use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::PathBuf;
 
-use csv::{ByteRecord, Reader, ReaderBuilder, Terminator, Trim};
-use serde::Deserialize;
+use csv::{Reader, ReaderBuilder, Terminator, Trim};
 
 use crate::block::{BlockStructure, OperatorKind, OperatorStructure, Replication};
 use crate::datatypes::schema::Schema;
+use crate::datatypes::{NoirType, NoirTypeKind};
 use crate::dsl::expressions::Expr;
 use crate::operator::source::Source;
-use crate::operator::{Data, Operator, StreamElement};
+use crate::operator::{Operator, StreamElement};
 use crate::scheduler::ExecutionMetadata;
 use crate::Stream;
 
-/// Wrapper that limits the bytes that can be read from a type that implements `io::Read`.
-pub(crate) struct LimitedReader<R: Read> {
-    inner: R,
-    /// Bytes remaining to be read.
-    remaining: usize,
-}
+use super::{CsvOptions, LimitedReader};
 
-impl<R: Read> LimitedReader<R> {
-    pub fn new(inner: R, remaining: usize) -> Self {
-        Self { inner, remaining }
-    }
-}
+pub type NoirData = Vec<NoirType>;
 
-impl<R: Read> Read for LimitedReader<R> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        let read_bytes = if self.remaining > 0 {
-            // if there are some bytes to be read, call read on the inner reader
-            self.inner.read(buf)?.min(self.remaining)
-        } else {
-            // all the bytes have been read
-            0
-        };
-        self.remaining -= read_bytes;
-        Ok(read_bytes)
-    }
-}
-
-/// Options for the CSV parser.
-#[derive(Clone)]
-pub struct CsvOptions {
-    /// Byte used to mark a line as a comment.
-    pub(crate) comment: Option<u8>,
-    /// Field delimiter.
-    pub(crate) delimiter: u8,
-    /// Whether quotes are escaped by using doubled quotes.
-    pub(crate) double_quote: bool,
-    /// Byte used to escape quotes.
-    pub(crate) escape: Option<u8>,
-    /// Whether to allow records with different number of fields.
-    pub(crate) flexible: bool,
-    /// Byte used to quote fields.
-    pub(crate) quote: u8,
-    /// Whether to enable field quoting.
-    pub(crate) quoting: bool,
-    /// Line terminator.
-    pub(crate) terminator: Terminator,
-    /// Whether to trim fields and/or headers.
-    pub(crate) trim: Trim,
-    /// Whether the CSV file has headers.
-    pub(crate) has_headers: bool,
-
-    /// Expression representing a filter on the source
-    pub(super) filter_at_source: Option<Expr>,
-    /// Expressions representing projections on the source
-    pub(super) projections_at_source: Option<Vec<usize>>,
-    /// The schema of the source
-    pub(super) schema: Option<Schema>,
-}
-
-impl Default for CsvOptions {
-    fn default() -> Self {
-        Self {
-            comment: None,
-            delimiter: b',',
-            double_quote: true,
-            escape: None,
-            flexible: false,
-            quote: b'"',
-            quoting: true,
-            terminator: Terminator::CRLF,
-            trim: Trim::None,
-            has_headers: true,
-            filter_at_source: None,
-            projections_at_source: None,
-            schema: None,
-        }
-    }
-}
-
-/// Source that reads and parses a CSV file.
+/// Source that reads and parses a CSV file to NoirData rows.
 ///
 /// The file is divided in chunks and is read concurrently by multiple replicas.
-pub struct CsvSource<Out: Data + for<'a> Deserialize<'a>> {
+pub struct RowCsvSource {
     /// Path of the file.
     path: PathBuf,
     /// Reader used to parse the CSV file.
@@ -107,17 +30,17 @@ pub struct CsvSource<Out: Data + for<'a> Deserialize<'a>> {
     options: CsvOptions,
     /// Whether the reader has terminated its job.
     terminated: bool,
-    _out: PhantomData<Out>,
-    buf: ByteRecord,
+    replication: Replication,
+    record: csv::StringRecord,
 }
 
-impl<Out: Data + for<'a> Deserialize<'a>> Display for CsvSource<Out> {
+impl Display for RowCsvSource {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "CsvSource<{}>", std::any::type_name::<Out>())
+        write!(f, "RowCsvSource<{}>", std::any::type_name::<NoirData>())
     }
 }
 
-impl<Out: Data + for<'a> Deserialize<'a>> CsvSource<Out> {
+impl RowCsvSource {
     /// Create a new source that reads and parse the lines of a CSV file.
     ///
     /// The file is partitioned into as many chunks as replicas, each replica has to have the
@@ -138,10 +61,10 @@ impl<Out: Data + for<'a> Deserialize<'a>> CsvSource<Out> {
     /// ## Example
     ///
     /// ```
-    /// # use renoir::{StreamContext, RuntimeConfig};
-    /// # use renoir::operator::source::CsvSource;
+    /// # use noir::{StreamEnvironment, EnvironmentConfig};
+    /// # use noir::operator::source::CsvSource;
     /// # use serde::{Deserialize, Serialize};
-    /// # let mut env = StreamContext::new_local();
+    /// # let mut env = StreamEnvironment::new(EnvironmentConfig::local(1));
     /// #[derive(Clone, Deserialize, Serialize)]
     /// struct Thing {
     ///     what: String,
@@ -156,8 +79,8 @@ impl<Out: Data + for<'a> Deserialize<'a>> CsvSource<Out> {
             csv_reader: None,
             options: Default::default(),
             terminated: false,
-            _out: PhantomData,
-            buf: ByteRecord::new(),
+            replication: Replication::Unlimited,
+            record: csv::StringRecord::new(),
         }
     }
 
@@ -270,18 +193,44 @@ impl<Out: Data + for<'a> Deserialize<'a>> CsvSource<Out> {
         self.options.has_headers = has_headers;
         self
     }
-}
 
-impl<Out: Data + for<'a> Deserialize<'a>> Source for CsvSource<Out> {
-    fn replication(&self) -> Replication {
-        Replication::Unlimited
+    pub fn replication(mut self, replication: Replication) -> Self {
+        self.replication = replication;
+        self
+    }
+
+    pub(crate) fn filter_at_source(mut self, predicate: Option<Expr>) -> Self {
+        self.options.filter_at_source = predicate;
+        self
+    }
+
+    pub(crate) fn project_at_source(mut self, projections: Option<Vec<usize>>) -> Self {
+        self.options.projections_at_source = projections;
+        self
+    }
+
+    pub(crate) fn with_schema(mut self, schema: Option<Schema>) -> Self {
+        self.options.schema = schema;
+        self
+    }
+
+    pub(crate) fn with_options(mut self, options: CsvOptions) -> Self {
+        self.options = options;
+        self
     }
 }
 
-impl<Out: Data + for<'a> Deserialize<'a>> Operator for CsvSource<Out> {
-    type Out = Out;
+impl Source for RowCsvSource {
+    fn replication(&self) -> Replication {
+        self.replication
+    }
+}
+
+impl Operator for RowCsvSource {
+    type Out = Vec<NoirType>;
 
     fn setup(&mut self, metadata: &mut ExecutionMetadata) {
+        info!("CsvSource: setup from {}", metadata.global_id);
         let global_id = metadata.global_id;
         let instances = metadata.replicas.len();
 
@@ -387,39 +336,183 @@ impl<Out: Data + for<'a> Deserialize<'a>> Operator for CsvSource<Out> {
         self.csv_reader = Some(csv_reader);
     }
 
-    fn next(&mut self) -> StreamElement<Out> {
-        if self.terminated {
-            return StreamElement::Terminate;
-        }
-        let csv_reader = self
-            .csv_reader
-            .as_mut()
-            .expect("CsvSource was not initialized");
+    fn next(&mut self) -> StreamElement<NoirData> {
+        loop {
+            if self.terminated {
+                return StreamElement::Terminate;
+            }
+            let csv_reader = self
+                .csv_reader
+                .as_mut()
+                .expect("CsvSource was not initialized");
 
-        match csv_reader.read_byte_record(&mut self.buf) {
-            Ok(true) => {
-                let item = self
-                    .buf
-                    .deserialize::<Out>(None)
-                    .expect("csv does not match type");
-                StreamElement::Item(item)
+            let data = match csv_reader.read_record(&mut self.record) {
+                Ok(true) => match &self.options.schema {
+                    Some(schema) => self.handle_record_with_schema(schema),
+                    None => self.handle_record_without_schema(),
+                },
+                Ok(false) => {
+                    self.terminated = true;
+                    None
+                }
+                Err(e) => panic!("Error while reading CSV file: {:?}", e),
+            };
+            match (data, &self.options.filter_at_source) {
+                (Some(item), Some(filter)) => {
+                    if filter.evaluate(&item).into() {
+                        return StreamElement::Item(item);
+                    }
+                }
+                (Some(item), None) => return StreamElement::Item(item),
+                _ => return StreamElement::FlushAndRestart,
             }
-            Ok(false) => {
-                self.terminated = true;
-                StreamElement::FlushAndRestart
-            }
-            Err(e) => panic!("Error while reading CSV file: {:?}", e),
         }
     }
 
     fn structure(&self) -> BlockStructure {
-        let mut operator = OperatorStructure::new::<Out, _>("CSVSource");
+        let mut operator = OperatorStructure::new::<NoirData, _>("RowCsvSource");
         operator.kind = OperatorKind::Source;
         BlockStructure::default().add_operator(operator)
     }
 }
 
-impl<Out: Data + for<'a> Deserialize<'a>> Clone for CsvSource<Out> {
+impl RowCsvSource {
+    fn handle_record_without_schema(&self) -> Option<NoirData> {
+        if self.record.len() == 1 {
+            let field = self.record.get(0).unwrap();
+            if field.is_empty() {
+                return Some(vec![NoirType::None()]);
+            } else if let Ok(int_value) = field.parse::<i32>() {
+                return Some(vec![NoirType::Int(int_value)]);
+            } else if let Ok(float_value) = field.parse::<f32>() {
+                return Some(vec![NoirType::Float(float_value)]);
+            } else {
+                return Some(vec![NoirType::String(field.to_string())]);
+            }
+        }
+
+        if let Some(projections) = &self.options.projections_at_source {
+            let mut data: Vec<NoirType> = Vec::with_capacity(projections.len());
+            for index in projections {
+                let field = self.record.get(*index).unwrap();
+                if field.is_empty() {
+                    data.push(NoirType::None());
+                } else if let Ok(int_value) = field.parse::<i32>() {
+                    data.push(NoirType::Int(int_value));
+                } else if let Ok(float_value) = field.parse::<f32>() {
+                    data.push(NoirType::Float(float_value));
+                } else {
+                    data.push(NoirType::String(field.to_string()));
+                }
+            }
+            return Some(data);
+        }
+
+        let mut data: Vec<NoirType> = Vec::with_capacity(self.record.len());
+        for field in self.record.iter() {
+            if field.is_empty() {
+                data.push(NoirType::None());
+            } else if let Ok(int_value) = field.parse::<i32>() {
+                data.push(NoirType::Int(int_value));
+            } else if let Ok(float_value) = field.parse::<f32>() {
+                data.push(NoirType::Float(float_value));
+            } else {
+                data.push(NoirType::String(field.to_string()));
+            }
+        }
+        Some(data)
+    }
+
+    fn handle_record_with_schema(&self, schema: &Schema) -> Option<NoirData> {
+        if self.record.len() != schema.len() {
+            panic!(
+                "CsvSource: record length ({}) does not match schema length ({})",
+                self.record.len(),
+                schema.len()
+            );
+        }
+
+        if self.record.len() == 1 {
+            let field = self.record.get(0).unwrap();
+            if field.is_empty() {
+                return Some(vec![NoirType::None()]);
+            }
+            match schema[0] {
+                NoirTypeKind::Int => {
+                    return field.parse::<i32>().map(|v| vec![NoirType::Int(v)]).ok()
+                }
+                NoirTypeKind::Float => {
+                    return field.parse::<f32>().map(|v| vec![NoirType::Float(v)]).ok()
+                }
+                NoirTypeKind::String => {
+                    return Some(vec![NoirType::String(field.to_string())]);
+                }
+                _ => return Some(vec![NoirType::None()]),
+            }
+        }
+
+        if let Some(projections) = &self.options.projections_at_source {
+            let mut data = Vec::with_capacity(projections.len());
+            for index in projections {
+                match schema[*index] {
+                    NoirTypeKind::Int => {
+                        let field = self.record.get(*index).unwrap();
+                        let item = field
+                            .parse::<i32>()
+                            .map(NoirType::Int)
+                            .unwrap_or(NoirType::None());
+                        data.push(item);
+                    }
+                    NoirTypeKind::Float => {
+                        let f = self.record.get(*index).unwrap();
+                        let item = f
+                            .parse::<f32>()
+                            .map(NoirType::Float)
+                            .unwrap_or(NoirType::None());
+                        data.push(item);
+                    }
+                    NoirTypeKind::String => {
+                        let s = self.record.get(*index).unwrap();
+                        data.push(NoirType::String(s.to_string()));
+                    }
+                    _ => return Some(vec![NoirType::None()]),
+                }
+            }
+            return Some(data);
+        }
+
+        let mut data: Vec<NoirType> = Vec::with_capacity(self.record.len());
+        for (field, column) in self.record.iter().zip(schema.types()) {
+            match column {
+                NoirTypeKind::Int => {
+                    if field.is_empty() {
+                        data.push(NoirType::None());
+                    } else if let Ok(int_value) = field.parse::<i32>() {
+                        data.push(NoirType::Int(int_value));
+                    } else {
+                        data.push(NoirType::None());
+                    }
+                }
+                NoirTypeKind::Float => {
+                    if field.is_empty() {
+                        data.push(NoirType::None());
+                    } else if let Ok(float_value) = field.parse::<f32>() {
+                        data.push(NoirType::Float(float_value));
+                    } else {
+                        data.push(NoirType::None());
+                    }
+                }
+                NoirTypeKind::String => {
+                    data.push(NoirType::String(field.to_string()));
+                }
+                _ => return Some(vec![NoirType::None()]),
+            }
+        }
+        Some(data)
+    }
+}
+
+impl Clone for RowCsvSource {
     fn clone(&self) -> Self {
         assert!(
             self.csv_reader.is_none(),
@@ -430,86 +523,19 @@ impl<Out: Data + for<'a> Deserialize<'a>> Clone for CsvSource<Out> {
             csv_reader: None,
             options: self.options.clone(),
             terminated: false,
-            _out: PhantomData,
-            buf: ByteRecord::new(),
+            replication: self.replication,
+            record: csv::StringRecord::new(),
         }
     }
 }
 
 impl crate::StreamContext {
-    /// Convenience method, creates a `CsvSource` and makes a stream using `StreamContext::stream`
-    pub fn stream_csv<T: Data + for<'a> Deserialize<'a>>(
-        &self,
+    /// Convenience method, creates a `CsvSource` and makes a stream using `StreamEnvironment::stream`
+    pub fn stream_csv_noirdata(
+        &mut self,
         path: impl Into<PathBuf>,
-    ) -> Stream<CsvSource<T>> {
-        let source = CsvSource::new(path);
+    ) -> Stream<impl Operator<Out = NoirData>> {
+        let source = RowCsvSource::new(path);
         self.stream(source)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use std::io::Write;
-
-    use itertools::Itertools;
-    use serde::{Deserialize, Serialize};
-    use tempfile::NamedTempFile;
-
-    use crate::config::RuntimeConfig;
-    use crate::environment::StreamContext;
-    use crate::operator::source::CsvSource;
-
-    #[test]
-    fn csv_without_headers() {
-        for num_records in 0..100 {
-            for terminator in &["\n", "\r\n"] {
-                let file = NamedTempFile::new().unwrap();
-                for i in 0..num_records {
-                    write!(file.as_file(), "{},{}{}", i, i + 1, terminator).unwrap();
-                }
-
-                let env = StreamContext::new(RuntimeConfig::local(4).unwrap());
-                let source = CsvSource::<(i32, i32)>::new(file.path()).has_headers(false);
-                let res = env.stream(source).shuffle().collect_vec();
-                env.execute_blocking();
-
-                let mut res = res.get().unwrap();
-                res.sort_unstable();
-                assert_eq!(res, (0..num_records).map(|x| (x, x + 1)).collect_vec());
-            }
-        }
-    }
-
-    #[test]
-    fn csv_with_headers() {
-        #[derive(Clone, Serialize, Deserialize)]
-        struct T {
-            a: i32,
-            b: i32,
-        }
-
-        for num_records in 0..100 {
-            for terminator in &["\n", "\r\n"] {
-                let file = NamedTempFile::new().unwrap();
-                write!(file.as_file(), "a,b{terminator}").unwrap();
-                for i in 0..num_records {
-                    write!(file.as_file(), "{},{}{}", i, i + 1, terminator).unwrap();
-                }
-
-                let env = StreamContext::new(RuntimeConfig::local(4).unwrap());
-                let source = CsvSource::<T>::new(file.path());
-                let res = env.stream(source).shuffle().collect_vec();
-                env.execute_blocking();
-
-                let res = res
-                    .get()
-                    .unwrap()
-                    .into_iter()
-                    .map(|x| (x.a, x.b))
-                    .sorted()
-                    .collect_vec();
-                assert_eq!(res, (0..num_records).map(|x| (x, x + 1)).collect_vec());
-            }
-        }
     }
 }

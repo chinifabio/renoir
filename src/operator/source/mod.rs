@@ -18,6 +18,7 @@ mod async_stream;
 mod avro;
 mod channel;
 mod csv;
+pub mod csv_fast;
 mod file;
 mod iterator;
 mod parallel_iterator;

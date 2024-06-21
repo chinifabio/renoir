@@ -7,12 +7,15 @@ use crate::block::{BatchMode, Block, NextStrategy, Scheduling};
 use crate::environment::StreamContextInner;
 use crate::operator::end::End;
 use crate::operator::iteration::IterationStateLock;
-use crate::operator::source::Source;
+use crate::operator::source::{CsvOptions, Source};
 use crate::operator::window::WindowDescription;
 use crate::operator::DataKey;
 use crate::operator::Start;
 use crate::operator::{Data, ExchangeData, KeyerFn, Operator};
+use crate::optimizations::logical_plan::LogicPlan;
+use crate::optimizations::optimizer::OptimizationOptions;
 use crate::scheduler::BlockId;
+use crate::StreamContext;
 
 /// A Stream represents a chain of operators that work on a flow of data. The type of the elements
 /// that is leaving the stream is `Out`.
@@ -98,6 +101,14 @@ where
     pub(crate) inner: KeyedStream<Op>,
     pub(crate) descr: WinDescr,
     pub(crate) _win_out: PhantomData<O>,
+}
+
+/// TODO documentation
+pub struct OptStream<'a> {
+    pub(crate) context: &'a StreamContext,
+    pub(crate) logic_plan: LogicPlan,
+    pub(crate) optimizations: OptimizationOptions,
+    pub(crate) csv_options: Option<CsvOptions>,
 }
 
 impl<Op> Stream<Op>

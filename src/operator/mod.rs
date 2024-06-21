@@ -59,9 +59,10 @@ use self::{
 #[cfg(feature = "timestamp")]
 mod add_timestamps;
 mod batch_mode;
-mod boxed;
+pub mod boxed;
 pub(crate) mod end;
 mod filter;
+pub mod filter_expr;
 mod filter_map;
 mod flat_map;
 mod flatten;

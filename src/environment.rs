@@ -41,7 +41,7 @@ pub(crate) struct StreamContextInner {
 /// TODO: example usage
 pub struct StreamContext {
     /// Reference to the actual content of the environment.
-    inner: Arc<Mutex<StreamContextInner>>,
+    pub(crate) inner: Arc<Mutex<StreamContextInner>>,
 }
 
 impl StreamContext {

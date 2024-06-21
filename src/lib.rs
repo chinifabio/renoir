@@ -130,9 +130,12 @@ pub use stream::{KeyedStream, Stream, WindowedStream};
 pub(crate) mod block;
 pub(crate) mod channel;
 pub mod config;
+pub mod datatypes;
+pub mod dsl;
 pub(crate) mod environment;
 pub(crate) mod network;
 pub mod operator;
+pub mod optimizations;
 mod profiler;
 #[cfg(feature = "ssh")]
 pub(crate) mod runner;
@@ -153,4 +156,7 @@ pub mod prelude {
     pub use super::operator::window::{EventTimeWindow, TransactionWindow};
     pub use super::Replication;
     pub use super::{BatchMode, RuntimeConfig, StreamContext};
+    pub use super::dsl::*;
+    pub use super::datatypes::*;
+    pub use super::datatypes::schema::Schema;
 }
