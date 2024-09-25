@@ -16,6 +16,7 @@ use ssh2::Session;
 
 use crate::config::CONFIG_ENV_VAR;
 use crate::config::HOST_ID_ENV_VAR;
+use crate::config::HOST_TAG_ENV_VAR;
 use crate::config::{HostConfig, RemoteConfig};
 use crate::profiler::try_parse_trace;
 use crate::profiler::TracingData;
@@ -222,7 +223,8 @@ fn remote_worker(
     let sync_time = sync_start.elapsed();
 
     // build the remote command
-    let command = build_remote_command(host_id, &config, &remote_path, &host.perf_path);
+    let host_tag = host.tag.unwrap_or("".to_string());
+    let command = build_remote_command(host_id, host_tag, &config, &remote_path, &host.perf_path);
     log::debug!("executing on host {}:\n{}", host_id, command);
 
     let execution_start = Instant::now();
@@ -360,6 +362,7 @@ fn send_executable(
 /// This will export all the required variables before executing the binary.
 fn build_remote_command(
     host_id: HostId,
+    host_tag: impl Into<String>,
     config: &RemoteConfig,
     binary_path: &Path,
     perf_path: &Option<PathBuf>,
@@ -382,6 +385,7 @@ fn build_remote_command(
     };
     format!(
         "export {host_id_env}={host_id};
+export {host_tag_env}={host_tag};
 export {config_env}={config};
 export RUST_LOG={rust_log};
 export RUST_BACKTRACE={rust_backtrace};
@@ -389,6 +393,8 @@ export RUST_LOG_STYLE=always;
 {perf_cmd}{binary_path} {args}",
         host_id_env = HOST_ID_ENV_VAR,
         host_id = host_id,
+        host_tag_env = HOST_TAG_ENV_VAR,
+        host_tag = host_tag.into(),
         config_env = CONFIG_ENV_VAR,
         config = config_str,
         perf_cmd = perf_cmd,

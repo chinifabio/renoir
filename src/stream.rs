@@ -7,12 +7,15 @@ use crate::block::{BatchMode, Block, NextStrategy, Scheduling};
 use crate::environment::StreamContextInner;
 use crate::operator::end::End;
 use crate::operator::iteration::IterationStateLock;
+use crate::operator::sink::connectors::ConnectorSinkTechnology;
 use crate::operator::source::Source;
 use crate::operator::window::WindowDescription;
 use crate::operator::DataKey;
 use crate::operator::Start;
 use crate::operator::{Data, ExchangeData, KeyerFn, Operator};
+use crate::prelude::connectors::ConnectorSourceTechnology;
 use crate::scheduler::BlockId;
+use crate::StreamContext;
 
 /// A Stream represents a chain of operators that work on a flow of data. The type of the elements
 /// that is leaving the stream is `Out`.
@@ -284,6 +287,30 @@ where
     {
         let mut env = self.ctx.lock();
         env.scheduler_mut().schedule_block(self.block);
+    }
+
+    /// Return the clone of the tag of the current block.
+    pub(crate) fn get_tag(&self) -> Option<String> {
+        let ctx = self.ctx.lock();
+        ctx.tag.clone()
+    }
+
+    /// TODO DOCS
+    pub(crate) fn get_connector<T: ExchangeData>(
+        &self,
+        from: impl Into<String>,
+        to: impl Into<String>,
+    ) -> (ConnectorSinkTechnology<T>, ConnectorSourceTechnology<T>) {
+        let from = from.into();
+        let to = to.into();
+        debug!("generate connectors for groups {} -> {}", from, to);
+        let ctx = self.ctx.lock();
+        ctx.config.build_connectors::<T>(from, to)
+    }
+
+    /// Build a new stream context by cloning the current inner context.
+    pub(crate) fn context(&self) -> StreamContext {
+        self.ctx.clone().into()
     }
 }
 

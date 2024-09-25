@@ -12,16 +12,22 @@ use std::str::FromStr;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 
+use crate::operator::sink::connectors::ConnectorSinkTechnology;
+use crate::operator::ExchangeData;
+use crate::prelude::connectors::ConnectorSourceTechnology;
 use crate::runner::spawn_remote_workers;
-use crate::scheduler::HostId;
+use crate::scheduler::{HostId, HostTag};
 use crate::CoordUInt;
 
 /// Environment variable set by the runner with the host id of the process. If it's missing the
 /// process will have to spawn the processes by itself.
-pub const HOST_ID_ENV_VAR: &str = "NOIR_HOST_ID";
+pub const HOST_ID_ENV_VAR: &str = "RENOIR_HOST_ID";
 /// Environment variable set by the runner with the content of the config file so that it's not
 /// required to have it on all the hosts.
-pub const CONFIG_ENV_VAR: &str = "NOIR_CONFIG";
+pub const CONFIG_ENV_VAR: &str = "RENOIR_CONFIG";
+/// Environment variable set by the runner with the tag of the job. This is used to identify the
+/// processes that are part of the same group.
+pub const HOST_TAG_ENV_VAR: &str = "RENOIR_GROUP_TAG";
 
 /// The runtime configuration of the environment,
 ///
@@ -116,6 +122,9 @@ pub struct RemoteConfig {
     /// The identifier for this host.
     #[serde(skip)]
     host_id: Option<HostId>, // TODO: remove option
+    /// The tag of this host.
+    #[serde(skip)]
+    host_tag: Option<HostTag>,
     /// The set of remote hosts to use.
     #[serde(rename = "host")]
     pub hosts: Vec<HostConfig>,
@@ -124,6 +133,9 @@ pub struct RemoteConfig {
     /// Remove remote binaries after execution
     #[serde(default)]
     pub cleanup_executable: bool,
+    /// The set of connections between groups of the job.
+    #[serde(rename = "connector")]
+    pub connectors: Vec<GroupConnector>,
 }
 
 /// The configuration of a single remote host.
@@ -148,6 +160,8 @@ pub struct HostConfig {
     /// If specified the remote worker will be spawned under `perf`, and its output will be stored
     /// at this location.
     pub perf_path: Option<PathBuf>,
+    /// The tag identifying the cluster group to which this host belongs.
+    pub tag: Option<String>,
 }
 
 /// The information used to connect to a remote host via SSH.
@@ -253,6 +267,7 @@ impl RuntimeConfig {
         if env::var(CONFIG_ENV_VAR).is_ok() {
             builder.parse_env()?;
             builder.host_id_from_env()?;
+            builder.host_tag_from_env()?;
         } else {
             builder.parse_file(toml_path)?;
         }
@@ -282,6 +297,45 @@ impl RuntimeConfig {
             RuntimeConfig::Remote(remote) => remote.host_id,
         }
     }
+
+    /// The tag of the host.
+    pub fn host_tag(&self) -> Option<&str> {
+        match self {
+            RuntimeConfig::Local(_) => None,
+            RuntimeConfig::Remote(remote_config) => remote_config.host_tag.as_deref(),
+        }
+    }
+
+    /// TODO DOCs
+    pub(crate) fn build_connectors<T: ExchangeData>(
+        &self,
+        from: impl Into<String>,
+        to: impl Into<String>,
+    ) -> (ConnectorSinkTechnology<T>, ConnectorSourceTechnology<T>) {
+        match self {
+            RuntimeConfig::Local(_) => panic!("Local configuration does not have connectors"),
+            RuntimeConfig::Remote(remote) => {
+                let from = from.into();
+                let to = to.into();
+                let connector = remote
+                    .connectors
+                    .iter()
+                    .find(|c| c.from == from && c.to == to) // TODO: consider to make it case insensitive
+                    .unwrap_or_else(|| panic!("[{} -> {}] Group connection not found!", from, to));
+
+                match &connector.technology {
+                    ConnectorTechnology::Kafka(kafka) => (
+                        ConnectorSinkTechnology::Kafka(kafka.into()),
+                        ConnectorSourceTechnology::Kafka(kafka.into()),
+                    ),
+                    ConnectorTechnology::Redis(redis) => (
+                        ConnectorSinkTechnology::Redis(redis.into()),
+                        ConnectorSourceTechnology::Redis(redis.into()),
+                    ),
+                }
+            }
+        }
+    }
 }
 
 impl Display for HostConfig {
@@ -302,9 +356,11 @@ impl CommandLineOptions {
 #[derive(Debug, Clone)]
 pub struct ConfigBuilder {
     host_id: Option<HostId>,
+    host_tag: Option<HostTag>,
     hosts: Vec<HostConfig>,
     tracing_dir: Option<PathBuf>,
     cleanup_executable: bool,
+    connectors: Vec<GroupConnector>, // TODO: implement methods to manage connectors
 }
 
 impl ConfigBuilder {
@@ -321,9 +377,11 @@ impl ConfigBuilder {
     pub fn new_remote() -> Self {
         Self {
             host_id: None,
+            host_tag: None,
             hosts: Vec::new(),
             tracing_dir: None,
             cleanup_executable: false,
+            connectors: Vec::new(),
         }
     }
     /// Parse toml and integrate it in the builder.
@@ -332,9 +390,11 @@ impl ConfigBuilder {
     pub fn parse_toml_str(&mut self, config_str: &str) -> Result<&mut Self, ConfigError> {
         let RemoteConfig {
             host_id: _, // Ignore serialized host_id
+            host_tag: _,
             hosts,
             tracing_dir,
             cleanup_executable,
+            connectors,
         } = toml::from_str(config_str)?;
 
         // validate the configuration
@@ -349,6 +409,7 @@ impl ConfigBuilder {
         }
         self.tracing_dir = self.tracing_dir.take().or(tracing_dir);
         self.cleanup_executable |= cleanup_executable;
+        self.connectors.extend(connectors); // TODO: implement some checks like the ones for the hosts
 
         Ok(self)
     }
@@ -388,6 +449,19 @@ impl ConfigBuilder {
         Ok(self)
     }
 
+    pub fn host_tag(&mut self, host_tag: HostTag) -> &mut Self {
+        self.host_tag = Some(host_tag);
+        self
+    }
+
+    /// Extract the host tag from the environment variable [GROUP_TAG_ENV_VAR].
+    pub fn host_tag_from_env(&mut self) -> Result<&mut Self, ConfigError> {
+        let host_tag = env::var(HOST_TAG_ENV_VAR)
+            .map_err(|e| ConfigError::Environment(HOST_TAG_ENV_VAR.to_string(), e))?;
+        self.host_tag = Some(host_tag);
+        Ok(self)
+    }
+
     pub fn build(&mut self) -> Result<RuntimeConfig, ConfigError> {
         if let Some(host_id) = self.host_id {
             let num_hosts = self.hosts.len() as u64;
@@ -400,9 +474,11 @@ impl ConfigBuilder {
 
         let conf = RuntimeConfig::Remote(RemoteConfig {
             host_id: self.host_id,
+            host_tag: self.host_tag.clone(),
             hosts: self.hosts.clone(),
             tracing_dir: self.tracing_dir.clone(),
             cleanup_executable: self.cleanup_executable,
+            connectors: self.connectors.clone(),
         });
         Ok(conf)
     }
@@ -426,4 +502,30 @@ pub enum ConfigError {
 
     #[error("Missing environment variable {0}: {1}")]
     Environment(String, env::VarError),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct GroupConnector {
+    pub from: String,
+    pub to: String,
+    pub technology: ConnectorTechnology,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "type")]
+pub enum ConnectorTechnology {
+    Kafka(KafkaConfig),
+    Redis(RedisConfig),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct KafkaConfig {
+    pub brokers: Vec<String>,
+    pub topic: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct RedisConfig {
+    pub urls: Vec<String>,
+    pub key: String,
 }

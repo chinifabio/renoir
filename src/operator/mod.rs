@@ -13,6 +13,9 @@ use flume::{unbounded, Receiver};
 use futures::Future;
 use serde::{Deserialize, Serialize};
 
+use sink::connectors::kafka::KafkaSinkConnector;
+use sink::connectors::redis::RedisSinkConnector;
+use sink::connectors::ConnectorSink;
 pub(crate) use start::*;
 
 pub use rich_map_custom::ElementGenerator;
@@ -1985,6 +1988,33 @@ where
         StreamOutput::from(output)
     }
 
+    pub fn redis_sink(self, arg: impl Into<String>, redis_client: redis::Client) {
+        let redis_sink = RedisSinkConnector::new(redis_client, arg.into());
+        self.add_operator(|prev| ConnectorSink::new(redis_sink, prev))
+            .finalize_block();
+    }
+
+    pub fn zenoh_sink(self, _: impl Into<String>) {
+        // pub fn zenoh_sink(self, arg: impl Into<String>, zenoh_client: zenoh::prelude::Config) {
+        // let session = zenoh::open(zenoh_client).res_sync().unwrap();
+        // let pubs = HashMap::new();
+        // for i in 0..8 {
+        //     let path = format!("prova/pene/{}", i);
+        //     let publ = session.declare_publisher(path).res_sync().unwrap();
+        //     pubs.insert(i, publ);
+        // }
+        // let zenoh_sink = ZenohSinkConnector::new(pubs, arg.into());
+        // self.add_operator(|prev| ConnectorSink::new(zenoh_sink, prev))
+        //     .finalize_block();
+        todo!("Zenoh not implemented yet");
+    }
+
+    pub fn kafka_sink(self, arg: impl Into<String>, hosts: Vec<String>) {
+        let kafka_sink = KafkaSinkConnector::new(hosts, arg.into());
+        self.add_operator(|prev| ConnectorSink::new(kafka_sink, prev))
+            .finalize_block();
+    }
+
     /// Close the stream and store all the resulting items into a [`Vec`] on a single host.
     ///
     /// If the stream is distributed among multiple replicas, a bottleneck is placed where all the
@@ -2072,6 +2102,28 @@ where
             .add_operator(|prev| Collect::new(prev, output.clone()))
             .finalize_block();
         StreamOutput::from(output)
+    }
+
+    /// TODO: documentation
+    pub fn deployment_group(self, tag: &str) -> Stream<impl Operator<Out = Op::Out>> {
+        let from = self
+            .get_tag()
+            .expect("Missing the origin group to create a connection");
+
+        // TODO questa cosa la posso cambiare gettando solamente la config e poi fare in qualche modo config into source/sink
+        let (connector_sink, connector_source) = self.get_connector::<Op::Out>(from, tag);
+
+        // create the new group
+        let new_stream = self
+            .context()
+            .deployment_group(tag)
+            .stream_connector(connector_source);
+
+        // end current group
+        self.add_operator(|prev| ConnectorSink::new(connector_sink, prev))
+            .finalize_block();
+
+        new_stream
     }
 }
 

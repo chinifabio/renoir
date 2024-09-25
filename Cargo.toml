@@ -81,6 +81,8 @@ quick_cache = "0.5.1"
 dashmap = "5.5.3"
 apache-avro = { version = "0.16.0", features = ["derive"], optional = true }
 dyn-clone = "1.0.17"
+redis = "0.26.1"
+rdkafka = "0.36.2"
 
 [dev-dependencies]
 # for the tests

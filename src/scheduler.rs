@@ -4,7 +4,7 @@ use std::fmt::Write;
 use std::thread::JoinHandle;
 
 use crate::block::{BatchMode, Block, BlockStructure, JobGraphGenerator, Replication};
-use crate::config::{LocalConfig, RemoteConfig, RuntimeConfig};
+use crate::config::{HostConfig, LocalConfig, RemoteConfig, RuntimeConfig};
 use crate::network::{Coord, NetworkTopology};
 use crate::operator::Operator;
 use crate::profiler::{log_trace, wait_profiler};
@@ -17,6 +17,8 @@ pub type BlockId = CoordUInt;
 pub type HostId = CoordUInt;
 /// The identifier of a replica of a block in the execution graph.
 pub type ReplicaId = CoordUInt;
+/// The tag of a host
+pub type HostTag = String;
 
 type BlockInitFn =
     Box<dyn FnOnce(&mut ExecutionMetadata) -> (JoinHandle<()>, BlockStructure) + Send>;
@@ -399,19 +401,34 @@ impl Scheduler {
 
         match replication {
             Replication::Unlimited => {
-                for (host_id, host_info) in remote.hosts.iter().enumerate() {
+                for (host_id, host_info) in remote
+                    .hosts
+                    .iter()
+                    .filter(|&host| self.is_owned(host, block))
+                    .enumerate()
+                {
                     add_replicas!(host_id.try_into().unwrap(), host_info, host_info.num_cores);
                 }
             }
             Replication::Limited(mut remaining) => {
-                for (host_id, host_info) in remote.hosts.iter().enumerate() {
+                for (host_id, host_info) in remote
+                    .hosts
+                    .iter()
+                    .filter(|&host| self.is_owned(host, block))
+                    .enumerate()
+                {
                     let n = remaining.min(host_info.num_cores);
                     add_replicas!(host_id.try_into().unwrap(), host_info, n);
                     remaining -= n;
                 }
             }
             Replication::Host => {
-                for (host_id, host_info) in remote.hosts.iter().enumerate() {
+                for (host_id, host_info) in remote
+                    .hosts
+                    .iter()
+                    .filter(|&host| self.is_owned(host, block))
+                    .enumerate()
+                {
                     add_replicas!(host_id.try_into().unwrap(), host_info, 1);
                 }
             }
@@ -426,6 +443,17 @@ impl Scheduler {
             global_ids,
             batch_mode: block.batch_mode,
             is_only_one_strategy: block.is_only_one_strategy,
+        }
+    }
+
+    fn is_owned<OperatorChain>(&self, host: &HostConfig, block: &Block<OperatorChain>) -> bool
+    where
+        OperatorChain: Operator,
+    {
+        match (host.tag.as_deref(), block.tag.as_deref()) {
+            (None, None) => true,
+            (Some(host_tag), Some(block_tag)) => host_tag == block_tag,
+            _ => false,
         }
     }
 }

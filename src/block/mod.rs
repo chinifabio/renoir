@@ -43,6 +43,8 @@ where
     pub(crate) is_only_one_strategy: bool,
     /// The set of requirements that the block imposes on the scheduler.
     pub(crate) scheduling: Scheduling,
+    /// The tag that identifies the group of the block.
+    pub(crate) tag: Option<String>,
 }
 
 impl<OperatorChain> Clone for Block<OperatorChain>
@@ -57,6 +59,7 @@ where
             iteration_ctx: self.iteration_ctx.clone(),
             is_only_one_strategy: self.is_only_one_strategy,
             scheduling: self.scheduling.clone(),
+            tag: self.tag.clone(),
         }
     }
 }
@@ -78,6 +81,7 @@ where
             iteration_ctx: self.iteration_ctx,
             is_only_one_strategy: false,
             scheduling: self.scheduling,
+            tag: self.tag,
         }
     }
 }
@@ -157,6 +161,7 @@ where
         batch_mode: BatchMode,
         iteration_ctx: Vec<Arc<IterationStateLock>>,
         scheduling: Scheduling,
+        tag: Option<String>,
     ) -> Self {
         Self {
             id,
@@ -165,6 +170,7 @@ where
             iteration_ctx,
             is_only_one_strategy: false,
             scheduling,
+            tag,
         }
     }
 

@@ -24,6 +24,8 @@ pub(crate) struct StreamContextInner {
     /// The scheduler that will start the computation. It's an option because it will be moved out
     /// of this struct when the computation starts.
     scheduler: Option<Scheduler>,
+    /// The tag to use for the first block of a stream
+    pub(crate) tag: Option<String>,
 }
 
 /// Streaming environment from which it's possible to register new streams and start the
@@ -104,6 +106,17 @@ impl StreamContext {
             RuntimeConfig::Remote(remote) => remote.hosts.iter().map(|h| h.num_cores).sum(),
         }
     }
+
+    /// Set the tag to use for the first block of a stream
+    pub fn deployment_group(&self, tag: impl Into<String>) -> &Self {
+        let mut inner = self.inner.lock();
+        match inner.config {
+            RuntimeConfig::Local(_) => panic!("You cannot use groups locally!"),
+            RuntimeConfig::Remote(_) => {}
+        }
+        inner.tag = Some(tag.into());
+        self
+    }
 }
 
 impl StreamContextInner {
@@ -112,6 +125,7 @@ impl StreamContextInner {
             config: config.clone(),
             block_count: 0,
             scheduler: Some(Scheduler::new(config)),
+            tag: None,
         }
     }
 
@@ -124,8 +138,16 @@ impl StreamContextInner {
         let new_id = self.new_block_id();
         let replication = source.replication();
         let scheduling = Scheduling { replication };
-        info!("new block (b{new_id:02}), replication {replication:?}",);
-        Block::new(new_id, source, batch_mode, iteration_ctx, scheduling)
+        let tag = self.tag.clone().unwrap_or("_".to_string());
+        info!("new block (b{new_id:02}), replication {replication:?}, group {tag:?}",);
+        Block::new(
+            new_id,
+            source,
+            batch_mode,
+            iteration_ctx,
+            scheduling,
+            self.tag.clone(),
+        )
     }
 
     pub(crate) fn close_block<Out: Data, Op: Operator<Out = Out> + 'static>(
@@ -170,5 +192,11 @@ impl StreamContextInner {
         self.scheduler
             .as_mut()
             .expect("The environment has already been started, cannot access the scheduler")
+    }
+}
+
+impl From<Arc<Mutex<StreamContextInner>>> for StreamContext {
+    fn from(inner: Arc<Mutex<StreamContextInner>>) -> Self {
+        StreamContext { inner }
     }
 }
