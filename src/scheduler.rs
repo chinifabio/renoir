@@ -401,39 +401,43 @@ impl Scheduler {
 
         match replication {
             Replication::Unlimited => {
-                for (host_id, host_info) in remote
-                    .hosts
-                    .iter()
-                    .filter(|&host| self.is_owned(host, block))
-                    .enumerate()
-                {
-                    add_replicas!(host_id.try_into().unwrap(), host_info, host_info.num_cores);
+                for (host_id, host_info) in remote.hosts.iter().enumerate() {
+                    if self.is_owned(host_info, block) {
+                        add_replicas!(host_id.try_into().unwrap(), host_info, host_info.num_cores);
+                    }
                 }
             }
             Replication::Limited(mut remaining) => {
-                for (host_id, host_info) in remote
-                    .hosts
-                    .iter()
-                    .filter(|&host| self.is_owned(host, block))
-                    .enumerate()
-                {
-                    let n = remaining.min(host_info.num_cores);
-                    add_replicas!(host_id.try_into().unwrap(), host_info, n);
-                    remaining -= n;
+                for (host_id, host_info) in remote.hosts.iter().enumerate() {
+                    if self.is_owned(host_info, block) {
+                        let n = remaining.min(host_info.num_cores);
+                        add_replicas!(host_id.try_into().unwrap(), host_info, n);
+                        remaining -= n;
+                    }
                 }
             }
             Replication::Host => {
-                for (host_id, host_info) in remote
-                    .hosts
-                    .iter()
-                    .filter(|&host| self.is_owned(host, block))
-                    .enumerate()
-                {
-                    add_replicas!(host_id.try_into().unwrap(), host_info, 1);
+                for (host_id, host_info) in remote.hosts.iter().enumerate() {
+                    if self.is_owned(host_info, block) {
+                        add_replicas!(host_id.try_into().unwrap(), host_info, 1);
+                    }
                 }
             }
             Replication::One => {
-                add_replicas!(0, remote.hosts[0], 1);
+                match remote
+                    .hosts
+                    .iter()
+                    .enumerate()
+                    .find(|(_, host_config)| self.is_owned(host_config, block))
+                {
+                    Some((host_id, host_info)) => {
+                        add_replicas!(host_id.try_into().unwrap(), host_info, 1);
+                    }
+                    None => panic!(
+                        "No host found for block with tag {}",
+                        block.tag.as_deref().unwrap_or_default()
+                    ),
+                }
             }
         }
 
@@ -446,6 +450,7 @@ impl Scheduler {
         }
     }
 
+    /// Returns true when the block belongs to a certain host given the tags. Untagged blocks are compatible with untagged hosts
     fn is_owned<OperatorChain>(&self, host: &HostConfig, block: &Block<OperatorChain>) -> bool
     where
         OperatorChain: Operator,

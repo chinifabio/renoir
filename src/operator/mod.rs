@@ -2110,7 +2110,6 @@ where
             .get_tag()
             .expect("Missing the origin group to create a connection");
 
-        // TODO questa cosa la posso cambiare gettando solamente la config e poi fare in qualche modo config into source/sink
         let (connector_sink, connector_source) = self.get_connector::<Op::Out>(from, tag);
 
         // create the new group
@@ -2995,6 +2994,31 @@ where
     /// ```
     pub fn collect_all<C: FromIterator<(K, I)> + Send + 'static>(self) -> StreamOutput<C> {
         self.unkey().collect_all()
+    }
+
+    /// TODO DOCS
+    pub fn deployment_group(self, tag: &str) -> KeyedStream<impl Operator<Out = (K, I)>> {
+        let from = self
+            .0
+            .get_tag()
+            .expect("Missing the origin group to create a connection");
+
+        let (connector_sink, connector_source) = self.0.get_connector::<Op::Out>(from, tag);
+
+        // create the new group
+        let new_stream = self
+            .0
+            .context()
+            .deployment_group(tag)
+            .stream_connector(connector_source)
+            .to_keyed();
+
+        // end the current group
+        self.unkey()
+            .add_operator(|prev| ConnectorSink::new(connector_sink, prev))
+            .finalize_block();
+
+        new_stream
     }
 }
 

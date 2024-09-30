@@ -11,6 +11,15 @@ fn main() {
     let data = context
         .deployment_group("group_a")
         .stream_iter(0..100)
+        .group_by(|x| x % 10)
+        .filter(|(_, v)| v % 2 == 0)
+        .deployment_group("group_b")
+        .fold(0, |acc, value| *acc += value)
+        .collect_vec();
+
+    let data_keyed = context
+        .deployment_group("group_a")
+        .stream_iter(0..100)
         .shuffle()
         .filter(|x| x % 2 == 0)
         .deployment_group("group_b")
@@ -19,5 +28,6 @@ fn main() {
 
     context.execute_blocking();
 
-    println!("{:?}", data.get().unwrap_or_default());
+    println!("Data: {:?}", data.get().unwrap_or_default());
+    println!("Data keyed {:?}", data_keyed.get().unwrap_or_default());
 }

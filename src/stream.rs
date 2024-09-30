@@ -303,7 +303,6 @@ where
     ) -> (ConnectorSinkTechnology<T>, ConnectorSourceTechnology<T>) {
         let from = from.into();
         let to = to.into();
-        debug!("generate connectors for groups {} -> {}", from, to);
         let ctx = self.ctx.lock();
         ctx.config.build_connectors::<T>(from, to)
     }

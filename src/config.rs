@@ -456,9 +456,8 @@ impl ConfigBuilder {
 
     /// Extract the host tag from the environment variable [GROUP_TAG_ENV_VAR].
     pub fn host_tag_from_env(&mut self) -> Result<&mut Self, ConfigError> {
-        let host_tag = env::var(HOST_TAG_ENV_VAR)
-            .map_err(|e| ConfigError::Environment(HOST_TAG_ENV_VAR.to_string(), e))?;
-        self.host_tag = Some(host_tag);
+        self.host_tag = env::var(HOST_TAG_ENV_VAR).ok();
+        log::debug!("On this machine HOST_TAG is {:?}", self.host_tag);
         Ok(self)
     }
 
