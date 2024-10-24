@@ -108,7 +108,7 @@ impl StreamContext {
     }
 
     /// Set the tag to use for the first block of a stream
-    pub fn deployment_group(&self, tag: impl Into<String>) -> &Self {
+    pub fn with_group(&self, tag: impl Into<String>) -> &Self {
         let mut inner = self.inner.lock();
         match inner.config {
             RuntimeConfig::Local(_) => panic!("You cannot use groups locally!"),

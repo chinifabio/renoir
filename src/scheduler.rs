@@ -456,9 +456,9 @@ impl Scheduler {
         OperatorChain: Operator,
     {
         match (host.tag.as_deref(), block.tag.as_deref()) {
-            (None, None) => true,
-            (Some(host_tag), Some(block_tag)) => host_tag == block_tag,
-            _ => false,
+            (None, Some(_)) => false,     // tagged block cannot run on untagged host
+            (Some(a), Some(b)) => a == b, // tagged block can run on tagged host with the same tag
+            (_, None) => true,            // untagged block can run on any host
         }
     }
 }

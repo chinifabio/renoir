@@ -126,7 +126,7 @@ where
 }
 
 impl crate::StreamContext {
-    pub fn stream_connector<T, S>(&self, connector: S) -> Stream<ConnectorSource<T, S>>
+    pub fn stream_connector<T, S>(&self, connector: S) -> Stream<impl Operator<Out = T>>
     where
         T: ExchangeData,
         S: ConnectorSourceStrategy<T> + 'static,

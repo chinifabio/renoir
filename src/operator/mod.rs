@@ -13,8 +13,6 @@ use flume::{unbounded, Receiver};
 use futures::Future;
 use serde::{Deserialize, Serialize};
 
-use sink::connectors::kafka::KafkaSinkConnector;
-use sink::connectors::redis::RedisSinkConnector;
 use sink::connectors::ConnectorSink;
 pub(crate) use start::*;
 
@@ -1988,33 +1986,6 @@ where
         StreamOutput::from(output)
     }
 
-    pub fn redis_sink(self, arg: impl Into<String>, redis_client: redis::Client) {
-        let redis_sink = RedisSinkConnector::new(redis_client, arg.into());
-        self.add_operator(|prev| ConnectorSink::new(redis_sink, prev))
-            .finalize_block();
-    }
-
-    pub fn zenoh_sink(self, _: impl Into<String>) {
-        // pub fn zenoh_sink(self, arg: impl Into<String>, zenoh_client: zenoh::prelude::Config) {
-        // let session = zenoh::open(zenoh_client).res_sync().unwrap();
-        // let pubs = HashMap::new();
-        // for i in 0..8 {
-        //     let path = format!("prova/pene/{}", i);
-        //     let publ = session.declare_publisher(path).res_sync().unwrap();
-        //     pubs.insert(i, publ);
-        // }
-        // let zenoh_sink = ZenohSinkConnector::new(pubs, arg.into());
-        // self.add_operator(|prev| ConnectorSink::new(zenoh_sink, prev))
-        //     .finalize_block();
-        todo!("Zenoh not implemented yet");
-    }
-
-    pub fn kafka_sink(self, arg: impl Into<String>, hosts: Vec<String>) {
-        let kafka_sink = KafkaSinkConnector::new(hosts, arg.into());
-        self.add_operator(|prev| ConnectorSink::new(kafka_sink, prev))
-            .finalize_block();
-    }
-
     /// Close the stream and store all the resulting items into a [`Vec`] on a single host.
     ///
     /// If the stream is distributed among multiple replicas, a bottleneck is placed where all the
@@ -2104,25 +2075,32 @@ where
         StreamOutput::from(output)
     }
 
-    /// TODO: documentation
-    pub fn deployment_group(self, tag: &str) -> Stream<impl Operator<Out = Op::Out>> {
+    /// TODO docs
+    pub fn connect_group(self, tag: &str) -> Stream<impl Operator<Out = Op::Out>> {
         let from = self
             .get_tag()
             .expect("Missing the origin group to create a connection");
 
-        let (connector_sink, connector_source) = self.get_connector::<Op::Out>(from, tag);
+        let group_connector = self.get_connector(from, tag);
+        let (connector_sink, connector_source) = group_connector.split::<Op::Out>();
 
         // create the new group
         let new_stream = self
             .context()
-            .deployment_group(tag)
-            .stream_connector(connector_source);
+            .with_group(tag)
+            .stream_connector::<Op::Out, _>(connector_source);
 
         // end current group
         self.add_operator(|prev| ConnectorSink::new(connector_sink, prev))
             .finalize_block();
 
         new_stream
+    }
+
+    /// TODO docs
+    pub fn connect_direct_group(mut self, tag: &str) -> Stream<impl Operator<Out = Op::Out>> {
+        self.set_tag(tag);
+        self.split_block(End::new, NextStrategy::random())
     }
 }
 
@@ -2996,20 +2974,21 @@ where
         self.unkey().collect_all()
     }
 
-    /// TODO DOCS
-    pub fn deployment_group(self, tag: &str) -> KeyedStream<impl Operator<Out = (K, I)>> {
+    /// TODO docs
+    pub fn connect_group(self, tag: &str) -> KeyedStream<impl Operator<Out = (K, I)>> {
         let from = self
             .0
             .get_tag()
             .expect("Missing the origin group to create a connection");
 
-        let (connector_sink, connector_source) = self.0.get_connector::<Op::Out>(from, tag);
+        let group_connector = self.0.get_connector(from, tag);
+        let (connector_sink, connector_source) = group_connector.split::<Op::Out>();
 
         // create the new group
         let new_stream = self
             .0
             .context()
-            .deployment_group(tag)
+            .with_group(tag)
             .stream_connector(connector_source)
             .to_keyed();
 
@@ -3019,6 +2998,13 @@ where
             .finalize_block();
 
         new_stream
+    }
+
+    /// TODO docs
+    pub fn connect_direct_group(mut self, tag: &str) -> KeyedStream<impl Operator<Out = (K, I)>> {
+        self.0.set_tag(tag);
+        let next_strategy = NextStrategy::group_by(|(k, _): &(K, I)| k.clone());
+        self.0.split_block(End::new, next_strategy).to_keyed()
     }
 }
 

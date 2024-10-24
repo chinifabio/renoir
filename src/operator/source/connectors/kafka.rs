@@ -1,4 +1,4 @@
-use std::io::Read;
+use std::{io::Read, time::Duration};
 
 use rdkafka::{
     consumer::{BaseConsumer, Consumer},
@@ -6,7 +6,10 @@ use rdkafka::{
     ClientConfig, Message,
 };
 
-use crate::{config::KafkaConfig, operator::ExchangeData};
+use crate::{
+    config::KafkaConfig,
+    operator::{ExchangeData, StreamElement},
+};
 
 use super::ConnectorSourceStrategy;
 
@@ -53,17 +56,16 @@ impl<T: ExchangeData> ConnectorSourceStrategy<T> for KafkaSourceConnector<T> {
         crate::Replication::Unlimited
     }
 
-    fn setup(&mut self, metadata: &mut crate::ExecutionMetadata) {
-        let final_topic = format!("{}-{}", self.topic, metadata.global_id);
+    fn setup(&mut self, _metadata: &mut crate::ExecutionMetadata) {
         let consumer: BaseConsumer = ClientConfig::new()
             .set("bootstrap.servers", self.hosts.join(","))
-            .set("group.id", "renoir-source")
+            .set("group.id", format!("renoir-{}", self.topic))
             .set("enable.auto.commit", "true")
             .set("auto.offset.reset", "earliest")
             .create()
             .expect("Kafka consumer creation failed");
         consumer
-            .subscribe(&[final_topic.as_str()])
+            .subscribe(&[self.topic.as_str()])
             .expect("Kafka consumer subscription failed");
         self.consumer = Some(consumer);
     }
@@ -73,19 +75,20 @@ impl<T: ExchangeData> ConnectorSourceStrategy<T> for KafkaSourceConnector<T> {
             .consumer
             .as_mut()
             .expect("Kafka consumer not configured");
-        match consumer.poll(Timeout::Never) {
+        match consumer.poll(Timeout::After(Duration::from_secs(5))) {
             Some(Ok(message)) => {
                 let mut payload = message.payload().unwrap();
                 let mut buffer = Vec::new();
                 payload.read_to_end(&mut buffer).unwrap();
                 let json = String::from_utf8(buffer).unwrap();
-                serde_json::from_str(&json).unwrap()
+                StreamElement::Item(serde_json::from_str(&json).unwrap())
             }
             Some(Err(e)) => {
                 panic!("Kafka message error: {}", e);
             }
             None => {
-                panic!("Kafka message timeout");
+                // panic!("Kafka message timeout");
+                StreamElement::Terminate
             }
         }
     }

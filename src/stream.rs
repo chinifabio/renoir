@@ -4,16 +4,15 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use crate::block::{BatchMode, Block, NextStrategy, Scheduling};
+use crate::config::GroupConnector;
 use crate::environment::StreamContextInner;
 use crate::operator::end::End;
 use crate::operator::iteration::IterationStateLock;
-use crate::operator::sink::connectors::ConnectorSinkTechnology;
 use crate::operator::source::Source;
 use crate::operator::window::WindowDescription;
 use crate::operator::DataKey;
 use crate::operator::Start;
 use crate::operator::{Data, ExchangeData, KeyerFn, Operator};
-use crate::prelude::connectors::ConnectorSourceTechnology;
 use crate::scheduler::BlockId;
 use crate::StreamContext;
 
@@ -295,16 +294,19 @@ where
         ctx.tag.clone()
     }
 
-    /// TODO DOCS
-    pub(crate) fn get_connector<T: ExchangeData>(
+    pub(crate) fn set_tag(&mut self, tag: impl Into<String>) {
+        let mut ctx = self.ctx.lock();
+        ctx.tag = Some(tag.into());
+    }
+
+    /// TODO docs
+    pub(crate) fn get_connector(
         &self,
         from: impl Into<String>,
         to: impl Into<String>,
-    ) -> (ConnectorSinkTechnology<T>, ConnectorSourceTechnology<T>) {
-        let from = from.into();
-        let to = to.into();
+    ) -> GroupConnector {
         let ctx = self.ctx.lock();
-        ctx.config.build_connectors::<T>(from, to)
+        ctx.config.get_connector(from.into(), to.into())
     }
 
     /// Build a new stream context by cloning the current inner context.

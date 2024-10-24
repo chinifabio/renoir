@@ -5,7 +5,10 @@ use rdkafka::{
     ClientConfig,
 };
 
-use crate::{config::KafkaConfig, operator::ExchangeData};
+use crate::{
+    config::KafkaConfig,
+    operator::{ExchangeData, StreamElement},
+};
 
 use super::ConnectorSinkStrategy;
 
@@ -13,7 +16,7 @@ pub struct KafkaSinkConnector<T: ExchangeData> {
     hosts: Vec<String>,
     producer: Option<BaseProducer>,
     topic: String,
-    final_topic: Option<String>,
+    topic_key: Option<String>,
     _phantom: std::marker::PhantomData<T>,
 }
 
@@ -23,7 +26,7 @@ impl<T: ExchangeData> Clone for KafkaSinkConnector<T> {
             hosts: self.hosts.clone(),
             producer: None,
             topic: self.topic.clone(),
-            final_topic: None,
+            topic_key: self.topic_key.clone(),
             _phantom: std::marker::PhantomData,
         }
     }
@@ -34,7 +37,7 @@ impl<T: ExchangeData> std::fmt::Debug for KafkaSinkConnector<T> {
         f.debug_struct("KafkaSinkConnector")
             .field("hosts", &self.hosts)
             .field("topic", &self.topic)
-            .field("final_topic", &self.final_topic)
+            .field("topic_key", &self.topic_key)
             .finish()
     }
 }
@@ -45,7 +48,7 @@ impl<T: ExchangeData> KafkaSinkConnector<T> {
             hosts,
             producer: None,
             topic: topic.into(),
-            final_topic: None,
+            topic_key: None,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -53,27 +56,29 @@ impl<T: ExchangeData> KafkaSinkConnector<T> {
 
 impl<T: ExchangeData> ConnectorSinkStrategy<T> for KafkaSinkConnector<T> {
     fn setup(&mut self, metadata: &mut crate::ExecutionMetadata) {
-        self.final_topic = Some(format!("{}-{}", self.topic, metadata.global_id));
         let producer = ClientConfig::new()
             .set("bootstrap.servers", self.hosts.join(","))
+            .set(
+                "client.id",
+                format!("renoir-sink-{}-{}", self.topic, metadata.global_id),
+            )
             .create()
             .expect("Kafka producer creation failed");
         self.producer = Some(producer);
+        self.topic_key = Some(format!("renoir-{}", metadata.global_id));
     }
 
-    fn append(&mut self, item: &crate::operator::StreamElement<T>) {
-        let json = serde_json::to_string(item).unwrap();
-        let record = BaseRecord::to(self.final_topic.as_ref().unwrap())
+    fn append(&mut self, item: &StreamElement<T>) {
+        let json = serde_json::to_string(item).expect("Serialization failed");
+        let record = BaseRecord::to(self.topic.as_str())
             .payload(&json)
-            .key("gino");
-        self.producer
+            .key(self.topic_key.as_deref().expect("Topic key not set"));
+        let producer = self
+            .producer
             .as_mut()
-            .expect("Kafka producer not configured")
-            .send(record)
-            .expect("Kafka send failed");
-        self.producer
-            .as_mut()
-            .expect("Kafka producer not configured")
+            .expect("Kafka producer not configured");
+        producer.send(record).expect("Kafka send failed");
+        producer
             .flush(Duration::from_secs(1))
             .expect("Kafka flush failed");
     }

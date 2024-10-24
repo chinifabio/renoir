@@ -306,12 +306,12 @@ impl RuntimeConfig {
         }
     }
 
-    /// TODO DOCs
-    pub(crate) fn build_connectors<T: ExchangeData>(
+    /// TODO docs
+    pub(crate) fn get_connector(
         &self,
         from: impl Into<String>,
         to: impl Into<String>,
-    ) -> (ConnectorSinkTechnology<T>, ConnectorSourceTechnology<T>) {
+    ) -> GroupConnector {
         match self {
             RuntimeConfig::Local(_) => panic!("Local configuration does not have connectors"),
             RuntimeConfig::Remote(remote) => {
@@ -323,16 +323,7 @@ impl RuntimeConfig {
                     .find(|c| c.from == from && c.to == to) // TODO: consider to make it case insensitive
                     .unwrap_or_else(|| panic!("[{} -> {}] Group connection not found!", from, to));
 
-                match &connector.technology {
-                    ConnectorTechnology::Kafka(kafka) => (
-                        ConnectorSinkTechnology::Kafka(kafka.into()),
-                        ConnectorSourceTechnology::Kafka(kafka.into()),
-                    ),
-                    ConnectorTechnology::Redis(redis) => (
-                        ConnectorSinkTechnology::Redis(redis.into()),
-                        ConnectorSourceTechnology::Redis(redis.into()),
-                    ),
-                }
+                connector.clone()
             }
         }
     }
@@ -527,4 +518,18 @@ pub struct KafkaConfig {
 pub struct RedisConfig {
     pub urls: Vec<String>,
     pub key: String,
+}
+
+impl GroupConnector {
+    pub fn split<T: ExchangeData>(
+        self,
+    ) -> (ConnectorSinkTechnology<T>, ConnectorSourceTechnology<T>) {
+        match &self.technology {
+            ConnectorTechnology::Kafka(kafka) => (
+                ConnectorSinkTechnology::Kafka(kafka.into()),
+                ConnectorSourceTechnology::Kafka(kafka.into()),
+            ),
+            ConnectorTechnology::Redis(_redis) => todo!("config -> (sink, source)"),
+        }
+    }
 }
