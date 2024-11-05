@@ -420,6 +420,7 @@ impl NetworkTopology {
                     .or_default()
                     .insert(receiver_endpoint, sender);
             }
+            RuntimeConfig::Distributed(_) => todo!("register channel for distributed config"),
         }
     }
 

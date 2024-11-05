@@ -2087,7 +2087,7 @@ where
         // create the new group
         let new_stream = self
             .context()
-            .with_group(tag)
+            .start_tier(tag)
             .stream_connector::<Op::Out, _>(connector_source);
 
         // end current group
@@ -2988,7 +2988,7 @@ where
         let new_stream = self
             .0
             .context()
-            .with_group(tag)
+            .start_tier(tag)
             .stream_connector(connector_source)
             .to_keyed();
 

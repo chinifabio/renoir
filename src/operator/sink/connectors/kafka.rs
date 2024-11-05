@@ -1,7 +1,5 @@
-use std::time::Duration;
-
 use rdkafka::{
-    producer::{BaseProducer, BaseRecord, Producer},
+    producer::{BaseProducer, BaseRecord},
     ClientConfig,
 };
 
@@ -56,16 +54,29 @@ impl<T: ExchangeData> KafkaSinkConnector<T> {
 
 impl<T: ExchangeData> ConnectorSinkStrategy<T> for KafkaSinkConnector<T> {
     fn setup(&mut self, metadata: &mut crate::ExecutionMetadata) {
+        let tier = metadata
+            .tier
+            .clone()
+            .expect("Tier expected if you want to use distributed environment");
+
+        let client_id = match metadata.group.as_deref() {
+            Some(group_name) => {
+                self.topic = format!("{}.{}", self.topic, group_name);
+                format!("renoir-{}-{}-{}", tier, group_name, metadata.global_id)
+            }
+            None => {
+                format!("renoir-{}-{}", tier, metadata.global_id)
+            }
+        };
+
         let producer = ClientConfig::new()
             .set("bootstrap.servers", self.hosts.join(","))
-            .set(
-                "client.id",
-                format!("renoir-sink-{}-{}", self.topic, metadata.global_id),
-            )
+            .set("client.id", client_id.clone())
             .create()
             .expect("Kafka producer creation failed");
+
         self.producer = Some(producer);
-        self.topic_key = Some(format!("renoir-{}", metadata.global_id));
+        self.topic_key = Some(client_id);
     }
 
     fn append(&mut self, item: &StreamElement<T>) {
@@ -78,9 +89,11 @@ impl<T: ExchangeData> ConnectorSinkStrategy<T> for KafkaSinkConnector<T> {
             .as_mut()
             .expect("Kafka producer not configured");
         producer.send(record).expect("Kafka send failed");
-        producer
-            .flush(Duration::from_secs(1))
-            .expect("Kafka flush failed");
+
+        // TODO: Flush every x seconds
+        // producer
+        //     .flush(Duration::from_secs(1))
+        //     .expect("Kafka flush failed");
     }
 
     fn technology(&self) -> String {

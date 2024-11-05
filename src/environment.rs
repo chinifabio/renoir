@@ -7,6 +7,7 @@ use crate::config::RuntimeConfig;
 use crate::operator::iteration::IterationStateLock;
 use crate::operator::source::Source;
 use crate::operator::{Data, Operator};
+use crate::scheduler::HostTag;
 #[cfg(feature = "ssh")]
 use crate::scheduler::{BlockId, Scheduler};
 use crate::stream::Stream;
@@ -25,7 +26,7 @@ pub(crate) struct StreamContextInner {
     /// of this struct when the computation starts.
     scheduler: Option<Scheduler>,
     /// The tag to use for the first block of a stream
-    pub(crate) tag: Option<String>,
+    pub(crate) tag: Option<HostTag>,
 }
 
 /// Streaming environment from which it's possible to register new streams and start the
@@ -104,17 +105,22 @@ impl StreamContext {
         match &self.inner.lock().config {
             RuntimeConfig::Local(local) => local.parallelism,
             RuntimeConfig::Remote(remote) => remote.hosts.iter().map(|h| h.num_cores).sum(),
+            RuntimeConfig::Distributed(distributed) => distributed
+                .tiers
+                .iter()
+                .flat_map(|t| t.hosts.iter())
+                .map(|h| h.num_cores)
+                .sum(),
         }
     }
 
     /// Set the tag to use for the first block of a stream
-    pub fn with_group(&self, tag: impl Into<String>) -> &Self {
+    pub fn start_tier(&self, tag: impl Into<String>) -> &Self {
         let mut inner = self.inner.lock();
-        match inner.config {
-            RuntimeConfig::Local(_) => panic!("You cannot use groups locally!"),
-            RuntimeConfig::Remote(_) => {}
+        match &inner.config {
+            RuntimeConfig::Distributed(_) => inner.tag = Some(tag.into()),
+            _ => log::warn!("Groups are only supported in distributed mode"),
         }
-        inner.tag = Some(tag.into());
         self
     }
 }

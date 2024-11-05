@@ -38,6 +38,10 @@ pub struct ExecutionMetadata<'a> {
     pub(crate) network: &'a mut NetworkTopology,
     /// The batching mode to use inside this block.
     pub batch_mode: BatchMode,
+    /// The tier of the block
+    pub tier: Option<String>,
+    /// The group of the block in the tier
+    pub group: Option<String>,
 }
 
 /// Information about a block in the job graph.
@@ -169,6 +173,8 @@ impl Scheduler {
                 prev: self.network.prev(coord),
                 network: &mut self.network,
                 batch_mode: block_info.batch_mode,
+                tier: self.config.host_tier(),
+                group: self.config.host_group(),
             };
             let (handle, structure) = init_fn(&mut metadata);
             join.push(handle);
@@ -323,6 +329,9 @@ impl Scheduler {
         match &self.config {
             RuntimeConfig::Local(local) => self.local_block_info(block, local),
             RuntimeConfig::Remote(remote) => self.remote_block_info(block, remote),
+            RuntimeConfig::Distributed(distributed) => {
+                self.distributed_block_info(block, distributed)
+            }
         }
     }
 
@@ -460,6 +469,19 @@ impl Scheduler {
             (Some(a), Some(b)) => a == b, // tagged block can run on tagged host with the same tag
             (_, None) => true,            // untagged block can run on any host
         }
+    }
+
+    fn distributed_block_info<OperatorChain>(
+        &self,
+        block: &Block<OperatorChain>,
+        distributed: &crate::config::DistributedConfig,
+    ) -> SchedulerBlockInfo
+    where
+        OperatorChain: Operator,
+    {
+        let _ = distributed;
+        let _ = block;
+        todo!()
     }
 }
 

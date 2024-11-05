@@ -9,7 +9,7 @@ fn main() {
     let context = StreamContext::new(config);
 
     let result_a = context
-        .with_group("group_a")
+        .start_tier("group_a")
         .stream_iter(0..100)
         .group_by(|x| x % 10)
         .filter(|(_, v)| v % 2 == 0)
@@ -18,11 +18,11 @@ fn main() {
         .collect_vec();
 
     let result_b = context
-        .with_group("group_a")
+        .start_tier("group_a")
         .stream_iter(0..100)
         .shuffle()
         .filter(|x| x % 2 == 0)
-        .connect_direct_group("group_b")
+        .connect_group("group_b")
         .group_by_count(|x| x % 10)
         .collect_vec();
 

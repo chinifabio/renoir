@@ -54,7 +54,7 @@ impl<T: ExchangeData> ConnectorSourceStrategy<T> for RedisSourceConnector<T> {
         self.connection = self.client.get_connection().ok();
     }
 
-    fn next(&mut self) -> crate::operator::StreamElement<T> {
+    fn next(&mut self) -> T {
         let connection = self.connection.as_mut().unwrap();
         let value = redis::cmd("BLPOP") // Blocking Left POP
             .arg(self.final_key.as_ref().unwrap())

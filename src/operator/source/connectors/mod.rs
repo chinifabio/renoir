@@ -15,7 +15,7 @@ use crate::Stream;
 pub trait ConnectorSourceStrategy<T: ExchangeData>: Clone + Send {
     fn replication(&self) -> Replication;
     fn setup(&mut self, metadata: &mut ExecutionMetadata);
-    fn next(&mut self) -> StreamElement<T>;
+    fn next(&mut self) -> T;
     fn technology(&self) -> String;
 }
 
@@ -40,7 +40,7 @@ impl<T: ExchangeData> ConnectorSourceStrategy<T> for ConnectorSourceTechnology<T
         }
     }
 
-    fn next(&mut self) -> StreamElement<T> {
+    fn next(&mut self) -> T {
         match self {
             ConnectorSourceTechnology::Kafka(connector) => connector.next(),
             ConnectorSourceTechnology::Redis(connector) => connector.next(),
@@ -115,7 +115,7 @@ where
     }
 
     fn next(&mut self) -> StreamElement<Self::Out> {
-        self.strategy.next()
+        StreamElement::Item(self.strategy.next())
     }
 
     fn structure(&self) -> BlockStructure {

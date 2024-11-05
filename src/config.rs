@@ -87,6 +87,8 @@ pub enum RuntimeConfig {
     Local(LocalConfig),
     /// Use both local threads and remote workers.
     Remote(RemoteConfig),
+    /// Use a distributed configuration which can be divided into tiers and groups.
+    Distributed(DistributedConfig),
 }
 
 impl Default for RuntimeConfig {
@@ -122,9 +124,6 @@ pub struct RemoteConfig {
     /// The identifier for this host.
     #[serde(skip)]
     host_id: Option<HostId>, // TODO: remove option
-    /// The tag of this host.
-    #[serde(skip)]
-    host_tag: Option<HostTag>,
     /// The set of remote hosts to use.
     #[serde(rename = "host")]
     pub hosts: Vec<HostConfig>,
@@ -136,6 +135,31 @@ pub struct RemoteConfig {
     /// The set of connections between groups of the job.
     #[serde(rename = "connector")]
     pub connectors: Vec<GroupConnector>,
+}
+
+/// This environment uses a distributed configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct DistributedConfig {
+    /// The identifier for this host.
+    #[serde(skip)]
+    pub(crate) host_id: Option<HostId>, // TODO: remove option
+    /// The tier for this host.
+    #[serde(skip)]
+    pub(crate) host_tier: Option<HostTag>,
+    /// The group for this host.
+    #[serde(skip)]
+    pub(crate) host_group: Option<HostTag>,
+    /// The tier of the host.
+    #[serde(rename = "tier")]
+    pub(crate) tiers: Vec<TierConfig>,
+    /// List of connections between groups and tiers.
+    pub(crate) connectors: Vec<GroupConnector>,
+    /// The mode of the deployment.
+    #[serde(default)]
+    pub(crate) deployment_mode: DeploymentMode,
+
+    // vec di tierconfig onguna con vec di hostconfig
+    // vec di connessioni? qui o in hostconfig riguardo solamente il tier precedente?
 }
 
 /// The configuration of a single remote host.
@@ -161,7 +185,7 @@ pub struct HostConfig {
     /// at this location.
     pub perf_path: Option<PathBuf>,
     /// The tag identifying the cluster group to which this host belongs.
-    pub tag: Option<String>,
+    pub tags: Vec<String>
 }
 
 /// The information used to connect to a remote host via SSH.
@@ -181,6 +205,39 @@ pub struct SSHConfig {
     pub key_file: Option<PathBuf>,
     /// The passphrase for decrypting the private SSH key.
     pub key_passphrase: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct TierConfig {
+    /// The name of the tier.
+    pub name: String,
+    /// The group of the tier.
+    #[serde(rename = "group")]
+    pub groups: Vec<GroupConfig>,
+
+    /// The groups available for the tier.
+    // pub groups: Vec<HostTag>,
+    /// The hosts of the tier.
+    // pub hosts: Vec<HostConfig>,
+    /// The connections between the hosts of this tier.
+    // pub connectors: Vec<GroupConnector>,
+    pub tags: Vec<String> // todo this is a placeholder
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct GroupConfig {
+    pub name: String,
+    #[serde(rename = "host")]
+    pub hosts: Vec<HostConfig>,
+}
+
+#[derive(Default, Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub enum DeploymentMode {
+    /// Connects to nodes and spawns workers processes using SSH and SCP.
+    #[default]
+    Legacy,
+    /// Connects to nodes and spawns something. spoiler: it's a TODO.
+    Service
 }
 
 impl std::fmt::Debug for SSHConfig {
@@ -288,6 +345,16 @@ impl RuntimeConfig {
             RuntimeConfig::Remote(_) => {
                 panic!("spawn_remote_workers() requires the `ssh` feature for remote configs.");
             }
+            RuntimeConfig::Distributed(distributed) => {
+                match distributed.deployment_mode {
+                    DeploymentMode::Legacy => {
+                        spawn_remote_workers(distributed.into());
+                    }
+                    DeploymentMode::Service => {
+                        todo!("create a new spawn function, maybe using systemd o some kind of orchestrator");
+                    }
+                }
+            }
         }
     }
 
@@ -295,14 +362,23 @@ impl RuntimeConfig {
         match self {
             RuntimeConfig::Local(_) => Some(0),
             RuntimeConfig::Remote(remote) => remote.host_id,
+            RuntimeConfig::Distributed(distributed) => distributed.host_id,
         }
     }
 
     /// The tag of the host.
-    pub fn host_tag(&self) -> Option<&str> {
+    pub fn host_tier(&self) -> Option<String> {
         match self {
-            RuntimeConfig::Local(_) => None,
-            RuntimeConfig::Remote(remote_config) => remote_config.host_tag.as_deref(),
+            RuntimeConfig::Distributed(config) => config.host_tier.clone(),
+            _ => None,
+        }
+    }
+
+    /// The group of the host.
+    pub fn host_group(&self) -> Option<String> {
+        match self {
+            RuntimeConfig::Distributed(config) => config.host_group.clone(),
+            _ => None,
         }
     }
 
@@ -312,20 +388,24 @@ impl RuntimeConfig {
         from: impl Into<String>,
         to: impl Into<String>,
     ) -> GroupConnector {
-        match self {
-            RuntimeConfig::Local(_) => panic!("Local configuration does not have connectors"),
-            RuntimeConfig::Remote(remote) => {
+        return match self {
+            RuntimeConfig::Distributed(config) => {
                 let from = from.into();
                 let to = to.into();
-                let connector = remote
+                config
                     .connectors
                     .iter()
-                    .find(|c| c.from == from && c.to == to) // TODO: consider to make it case insensitive
-                    .unwrap_or_else(|| panic!("[{} -> {}] Group connection not found!", from, to));
-
-                connector.clone()
-            }
-        }
+                    .find(|c| c.from == from && c.to == to)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "Missing connector from {} to {} in the distributed configuration",
+                            from, to
+                        )
+                    })
+            },
+            _ => panic!("Distributed configuration required"),
+        };
     }
 }
 
@@ -381,7 +461,6 @@ impl ConfigBuilder {
     pub fn parse_toml_str(&mut self, config_str: &str) -> Result<&mut Self, ConfigError> {
         let RemoteConfig {
             host_id: _, // Ignore serialized host_id
-            host_tag: _,
             hosts,
             tracing_dir,
             cleanup_executable,
@@ -464,7 +543,6 @@ impl ConfigBuilder {
 
         let conf = RuntimeConfig::Remote(RemoteConfig {
             host_id: self.host_id,
-            host_tag: self.host_tag.clone(),
             hosts: self.hosts.clone(),
             tracing_dir: self.tracing_dir.clone(),
             cleanup_executable: self.cleanup_executable,
@@ -512,6 +590,7 @@ pub enum ConnectorTechnology {
 pub struct KafkaConfig {
     pub brokers: Vec<String>,
     pub topic: String,
+    pub timeout: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -530,6 +609,22 @@ impl GroupConnector {
                 ConnectorSourceTechnology::Kafka(kafka.into()),
             ),
             ConnectorTechnology::Redis(_redis) => todo!("config -> (sink, source)"),
+        }
+    }
+}
+
+impl From<&DistributedConfig> for RemoteConfig {
+    fn from(distributed: &DistributedConfig) -> Self {
+        RemoteConfig {
+            host_id: distributed.host_id,
+            hosts: distributed
+                .tiers
+                .iter()
+                .flat_map(|t| t.hosts.clone())
+                .collect(),
+            tracing_dir: None,
+            cleanup_executable: false,
+            connectors: distributed.connectors.clone(),
         }
     }
 }
