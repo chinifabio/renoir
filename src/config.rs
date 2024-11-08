@@ -12,16 +12,24 @@ use std::str::FromStr;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 
+use crate::operator::sink::connectors::kafka::KafkaSinkConnector;
+use crate::operator::sink::connectors::{ConnectorSinkStrategy, ConnectorSinkTechnology};
+use crate::operator::source::connectors::ConnectorSourceTechnology;
+use crate::operator::ExchangeData;
+use crate::prelude::connectors::kafka::KafkaSourceConnector;
+use crate::prelude::connectors::ConnectorSourceStrategy;
 use crate::runner::spawn_remote_workers;
 use crate::scheduler::HostId;
 use crate::CoordUInt;
 
 /// Environment variable set by the runner with the host id of the process. If it's missing the
 /// process will have to spawn the processes by itself.
-pub const HOST_ID_ENV_VAR: &str = "NOIR_HOST_ID";
+pub const HOST_ID_ENV_VAR: &str = "RENOIR_HOST_ID";
 /// Environment variable set by the runner with the content of the config file so that it's not
 /// required to have it on all the hosts.
-pub const CONFIG_ENV_VAR: &str = "NOIR_CONFIG";
+pub const CONFIG_ENV_VAR: &str = "RENOIR_CONFIG";
+
+pub const DISTRIBUTED_CONFIG_ENV_VAR: &str = "RENOIR_DISTRIBUTED_CONFIG";
 
 /// The runtime configuration of the environment,
 ///
@@ -81,6 +89,11 @@ pub enum RuntimeConfig {
     Local(LocalConfig),
     /// Use both local threads and remote workers.
     Remote(RemoteConfig),
+    /// Use both local threads and remote workers and divide in group the computation.
+    Distributed {
+        remote_config: RemoteConfig,
+        distributed_config: DistributedConfig,
+    },
 }
 
 impl Default for RuntimeConfig {
@@ -126,6 +139,21 @@ pub struct RemoteConfig {
     pub cleanup_executable: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct DistributedConfig {
+    /// The tier to which this host belongs.
+    pub(crate) host_tier: String,
+    /// The group to which this host belongs.
+    ///
+    /// This is used to define the client_id for the Kakfa producer and for the consumer_group
+    /// for Kafka consumersc.
+    host_group: Option<String>,
+    /// The input source for the computation group.
+    group_input: Option<ConnectorTechnology>,
+    /// The output sink for the computation group.
+    group_output: Option<ConnectorTechnology>,
+}
+
 /// The configuration of a single remote host.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct HostConfig {
@@ -167,6 +195,73 @@ pub struct SSHConfig {
     pub key_file: Option<PathBuf>,
     /// The passphrase for decrypting the private SSH key.
     pub key_passphrase: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct GroupConnector {
+    pub from: String,
+    pub to: String,
+    pub technology: ConnectorTechnology,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[serde(tag = "type")]
+pub enum ConnectorTechnology {
+    Kafka(KafkaConfig),
+    Redis(RedisConfig),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct KafkaConfig {
+    pub brokers: Vec<String>,
+    pub topic: String,
+    pub timeout: Option<u64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct RedisConfig {
+    pub urls: Vec<String>,
+    pub key: String,
+}
+
+impl ConnectorTechnology {
+    pub fn into_sink<T: ExchangeData>(&self) -> impl ConnectorSinkStrategy<T> {
+        match self {
+            ConnectorTechnology::Kafka(kafka_config) => kafka_config.into_sink(),
+            ConnectorTechnology::Redis(_) => todo!(),
+        }
+    }
+
+    pub fn into_source<T: ExchangeData>(&self) -> impl ConnectorSourceStrategy<T> {
+        match self {
+            ConnectorTechnology::Kafka(kafka_config) => kafka_config.into_source(),
+            ConnectorTechnology::Redis(_) => todo!(),
+        }
+    }
+}
+
+impl KafkaConfig {
+    pub fn into_sink<T: ExchangeData>(&self) -> KafkaSinkConnector<T> {
+        KafkaSinkConnector::new(self.brokers.clone(), self.topic.clone())
+    }
+
+    pub fn into_source<T: ExchangeData>(&self) -> KafkaSourceConnector<T> {
+        KafkaSourceConnector::new(self.brokers.clone(), self.topic.clone(), self.timeout)
+    }
+}
+
+impl GroupConnector {
+    pub fn split<T: ExchangeData>(
+        self,
+    ) -> (ConnectorSinkTechnology<T>, ConnectorSourceTechnology<T>) {
+        match &self.technology {
+            ConnectorTechnology::Kafka(kafka) => (
+                ConnectorSinkTechnology::Kafka(kafka.into()),
+                ConnectorSourceTechnology::Kafka(kafka.into()),
+            ),
+            ConnectorTechnology::Redis(_redis) => todo!("config -> (sink, source)"),
+        }
+    }
 }
 
 impl std::fmt::Debug for SSHConfig {
@@ -260,6 +355,18 @@ impl RuntimeConfig {
         builder.build()
     }
 
+    pub fn distributed() -> Result<RuntimeConfig, ConfigError> {
+        let mut builder = ConfigBuilder::new_remote();
+
+        builder.parse_env()?;
+        builder.host_id_from_env()?;
+
+        let mut distributed_builder = builder.distributed()?;
+        distributed_builder.parse_env()?;
+
+        distributed_builder.build()
+    }
+
     /// Spawn the remote workers via SSH and exit if this is the process that should spawn. If this
     /// is already a spawned process nothing is done.
     pub fn spawn_remote_workers(&self) {
@@ -273,6 +380,12 @@ impl RuntimeConfig {
             RuntimeConfig::Remote(_) => {
                 panic!("spawn_remote_workers() requires the `ssh` feature for remote configs.");
             }
+            RuntimeConfig::Distributed {
+                remote_config: config,
+                ..
+            } => {
+                spawn_remote_workers(config.clone());
+            }
         }
     }
 
@@ -280,7 +393,63 @@ impl RuntimeConfig {
         match self {
             RuntimeConfig::Local(_) => Some(0),
             RuntimeConfig::Remote(remote) => remote.host_id,
+            RuntimeConfig::Distributed {
+                remote_config: config,
+                ..
+            } => config.host_id,
         }
+    }
+
+    pub fn host_tier(&self) -> Option<String> {
+        match self {
+            RuntimeConfig::Distributed {
+                distributed_config, ..
+            } => Some(distributed_config.host_tier.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn host_group(&self) -> Option<String> {
+        match self {
+            RuntimeConfig::Distributed {
+                distributed_config, ..
+            } => distributed_config.host_group.clone(),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn get_source_connector<T: ExchangeData>(
+        &self,
+    ) -> Option<impl ConnectorSourceStrategy<T>> {
+        match self {
+            RuntimeConfig::Distributed {
+                distributed_config: config,
+                ..
+            } => {
+                let source = config.group_input.as_ref()?;
+                Some(source.into_source())
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn get_sink_connector<T: ExchangeData>(
+        &self,
+    ) -> Option<impl ConnectorSinkStrategy<T>> {
+        match self {
+            RuntimeConfig::Distributed {
+                distributed_config: config,
+                ..
+            } => {
+                let sink = config.group_output.as_ref()?;
+                Some(sink.into_sink())
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn is_distributed(&self) -> bool {
+        matches!(self, RuntimeConfig::Distributed { .. })
     }
 }
 
@@ -405,6 +574,49 @@ impl ConfigBuilder {
             cleanup_executable: self.cleanup_executable,
         });
         Ok(conf)
+    }
+
+    pub fn distributed(self) -> Result<DistributedConfigBuilder, ConfigError> {
+        Ok(DistributedConfigBuilder::new(self))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DistributedConfigBuilder {
+    config_builder: ConfigBuilder,
+    distributed_config: Option<DistributedConfig>,
+}
+
+impl DistributedConfigBuilder {
+    pub fn new(config_builder: ConfigBuilder) -> Self {
+        Self {
+            config_builder,
+            distributed_config: None,
+        }
+    }
+
+    pub fn parse_env(&mut self) -> Result<&mut Self, ConfigError> {
+        let config_str = env::var(DISTRIBUTED_CONFIG_ENV_VAR)
+            .map_err(|e| ConfigError::Environment(DISTRIBUTED_CONFIG_ENV_VAR.to_string(), e))?;
+        let config: DistributedConfig = toml::from_str(config_str.as_str())?;
+        self.distributed_config = Some(config);
+        Ok(self)
+    }
+
+    pub fn build(&mut self) -> Result<RuntimeConfig, ConfigError> {
+        let distributed_config = self
+            .distributed_config
+            .take()
+            .ok_or_else(|| ConfigError::Invalid("Distributed configuration not set".into()))?;
+
+        if let RuntimeConfig::Remote(remote_config) = self.config_builder.build()? {
+            Ok(RuntimeConfig::Distributed {
+                remote_config,
+                distributed_config,
+            })
+        } else {
+            unreachable!()
+        }
     }
 }
 

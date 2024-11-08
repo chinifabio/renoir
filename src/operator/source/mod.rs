@@ -17,6 +17,7 @@ mod async_stream;
 #[cfg(feature = "avro")]
 mod avro;
 mod channel;
+pub mod connectors; // todo: rimettere pub(crate)
 mod csv;
 mod file;
 mod iterator;

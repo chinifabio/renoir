@@ -36,6 +36,10 @@ pub struct ExecutionMetadata<'a> {
     pub(crate) network: &'a mut NetworkTopology,
     /// The batching mode to use inside this block.
     pub batch_mode: BatchMode,
+    /// The tier of the block
+    pub tier: Option<String>,
+    /// The group of the block in the tier
+    pub group: Option<String>,
 }
 
 /// Information about a block in the job graph.
@@ -94,6 +98,7 @@ impl Scheduler {
     {
         let block_id = block.id;
         let info = self.block_info(&block);
+        println!("scheduling block with id: {}", block_id);
         debug!(
             "schedule block (b{:02}): {}",
             block_id,
@@ -167,6 +172,8 @@ impl Scheduler {
                 prev: self.network.prev(coord),
                 network: &mut self.network,
                 batch_mode: block_info.batch_mode,
+                tier: self.config.host_tier(),
+                group: self.config.host_group(),
             };
             let (handle, structure) = init_fn(&mut metadata);
             join.push(handle);
@@ -220,13 +227,15 @@ impl Scheduler {
         debug!("start scheduler: {:?}", self.config);
         self.log_topology();
 
-        assert_eq!(
-            self.block_info.len(),
-            num_blocks as usize,
-            "Some streams do not have a sink attached: {} streams created, but only {} registered",
-            num_blocks as usize,
-            self.block_info.len(),
-        );
+        if !self.config.is_distributed() {
+            assert_eq!(
+                self.block_info.len(),
+                num_blocks as usize,
+                "Some streams do not have a sink attached: {} streams created, but only {} registered",
+                num_blocks as usize,
+                self.block_info.len(),
+            );
+        }
 
         #[cfg(feature = "tokio")]
         {
@@ -321,6 +330,19 @@ impl Scheduler {
         match &self.config {
             RuntimeConfig::Local(local) => self.local_block_info(block, local),
             RuntimeConfig::Remote(remote) => self.remote_block_info(block, remote),
+            RuntimeConfig::Distributed {
+                remote_config,
+                distributed_config,
+            } => match block.tier.as_deref() {
+                Some(block_tier) => {
+                    if block_tier == distributed_config.host_tier {
+                        self.remote_block_info(block, remote_config)
+                    } else {
+                        self.foreign_block_info()
+                    }
+                }
+                None => panic!("You should consider using tier in the stream definition."),
+            },
         }
     }
 
@@ -426,6 +448,19 @@ impl Scheduler {
             global_ids,
             batch_mode: block.batch_mode,
             is_only_one_strategy: block.is_only_one_strategy,
+        }
+    }
+
+    /// Extract the `SchedulerBlockInfo` of a block that runs on a foreign host.
+    ///
+    /// This is used when the block is not running on the same tier as the host.
+    fn foreign_block_info(&self) -> SchedulerBlockInfo {
+        SchedulerBlockInfo {
+            repr: "foreign block".to_string(),
+            replicas: Default::default(),
+            global_ids: Default::default(),
+            batch_mode: Default::default(),
+            is_only_one_strategy: false,
         }
     }
 }

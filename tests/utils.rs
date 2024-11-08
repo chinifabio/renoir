@@ -152,7 +152,7 @@ impl TestHelper {
         let mut hosts = vec![];
         for host_id in 0..num_hosts {
             let test_id: u16 = thread_rng().gen(); //TEST_INDEX.fetch_add(1, Ordering::SeqCst) + 1;
-           
+
             let high_part = (test_id & 0xff00) >> 8;
             let low_part = test_id & 0xff;
             let address = format!("127.{high_part}.{low_part}.{host_id}");

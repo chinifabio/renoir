@@ -373,7 +373,7 @@ impl NetworkTopology {
             .unwrap_or_else(|| panic!("Channel for endpoint {receiver_endpoint} not registered",));
 
         match &self.config {
-            RuntimeConfig::Remote(_) => {
+            RuntimeConfig::Remote(_) | RuntimeConfig::Distributed { .. } => {
                 if sender_metadata.to_remote {
                     let sender = self.register_mux(receiver_endpoint);
 

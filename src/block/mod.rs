@@ -43,6 +43,8 @@ where
     pub(crate) is_only_one_strategy: bool,
     /// The set of requirements that the block imposes on the scheduler.
     pub(crate) scheduling: Scheduling,
+    /// The tier this block belongs to.
+    pub(crate) tier: Option<String>,
 }
 
 impl<OperatorChain> Clone for Block<OperatorChain>
@@ -57,6 +59,7 @@ where
             iteration_ctx: self.iteration_ctx.clone(),
             is_only_one_strategy: self.is_only_one_strategy,
             scheduling: self.scheduling.clone(),
+            tier: self.tier.clone(),
         }
     }
 }
@@ -78,6 +81,7 @@ where
             iteration_ctx: self.iteration_ctx,
             is_only_one_strategy: false,
             scheduling: self.scheduling,
+            tier: self.tier,
         }
     }
 }
@@ -157,6 +161,7 @@ where
         batch_mode: BatchMode,
         iteration_ctx: Vec<Arc<IterationStateLock>>,
         scheduling: Scheduling,
+        tier: Option<String>,
     ) -> Self {
         Self {
             id,
@@ -165,6 +170,7 @@ where
             iteration_ctx,
             is_only_one_strategy: false,
             scheduling,
+            tier,
         }
     }
 

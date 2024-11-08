@@ -13,6 +13,8 @@ use flume::{unbounded, Receiver};
 use futures::Future;
 use serde::{Deserialize, Serialize};
 
+use sink::connectors::kafka::KafkaSinkConnector;
+use sink::connectors::ConnectorSink;
 pub(crate) use start::*;
 
 pub use rich_map_custom::ElementGenerator;
@@ -2073,6 +2075,36 @@ where
             .finalize_block();
         StreamOutput::from(output)
     }
+
+    /// TODO docs
+    pub fn collect_into_kakfa(self, topic: &str, brokers: Vec<String>) {
+        let kafka_strategy = KafkaSinkConnector::new(brokers, topic);
+        self.add_operator(|prev| ConnectorSink::new(Some(kafka_strategy), prev))
+            .finalize_block();
+    }
+
+    /// TODO docs
+    /// TODO match della config e se non è distribuita allora non spezzare la stream
+    pub fn change_tier(self, tag: &str) -> Stream<impl Operator<Out = Op::Out>> {
+        // create the new group
+        let new_stream = self
+            .context()
+            .start_tier(tag)
+            .stream_connector::<Op::Out, _>(self.get_source_connector::<Op::Out>());
+
+        // end current group
+        let connector_sink = self.get_sink_connector();
+        self.add_operator(|prev| ConnectorSink::new(connector_sink, prev))
+            .finalize_block();
+
+        new_stream
+    }
+
+    /// TODO docs
+    pub fn connect_direct_tier(mut self, tag: &str) -> Stream<impl Operator<Out = Op::Out>> {
+        self.update_tier(tag);
+        self.split_block(End::new, NextStrategy::random())
+    }
 }
 
 impl<Op> Stream<Op>
@@ -2943,6 +2975,32 @@ where
     /// ```
     pub fn collect_all<C: FromIterator<(K, I)> + Send + 'static>(self) -> StreamOutput<C> {
         self.unkey().collect_all()
+    }
+
+    /// TODO docs
+    pub fn connect_group(self, tag: &str) -> KeyedStream<impl Operator<Out = (K, I)>> {
+        // create the new group
+        let new_stream = self
+            .0
+            .context()
+            .start_tier(tag)
+            .stream_connector(self.0.get_source_connector())
+            .to_keyed();
+
+        // end the current group
+        let connector_sink = self.0.get_sink_connector();
+        self.unkey()
+            .add_operator(|prev| ConnectorSink::new(connector_sink, prev))
+            .finalize_block();
+
+        new_stream
+    }
+
+    /// TODO docs
+    pub fn connect_direct_tier(mut self, tag: &str) -> KeyedStream<impl Operator<Out = (K, I)>> {
+        self.0.update_tier(tag);
+        let next_strategy = NextStrategy::group_by(|(k, _): &(K, I)| k.clone());
+        self.0.split_block(End::new, next_strategy).to_keyed()
     }
 }
 
