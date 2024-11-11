@@ -147,7 +147,7 @@ pub struct DistributedConfig {
     ///
     /// This is used to define the client_id for the Kakfa producer and for the consumer_group
     /// for Kafka consumersc.
-    host_group: Option<String>,
+    pub(crate) host_group: Option<String>,
     /// The input source for the computation group.
     group_input: Option<ConnectorTechnology>,
     /// The output sink for the computation group.
@@ -307,6 +307,12 @@ pub struct CommandLineOptions {
     #[clap(short, long)]
     local: Option<CoordUInt>,
 
+    /// Whether to use a distributed configuration.
+    /// 
+    /// When this is specified the execution will be distributed. This conflicts with `--local` and `--remote`.
+    #[clap(short, long, action)]
+    distributed: bool,
+
     /// The rest of the arguments.
     args: Vec<String>,
 }
@@ -325,6 +331,8 @@ impl RuntimeConfig {
             (Self::local(parallelism).expect("Configuration error"), args)
         } else if let Some(remote) = opt.remote {
             (Self::remote(remote).expect("Configuration error"), args)
+        } else if opt.distributed {
+            (Self::distributed().expect("Configuration error"), args)
         } else {
             unreachable!("Invalid configuration")
         }
@@ -463,8 +471,8 @@ impl Display for HostConfig {
 impl CommandLineOptions {
     /// Check that the configuration provided is valid.
     fn validate(&self) {
-        if !(self.remote.is_some() ^ self.local.is_some()) {
-            panic!("Use one of --remote or --local");
+        if !(self.remote.is_some() ^ self.local.is_some() ^ self.distributed) {
+            panic!("Use one of --remote,  --local or --distributed");
         }
     }
 }

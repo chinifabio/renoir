@@ -1,0 +1,6 @@
+deploy_renoir() {
+    local target_tier=${1:-all}
+    ansible-playbook -i ansible/inventory.ini ansible/deploy_distributed.yaml \
+        -e renoir_executable=../target/debug/examples/groups \
+        -e renoir_target_tier=$target_tier
+}

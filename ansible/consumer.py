@@ -20,7 +20,7 @@ print("Consumer in ascolto...")
 try:
     for message in consumer:
         # Decodifica il valore del messaggio
-        number = int(message.value.decode('utf-8'))
+        number = message.value.decode('utf-8')
         print(f"Ricevuto numero: {number}")
 
 except KeyboardInterrupt:

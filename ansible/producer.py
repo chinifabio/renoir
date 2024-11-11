@@ -8,9 +8,12 @@ import time
 import random
 from kafka import KafkaProducer
 
+SLEEP_TIME = 5
+TARGET_TOPIC = sys.argv[1]
+
 # Configura il Producer Kafka
 producer = KafkaProducer(bootstrap_servers='localhost:9093')  # Cambia 'localhost:9092' con l'host e la porta di Kafka
-topic = 'input'  # Sostituisci con il tuo topic
+topic = TARGET_TOPIC
 
 try:
     while True:
@@ -24,7 +27,7 @@ try:
         print(f"Inviato numero: {random_number}")
 
         # Aspetta 100 millisecondi (0.1 secondi)
-        time.sleep(0.1)
+        time.sleep(SLEEP_TIME)
 
 except KeyboardInterrupt:
     print("Interrotto manualmente.")

@@ -90,6 +90,7 @@ pub mod source;
 mod start;
 pub mod window;
 mod zip;
+mod group_decorator;
 
 /// Marker trait that all the types inside a stream should implement.
 pub trait Data: Clone + Send + 'static {}
@@ -2098,6 +2099,11 @@ where
             .finalize_block();
 
         new_stream
+    }
+
+    /// TODO docs
+    pub fn add_group_name(self) -> Stream<impl Operator<Out = (String, Op::Out)>> {
+        self.add_operator(|prev| group_decorator::GroupDecorator::new(prev))
     }
 
     /// TODO docs
