@@ -8,8 +8,11 @@ import time
 import random
 from kafka import KafkaProducer
 
-SLEEP_TIME = 5
+if len(sys.argv) != 3:
+    print("Usage: python producer.py <target_topic> <sleep_time>")
+    sys.exit(1)
 TARGET_TOPIC = sys.argv[1]
+SLEEP_TIME = sys.argv[2]
 
 # Configura il Producer Kafka
 producer = KafkaProducer(bootstrap_servers='localhost:9093')  # Cambia 'localhost:9092' con l'host e la porta di Kafka
@@ -21,13 +24,13 @@ try:
         random_number = random.randint(1, 100)
 
         # Invia il numero al topic Kafka
-        producer.send(topic, value=str(random_number).encode('utf-8'))
+        producer.send(topic, value=f"{{\"Item\":{random_number}}}".encode('utf-8'))
 
         # Stampa per conferma
         print(f"Inviato numero: {random_number}")
 
         # Aspetta 100 millisecondi (0.1 secondi)
-        time.sleep(SLEEP_TIME)
+        time.sleep(float(SLEEP_TIME))
 
 except KeyboardInterrupt:
     print("Interrotto manualmente.")

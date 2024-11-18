@@ -13,11 +13,10 @@ use clap::Parser;
 use serde::{Deserialize, Serialize};
 
 use crate::operator::sink::connectors::kafka::KafkaSinkConnector;
-use crate::operator::sink::connectors::{ConnectorSinkStrategy, ConnectorSinkTechnology};
-use crate::operator::source::connectors::ConnectorSourceTechnology;
+use crate::operator::sink::connectors::ConnectorSinkTechnology;
 use crate::operator::ExchangeData;
 use crate::prelude::connectors::kafka::KafkaSourceConnector;
-use crate::prelude::connectors::ConnectorSourceStrategy;
+use crate::prelude::connectors::ConnectorSourceTechnology;
 use crate::runner::spawn_remote_workers;
 use crate::scheduler::HostId;
 use crate::CoordUInt;
@@ -28,7 +27,7 @@ pub const HOST_ID_ENV_VAR: &str = "RENOIR_HOST_ID";
 /// Environment variable set by the runner with the content of the config file so that it's not
 /// required to have it on all the hosts.
 pub const CONFIG_ENV_VAR: &str = "RENOIR_CONFIG";
-
+/// Environment variable set by the automation tool to configure the distributed environment.
 pub const DISTRIBUTED_CONFIG_ENV_VAR: &str = "RENOIR_DISTRIBUTED_CONFIG";
 
 /// The runtime configuration of the environment,
@@ -149,9 +148,19 @@ pub struct DistributedConfig {
     /// for Kafka consumersc.
     pub(crate) host_group: Option<String>,
     /// The input source for the computation group.
-    group_input: Option<ConnectorTechnology>,
+    pub(crate) group_input: Option<ConnectorTechnology>,
     /// The output sink for the computation group.
-    group_output: Option<ConnectorTechnology>,
+    pub(crate) group_output: Option<ConnectorTechnology>,
+}
+
+impl DistributedConfig {
+    pub fn output_group(&self) -> ConnectorTechnology {
+        self.group_output.clone().unwrap_or_default()
+    }
+
+    pub fn input_group(&self) -> ConnectorTechnology {
+        self.group_input.clone().unwrap_or_default()
+    }
 }
 
 /// The configuration of a single remote host.
@@ -204,11 +213,13 @@ pub struct GroupConnector {
     pub technology: ConnectorTechnology,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
 #[serde(tag = "type")]
 pub enum ConnectorTechnology {
     Kafka(KafkaConfig),
     Redis(RedisConfig),
+    #[default]
+    None,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
@@ -225,17 +236,23 @@ pub struct RedisConfig {
 }
 
 impl ConnectorTechnology {
-    pub fn into_sink<T: ExchangeData>(&self) -> impl ConnectorSinkStrategy<T> {
+    pub fn into_sink<T: ExchangeData>(&self) -> ConnectorSinkTechnology<T> {
         match self {
-            ConnectorTechnology::Kafka(kafka_config) => kafka_config.into_sink(),
+            ConnectorTechnology::Kafka(kafka_config) => {
+                ConnectorSinkTechnology::Kafka(kafka_config.into_sink())
+            }
             ConnectorTechnology::Redis(_) => todo!(),
+            ConnectorTechnology::None => ConnectorSinkTechnology::None,
         }
     }
 
-    pub fn into_source<T: ExchangeData>(&self) -> impl ConnectorSourceStrategy<T> {
+    pub fn into_source<T: ExchangeData>(&self) -> ConnectorSourceTechnology<T> {
         match self {
-            ConnectorTechnology::Kafka(kafka_config) => kafka_config.into_source(),
+            ConnectorTechnology::Kafka(kafka_config) => {
+                ConnectorSourceTechnology::Kafka(kafka_config.into_source())
+            }
             ConnectorTechnology::Redis(_) => todo!(),
+            ConnectorTechnology::None => ConnectorSourceTechnology::None,
         }
     }
 }
@@ -247,20 +264,6 @@ impl KafkaConfig {
 
     pub fn into_source<T: ExchangeData>(&self) -> KafkaSourceConnector<T> {
         KafkaSourceConnector::new(self.brokers.clone(), self.topic.clone(), self.timeout)
-    }
-}
-
-impl GroupConnector {
-    pub fn split<T: ExchangeData>(
-        self,
-    ) -> (ConnectorSinkTechnology<T>, ConnectorSourceTechnology<T>) {
-        match &self.technology {
-            ConnectorTechnology::Kafka(kafka) => (
-                ConnectorSinkTechnology::Kafka(kafka.into()),
-                ConnectorSourceTechnology::Kafka(kafka.into()),
-            ),
-            ConnectorTechnology::Redis(_redis) => todo!("config -> (sink, source)"),
-        }
     }
 }
 
@@ -308,7 +311,7 @@ pub struct CommandLineOptions {
     local: Option<CoordUInt>,
 
     /// Whether to use a distributed configuration.
-    /// 
+    ///
     /// When this is specified the execution will be distributed. This conflicts with `--local` and `--remote`.
     #[clap(short, long, action)]
     distributed: bool,
@@ -424,40 +427,6 @@ impl RuntimeConfig {
             } => distributed_config.host_group.clone(),
             _ => None,
         }
-    }
-
-    pub(crate) fn get_source_connector<T: ExchangeData>(
-        &self,
-    ) -> Option<impl ConnectorSourceStrategy<T>> {
-        match self {
-            RuntimeConfig::Distributed {
-                distributed_config: config,
-                ..
-            } => {
-                let source = config.group_input.as_ref()?;
-                Some(source.into_source())
-            }
-            _ => None,
-        }
-    }
-
-    pub(crate) fn get_sink_connector<T: ExchangeData>(
-        &self,
-    ) -> Option<impl ConnectorSinkStrategy<T>> {
-        match self {
-            RuntimeConfig::Distributed {
-                distributed_config: config,
-                ..
-            } => {
-                let sink = config.group_output.as_ref()?;
-                Some(sink.into_sink())
-            }
-            _ => None,
-        }
-    }
-
-    pub(crate) fn is_distributed(&self) -> bool {
-        matches!(self, RuntimeConfig::Distributed { .. })
     }
 }
 

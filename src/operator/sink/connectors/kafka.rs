@@ -60,10 +60,13 @@ impl<T: ExchangeData> KafkaSinkConnector<T> {
 
 impl<T: ExchangeData> ConnectorSinkStrategy<T> for KafkaSinkConnector<T> {
     fn setup(&mut self, metadata: &mut crate::ExecutionMetadata) {
-        let tier = metadata
-            .tier
-            .clone()
-            .expect("Tier expected if you want to use distributed environment");
+        let tier = match metadata.tier.as_deref() {
+            Some(tier_name) => tier_name,
+            None => {
+                log::warn!("No tier specified for Kafka sink, using 'default'");
+                "default"
+            }
+        };
 
         let client_id = match metadata.group.as_deref() {
             Some(group_name) => {
@@ -85,17 +88,15 @@ impl<T: ExchangeData> ConnectorSinkStrategy<T> for KafkaSinkConnector<T> {
     }
 
     fn append(&mut self, item: &StreamElement<T>) {
-        let inner_item = match item {
-            StreamElement::Item(i) => Some(i),
-            StreamElement::Timestamped(i, _) => Some(i),
-            _ => None,
-        };
-
-        if inner_item.is_none() {
+        if !matches!(
+            item,
+            StreamElement::Item(_) | StreamElement::Timestamped(_, _)
+        ) {
+            log::warn!("Skipping non-item element: {}", item.variant_str());
             return;
         }
 
-        let json = serde_json::to_string(inner_item.unwrap()).expect("Serialization failed");
+        let json = serde_json::to_string(item).expect("Serialization failed");
         let record = BaseRecord::to(self.topic.as_str())
             .payload(&json)
             .key(self.topic_key.as_deref().expect("Topic key not set"));
@@ -103,7 +104,6 @@ impl<T: ExchangeData> ConnectorSinkStrategy<T> for KafkaSinkConnector<T> {
             .producer
             .as_mut()
             .expect("Kafka producer not configured");
-        log::debug!("Sending record to Kafka: {:?}", record);
         producer.send(record).expect("Kafka send failed");
         producer.flush(Timeout::Never).expect("Kafka flush failed");
     }

@@ -6,7 +6,7 @@ fn main() {
     let (config, args) = RuntimeConfig::from_args();
     let context = StreamContext::new(config);
 
-    let brokers = vec!["localhost:9093".to_string()];
+    let brokers = vec!["127.0.0.1:9093".to_string()];
 
     let input_topic = args.get(1).cloned().unwrap_or_default();
 
@@ -16,8 +16,9 @@ fn main() {
         .filter(|x| x % 2 == 0)
         .add_group_name()
         .change_tier("sola")
-        .map(|(g, x)| (g, x % 10))
-        .group_by(|(_, x)| x % 10)
+        .group_by(|(g, _)| g.clone())
+        .window(CountWindow::new(10, 5, false))
+        .max()
         .unkey()
         .collect_into_kakfa("output", brokers);
 

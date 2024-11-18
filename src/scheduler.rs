@@ -98,7 +98,6 @@ impl Scheduler {
     {
         let block_id = block.id;
         let info = self.block_info(&block);
-        println!("scheduling block with id: {}", block_id);
         debug!(
             "schedule block (b{:02}): {}",
             block_id,
@@ -227,15 +226,13 @@ impl Scheduler {
         debug!("start scheduler: {:?}", self.config);
         self.log_topology();
 
-        if !self.config.is_distributed() {
-            assert_eq!(
-                self.block_info.len(),
-                num_blocks as usize,
-                "Some streams do not have a sink attached: {} streams created, but only {} registered",
-                num_blocks as usize,
-                self.block_info.len(),
-            );
-        }
+        assert_eq!(
+            self.block_info.len(),
+            num_blocks as usize,
+            "Some streams do not have a sink attached: {} streams created, but only {} registered",
+            num_blocks as usize,
+            self.block_info.len(),
+        );
 
         #[cfg(feature = "tokio")]
         {

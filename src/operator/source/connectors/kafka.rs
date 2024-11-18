@@ -6,7 +6,10 @@ use rdkafka::{
     ClientConfig, Message,
 };
 
-use crate::{config::KafkaConfig, operator::ExchangeData};
+use crate::{
+    config::KafkaConfig,
+    operator::{ExchangeData, StreamElement},
+};
 
 use super::{ConnectorSource, ConnectorSourceStrategy};
 
@@ -62,10 +65,13 @@ impl<T: ExchangeData> ConnectorSourceStrategy<T> for KafkaSourceConnector<T> {
     }
 
     fn setup(&mut self, metadata: &mut crate::ExecutionMetadata) {
-        let tier = metadata
-            .tier
-            .as_deref()
-            .expect("Tier must be configured in a distributed environment");
+        let tier = match metadata.tier.as_deref() {
+            Some(tier) => tier,
+            None => {
+                log::warn!("No tier specified for Kafka source, using 'default'");
+                "default"
+            }
+        };
 
         let consumer_group = match metadata.group.as_deref() {
             Some(group_name) => {
@@ -74,6 +80,7 @@ impl<T: ExchangeData> ConnectorSourceStrategy<T> for KafkaSourceConnector<T> {
             None => format!("renoir-{}", tier),
         };
 
+        log::info!("Creating Kafka consumer with group id: {}", consumer_group);
         let consumer: BaseConsumer = ClientConfig::new()
             .set("bootstrap.servers", self.hosts.join(","))
             .set("group.id", consumer_group)
@@ -87,7 +94,7 @@ impl<T: ExchangeData> ConnectorSourceStrategy<T> for KafkaSourceConnector<T> {
         self.consumer = Some(consumer);
     }
 
-    fn next(&mut self) -> T {
+    fn next(&mut self) -> StreamElement<T> {
         let consumer = self
             .consumer
             .as_mut()
@@ -100,15 +107,14 @@ impl<T: ExchangeData> ConnectorSourceStrategy<T> for KafkaSourceConnector<T> {
                     let mut buffer = Vec::new();
                     payload.read_to_end(&mut buffer).unwrap();
                     let json = String::from_utf8(buffer).unwrap();
-                    return serde_json::from_str(&json).unwrap();
+                    return serde_json::from_str(&json).expect("Failed to parse JSON");
                 }
                 Some(Err(e)) => {
-                    // panic!("Kafka message error: {:?}", e);
                     log::error!("Kafka message error: {:?}", e);
+                    panic!("some error occurred while consuming kafka message, todo: should i stay or should i go?");
                 }
                 None => {
-                    // panic!("Kafka message timeout");
-                    log::error!("Kafka message timeout");
+                    log::warn!("Ignoring empty message from Kafka");
                 }
             }
         }
@@ -131,8 +137,10 @@ impl crate::StreamContext {
         brokers: Vec<String>,
         topic: impl Into<String>,
         timeout: Option<u64>,
-    ) -> crate::Stream<ConnectorSource<T, KafkaSourceConnector<T>>> {
+    ) -> crate::Stream<ConnectorSource<T>> {
         let kafka_strategy = KafkaSourceConnector::new(brokers, topic, timeout);
-        self.stream(ConnectorSource::new(Some(kafka_strategy)))
+        self.stream(ConnectorSource::new_remote(
+            super::ConnectorSourceTechnology::Kafka(kafka_strategy),
+        ))
     }
 }

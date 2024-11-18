@@ -14,7 +14,8 @@ use futures::Future;
 use serde::{Deserialize, Serialize};
 
 use sink::connectors::kafka::KafkaSinkConnector;
-use sink::connectors::ConnectorSink;
+use sink::connectors::{ConnectorSink, ConnectorSinkTechnology};
+use source::connectors::ConnectorSource;
 pub(crate) use start::*;
 
 pub use rich_map_custom::ElementGenerator;
@@ -23,7 +24,7 @@ use crate::block::{group_by_hash, BlockStructure, GroupHasherBuilder, NextStrate
 use crate::scheduler::ExecutionMetadata;
 
 use crate::stream::KeyedItem;
-use crate::{BatchMode, KeyedStream, Stream};
+use crate::{BatchMode, KeyedStream, RuntimeConfig, Stream};
 
 #[cfg(feature = "tokio")]
 use self::map_async::MapAsync;
@@ -68,6 +69,7 @@ mod filter_map;
 mod flat_map;
 mod flatten;
 mod fold;
+mod group_decorator;
 mod inspect;
 #[cfg(feature = "timestamp")]
 mod interval_join;
@@ -90,7 +92,6 @@ pub mod source;
 mod start;
 pub mod window;
 mod zip;
-mod group_decorator;
 
 /// Marker trait that all the types inside a stream should implement.
 pub trait Data: Clone + Send + 'static {}
@@ -2080,25 +2081,63 @@ where
     /// TODO docs
     pub fn collect_into_kakfa(self, topic: &str, brokers: Vec<String>) {
         let kafka_strategy = KafkaSinkConnector::new(brokers, topic);
-        self.add_operator(|prev| ConnectorSink::new(Some(kafka_strategy), prev))
-            .finalize_block();
+        self.add_operator(|prev| {
+            ConnectorSink::new(prev, ConnectorSinkTechnology::Kafka(kafka_strategy))
+        })
+        .finalize_block();
     }
 
     /// TODO docs
-    /// TODO match della config e se non è distribuita allora non spezzare la stream
-    pub fn change_tier(self, tag: &str) -> Stream<impl Operator<Out = Op::Out>> {
-        // create the new group
-        let new_stream = self
-            .context()
-            .start_tier(tag)
-            .stream_connector::<Op::Out, _>(self.get_source_connector::<Op::Out>());
+    pub fn change_tier(self, new_tier: &str) -> Stream<impl Operator<Out = Op::Out>> {
+        let Stream { block, ctx } = self;
+        let mut lock = ctx.lock();
+        let batch_mode = block.batch_mode;
+        let iteration_ctx = block.iteration_ctx.clone();
 
-        // end current group
-        let connector_sink = self.get_sink_connector();
-        self.add_operator(|prev| ConnectorSink::new(connector_sink, prev))
-            .finalize_block();
+        let prev_id = match &lock.config {
+            RuntimeConfig::Distributed {
+                distributed_config, ..
+            } => {
+                let technology = distributed_config.output_group().into_sink();
+                let block = block.add_operator(|prev| ConnectorSink::new(prev, technology));
+                lock.close_block(block)
+            }
+            _ => {
+                let block = block.add_operator(|prev| {
+                    End::new(prev, NextStrategy::random(), Default::default())
+                });
+                lock.close_block(block)
+            }
+        };
 
-        new_stream
+        let new_block = match &lock.config {
+            RuntimeConfig::Distributed {
+                distributed_config, ..
+            } => {
+                let technology = distributed_config.input_group().into_source();
+                lock.update_tier(new_tier);
+                lock.new_block(
+                    ConnectorSource::new_remote(technology),
+                    Default::default(),
+                    Default::default(),
+                )
+            }
+            _ => {
+                let new_block = lock.new_block(
+                    ConnectorSource::new_local(prev_id, iteration_ctx.last().cloned()),
+                    batch_mode,
+                    iteration_ctx,
+                );
+                lock.connect_blocks::<Op::Out>(prev_id, new_block.id);
+                new_block
+            }
+        };
+
+        drop(lock);
+        Stream {
+            block: new_block,
+            ctx,
+        }
     }
 
     /// TODO docs
@@ -2984,22 +3023,8 @@ where
     }
 
     /// TODO docs
-    pub fn connect_group(self, tag: &str) -> KeyedStream<impl Operator<Out = (K, I)>> {
-        // create the new group
-        let new_stream = self
-            .0
-            .context()
-            .start_tier(tag)
-            .stream_connector(self.0.get_source_connector())
-            .to_keyed();
-
-        // end the current group
-        let connector_sink = self.0.get_sink_connector();
-        self.unkey()
-            .add_operator(|prev| ConnectorSink::new(connector_sink, prev))
-            .finalize_block();
-
-        new_stream
+    pub fn connect_group(self, new_group: &str) -> KeyedStream<impl Operator<Out = (K, I)>> {
+        self.0.change_tier(new_group).to_keyed()
     }
 
     /// TODO docs
