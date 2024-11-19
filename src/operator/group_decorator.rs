@@ -5,7 +5,7 @@ use crate::block::OperatorStructure;
 use super::Operator;
 
 #[derive(Debug, Clone)]
-pub struct GroupDecorator<Op>
+pub struct GroupReplicaDecorator<Op>
 where
     Op: Operator,
 {
@@ -13,16 +13,16 @@ where
     group_name: Option<String>,
 }
 
-impl<Op> Display for GroupDecorator<Op>
+impl<Op> Display for GroupReplicaDecorator<Op>
 where
     Op: Operator,
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{} -> GroupDecorator", self.previous)
+        write!(f, "{} -> GroupReplicaDecorator", self.previous)
     }
 }
 
-impl<Op> GroupDecorator<Op>
+impl<Op> GroupReplicaDecorator<Op>
 where
     Op: Operator,
 {
@@ -34,14 +34,14 @@ where
     }
 }
 
-impl<Op> Operator for GroupDecorator<Op>
+impl<Op> Operator for GroupReplicaDecorator<Op>
 where
     Op: Operator,
 {
     type Out = (String, Op::Out);
 
     fn setup(&mut self, metadata: &mut crate::ExecutionMetadata) {
-        self.group_name = metadata.group.clone();
+        self.group_name = metadata.group_replica.clone();
         self.previous.setup(metadata);
     }
 

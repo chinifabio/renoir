@@ -1,5 +1,5 @@
 - name: Setup environment
-  hosts: "{{ renoir_target_tier | default('all') }}"
+  hosts: "{{ renoir_target_group | default('all') }}"
   tasks:
     - name: Setup remote config
       set_fact:
@@ -22,15 +22,15 @@
     - name: Generate distributed config
       set_fact:
         distributed_config: |
-          host_tier = "{{ group_names|last }}"
-          {% set host_group = group_names|first %}
-          {% set host_tier = group_names|last %}
-          {% if host_group != host_tier %}
+          {% set host_group = group_names|last %}
           host_group = "{{ host_group }}"
+          {% set host_group_replica = group_names|first %}
+          {% if host_group != host_group_replica %}
+          host_group_replica = "{{ host_group_replica }}"
           {% else %}
-          {% set host_group = "default" %}
+          {% set host_group_replica = "default" %}
           {% endif %}
-          {% set group_connections = hostvars[inventory_hostname]["renoir_connections"][host_group] %}
+          {% set group_connections = hostvars[inventory_hostname]["renoir_connections"][host_group_replica] %}
           {% set group_input = group_connections["input"]|default(None) %}
           {% set group_output = group_connections["output"]|default(None) %}
           {% if group_input != None %}

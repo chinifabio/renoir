@@ -36,10 +36,10 @@ pub struct ExecutionMetadata<'a> {
     pub(crate) network: &'a mut NetworkTopology,
     /// The batching mode to use inside this block.
     pub batch_mode: BatchMode,
-    /// The tier of the block
-    pub tier: Option<String>,
-    /// The group of the block in the tier
+    /// The group of the block
     pub group: Option<String>,
+    /// The replica name of the group
+    pub group_replica: Option<String>,
 }
 
 /// Information about a block in the job graph.
@@ -171,8 +171,8 @@ impl Scheduler {
                 prev: self.network.prev(coord),
                 network: &mut self.network,
                 batch_mode: block_info.batch_mode,
-                tier: self.config.host_tier(),
                 group: self.config.host_group(),
+                group_replica: self.config.host_group_replica(),
             };
             let (handle, structure) = init_fn(&mut metadata);
             join.push(handle);
@@ -330,15 +330,15 @@ impl Scheduler {
             RuntimeConfig::Distributed {
                 remote_config,
                 distributed_config,
-            } => match block.tier.as_deref() {
-                Some(block_tier) => {
-                    if block_tier == distributed_config.host_tier {
+            } => match block.group.as_deref() {
+                Some(block_group) => {
+                    if block_group == distributed_config.host_group {
                         self.remote_block_info(block, remote_config)
                     } else {
                         self.foreign_block_info()
                     }
                 }
-                None => panic!("You should consider using tier in the stream definition."),
+                None => panic!("You should consider using groups in the stream definition."),
             },
         }
     }
@@ -450,7 +450,7 @@ impl Scheduler {
 
     /// Extract the `SchedulerBlockInfo` of a block that runs on a foreign host.
     ///
-    /// This is used when the block is not running on the same tier as the host.
+    /// This is used when the block is not running on the same group as the host.
     fn foreign_block_info(&self) -> SchedulerBlockInfo {
         SchedulerBlockInfo {
             repr: "foreign block".to_string(),

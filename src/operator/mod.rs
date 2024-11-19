@@ -497,7 +497,7 @@ where
     /// env.execute_blocking();
     ///
     /// assert_eq!(res.get().unwrap(), vec![1, 1 + 2, 1 + 2 + 3, 1 + 2 + 3 + 4, 1 + 2 + 3 + 4 + 5]);
-    /// ```    
+    /// ```
     ///
     /// This will enumerate all the elements that reach a replica. This is basically equivalent to
     /// the `enumerate` function in Python.
@@ -2078,8 +2078,8 @@ where
         StreamOutput::from(output)
     }
 
-    /// TODO docs
-    pub fn collect_into_kakfa(self, topic: &str, brokers: Vec<String>) {
+    /// WARNING: this method is experimental only and will be removed in the future
+    pub fn collect_into_kakfa(self, topic: impl Into<String>, brokers: Vec<String>) {
         let kafka_strategy = KafkaSinkConnector::new(brokers, topic);
         self.add_operator(|prev| {
             ConnectorSink::new(prev, ConnectorSinkTechnology::Kafka(kafka_strategy))
@@ -2087,8 +2087,36 @@ where
         .finalize_block();
     }
 
-    /// TODO docs
-    pub fn change_tier(self, new_tier: &str) -> Stream<impl Operator<Out = Op::Out>> {
+    /// Change the group of the stream.
+    ///
+    /// When the stream is executed in a distributed environment, one can decide to divide the stream in sub-streams
+    /// and run each sub-stream on a different group of hosts. To do so, one can use the `change_group` method which
+    /// internally tags all the following operators with the new group.
+    ///
+    /// **Note**: this operator will split the current block.
+    ///
+    /// **Note**: this operator in a local environment will works as a shuffle operator.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// use renoir::prelude::*;
+    ///
+    /// let mut (ctx, arg) = StreamContext::from_args();
+    ///
+    /// ctx.initial_group("sensors")
+    ///     .stream_iter(1..1000)
+    ///     .change_group("coordinator")
+    ///     .window_all(CountWindow::new(10, 5, false))
+    ///     .max()
+    ///     .collect_vec();
+    ///
+    /// ctx.execute_blocking();
+    /// ```
+    pub fn change_group(
+        self,
+        new_group: impl Into<String>,
+    ) -> Stream<impl Operator<Out = Op::Out>> {
         let Stream { block, ctx } = self;
         let mut lock = ctx.lock();
         let batch_mode = block.batch_mode;
@@ -2115,7 +2143,7 @@ where
                 distributed_config, ..
             } => {
                 let technology = distributed_config.input_group().into_source();
-                lock.update_tier(new_tier);
+                lock.update_group(new_group);
                 lock.new_block(
                     ConnectorSource::new_remote(technology),
                     Default::default(),
@@ -2140,15 +2168,32 @@ where
         }
     }
 
-    /// TODO docs
-    pub fn add_group_name(self) -> Stream<impl Operator<Out = (String, Op::Out)>> {
-        self.add_operator(|prev| group_decorator::GroupDecorator::new(prev))
-    }
-
-    /// TODO docs
-    pub fn connect_direct_tier(mut self, tag: &str) -> Stream<impl Operator<Out = Op::Out>> {
-        self.update_tier(tag);
-        self.split_block(End::new, NextStrategy::random())
+    /// Decorate each item in the stream with the name of the group replica it belongs to.
+    ///
+    /// This operator is useful to debug the distribution of the stream in the network.
+    ///
+    /// **Note**: in case this operator is called in a non-distributed environment, it will decorate
+    /// the items with and empty string.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// use renoir::prelude::*;
+    ///
+    /// let mut (ctx, arg) = StreamContext::from_args();
+    ///
+    /// ctx.initial_group("sensors")
+    ///     .stream_iter(1..1000)
+    ///     .identify_group_replica()
+    ///     .change_group("coordinator")
+    ///     .group_by(|(g, _)| g.clone())
+    ///     .max()
+    ///     .collect_vec();
+    ///
+    /// ctx.execute_blocking();
+    /// ```
+    pub fn identify_group_replica(self) -> Stream<impl Operator<Out = (String, Op::Out)>> {
+        self.add_operator(|prev| group_decorator::GroupReplicaDecorator::new(prev))
     }
 }
 
@@ -3022,16 +3067,35 @@ where
         self.unkey().collect_all()
     }
 
-    /// TODO docs
-    pub fn connect_group(self, new_group: &str) -> KeyedStream<impl Operator<Out = (K, I)>> {
-        self.0.change_tier(new_group).to_keyed()
-    }
-
-    /// TODO docs
-    pub fn connect_direct_tier(mut self, tag: &str) -> KeyedStream<impl Operator<Out = (K, I)>> {
-        self.0.update_tier(tag);
-        let next_strategy = NextStrategy::group_by(|(k, _): &(K, I)| k.clone());
-        self.0.split_block(End::new, next_strategy).to_keyed()
+    /// Change the group of the stream.
+    ///
+    /// When the stream is executed in a distributed environment, one can decide to divide the stream in sub-streams
+    /// and run each sub-stream on a different group of hosts. To do so, one can use the `change_group` method which
+    /// internally tags all the following operators with the new group.
+    ///
+    /// **Note**: this operator will split the current block.
+    ///
+    /// **Note**: this operator in a local environment will works as a shuffle operator.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// use renoir::prelude::*;
+    ///
+    /// let mut (ctx, arg) = StreamContext::from_args();
+    ///
+    /// ctx.initial_group("sensors")
+    ///     .stream_iter(1..1000)
+    ///     .group_by(|n| n % 2))
+    ///     .change_group("coordinator")
+    ///     .window_all(CountWindow::new(10, 5, false))
+    ///     .mean()
+    ///     .collect_vec();
+    ///
+    /// ctx.execute_blocking();
+    /// ```
+    pub fn change_group(self, name: impl Into<String>) -> KeyedStream<impl Operator<Out = (K, I)>> {
+        self.unkey().change_group(name).to_keyed()
     }
 }
 

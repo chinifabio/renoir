@@ -25,7 +25,7 @@ pub(crate) struct StreamContextInner {
     /// of this struct when the computation starts.
     scheduler: Option<Scheduler>,
     /// The tag to use for the first block of a stream
-    pub(crate) tier: Option<String>,
+    pub(crate) group: Option<String>,
 }
 
 /// Streaming environment from which it's possible to register new streams and start the
@@ -110,10 +110,10 @@ impl StreamContext {
         }
     }
 
-    /// Set the tag to use for the first block of a stream
-    pub fn start_tier(&self, name: impl Into<String>) -> &Self {
+    /// Set the group name for the first block in the stream
+    pub fn initial_group(&self, name: impl Into<String>) -> &Self {
         let mut inner = self.inner.lock();
-        inner.update_tier(name);
+        inner.update_group(name);
         self
     }
 }
@@ -124,7 +124,7 @@ impl StreamContextInner {
             config: config.clone(),
             block_count: 0,
             scheduler: Some(Scheduler::new(config)),
-            tier: None,
+            group: None,
         }
     }
 
@@ -137,18 +137,18 @@ impl StreamContextInner {
         let new_id = self.new_block_id();
         let replication = source.replication();
         let scheduling = Scheduling { replication };
-        let tier = match self.tier.as_deref() {
-            Some(t) => format!(", tier: {}", t),
+        let group = match self.group.as_deref() {
+            Some(t) => format!(", group: {}", t),
             None => "".to_string(),
         };
-        info!("new block (b{new_id:02}), replication {replication:?}{tier}",);
+        info!("new block (b{new_id:02}), replication {replication:?}{group}",);
         Block::new(
             new_id,
             source,
             batch_mode,
             iteration_ctx,
             scheduling,
-            self.tier.clone(),
+            self.group.clone(),
         )
     }
 
@@ -196,9 +196,9 @@ impl StreamContextInner {
             .expect("The environment has already been started, cannot access the scheduler")
     }
 
-    /// Update the tier name for this stream
-    pub(crate) fn update_tier(&mut self, name: impl Into<String>) {
-        self.tier = Some(name.into());
+    /// Update the group name for this stream
+    pub(crate) fn update_group(&mut self, name: impl Into<String>) {
+        self.group = Some(name.into());
     }
 }
 

@@ -285,13 +285,6 @@ where
         let mut env = self.ctx.lock();
         env.scheduler_mut().schedule_block(self.block);
     }
-
-    /// Update the tag of the current block.
-    #[allow(dead_code)]
-    pub(crate) fn update_tier(&mut self, tag: impl Into<String>) {
-        let mut ctx = self.ctx.lock();
-        ctx.update_tier(tag);
-    }
 }
 
 impl<OperatorChain> KeyedStream<OperatorChain>

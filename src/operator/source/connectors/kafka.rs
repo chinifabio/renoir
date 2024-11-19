@@ -65,19 +65,19 @@ impl<T: ExchangeData> ConnectorSourceStrategy<T> for KafkaSourceConnector<T> {
     }
 
     fn setup(&mut self, metadata: &mut crate::ExecutionMetadata) {
-        let tier = match metadata.tier.as_deref() {
-            Some(tier) => tier,
+        let group = match metadata.group.as_deref() {
+            Some(group_name) => group_name,
             None => {
-                log::warn!("No tier specified for Kafka source, using 'default'");
+                log::warn!("No groups specified for Kafka source, using 'default'");
                 "default"
             }
         };
 
-        let consumer_group = match metadata.group.as_deref() {
+        let consumer_group = match metadata.group_replica.as_deref() {
             Some(group_name) => {
-                format!("renoir-{}-{}", tier, group_name)
+                format!("renoir-{}-{}", group, group_name)
             }
-            None => format!("renoir-{}", tier),
+            None => format!("renoir-{}", group),
         };
 
         log::info!("Creating Kafka consumer with group id: {}", consumer_group);

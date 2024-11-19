@@ -60,20 +60,20 @@ impl<T: ExchangeData> KafkaSinkConnector<T> {
 
 impl<T: ExchangeData> ConnectorSinkStrategy<T> for KafkaSinkConnector<T> {
     fn setup(&mut self, metadata: &mut crate::ExecutionMetadata) {
-        let tier = match metadata.tier.as_deref() {
-            Some(tier_name) => tier_name,
+        let group = match metadata.group.as_deref() {
+            Some(group_name) => group_name,
             None => {
-                log::warn!("No tier specified for Kafka sink, using 'default'");
+                log::warn!("No groups specified for Kafka sink, using 'default'");
                 "default"
             }
         };
 
-        let client_id = match metadata.group.as_deref() {
+        let client_id = match metadata.group_replica.as_deref() {
             Some(group_name) => {
-                format!("renoir-{}-{}-{}", tier, group_name, metadata.global_id)
+                format!("renoir-{}-{}-{}", group, group_name, metadata.global_id)
             }
             None => {
-                format!("renoir-{}-{}", tier, metadata.global_id)
+                format!("renoir-{}-{}", group, metadata.global_id)
             }
         };
 

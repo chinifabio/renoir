@@ -140,13 +140,10 @@ pub struct RemoteConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct DistributedConfig {
-    /// The tier to which this host belongs.
-    pub(crate) host_tier: String,
-    /// The group to which this host belongs.
-    ///
-    /// This is used to define the client_id for the Kakfa producer and for the consumer_group
-    /// for Kafka consumersc.
-    pub(crate) host_group: Option<String>,
+    /// The group which this host belongs to.
+    pub(crate) host_group: String,
+    /// The group's replica which this host belongs to.
+    pub(crate) host_group_replica: Option<String>,
     /// The input source for the computation group.
     pub(crate) group_input: Option<ConnectorTechnology>,
     /// The output sink for the computation group.
@@ -154,10 +151,12 @@ pub struct DistributedConfig {
 }
 
 impl DistributedConfig {
+    /// Returns the technology where to send the output of the group.
     pub fn output_group(&self) -> ConnectorTechnology {
         self.group_output.clone().unwrap_or_default()
     }
 
+    /// Returns the technology where to receive the input of the group.
     pub fn input_group(&self) -> ConnectorTechnology {
         self.group_input.clone().unwrap_or_default()
     }
@@ -411,20 +410,20 @@ impl RuntimeConfig {
         }
     }
 
-    pub fn host_tier(&self) -> Option<String> {
-        match self {
-            RuntimeConfig::Distributed {
-                distributed_config, ..
-            } => Some(distributed_config.host_tier.clone()),
-            _ => None,
-        }
-    }
-
     pub fn host_group(&self) -> Option<String> {
         match self {
             RuntimeConfig::Distributed {
                 distributed_config, ..
-            } => distributed_config.host_group.clone(),
+            } => Some(distributed_config.host_group.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn host_group_replica(&self) -> Option<String> {
+        match self {
+            RuntimeConfig::Distributed {
+                distributed_config, ..
+            } => distributed_config.host_group_replica.clone(),
             _ => None,
         }
     }
