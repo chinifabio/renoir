@@ -8,11 +8,15 @@ use kafka::KafkaSourceConnector;
 use redis::RedisSourceConnector;
 
 use crate::block::{BlockStructure, OperatorKind, OperatorStructure, Replication};
+use crate::config::{ConnectorTechnology, DistributedConfig};
 use crate::operator::iteration::IterationStateLock;
 use crate::operator::source::Source;
 use crate::operator::{ExchangeData, Operator, SimpleStartReceiver, Start, StreamElement};
 use crate::scheduler::ExecutionMetadata;
-use crate::Stream;
+
+use self::heartbeat::HeartbeatManager;
+
+use super::heartbeat;
 
 #[derive(Debug)]
 pub struct ConnectorSource<T: ExchangeData> {
@@ -29,6 +33,7 @@ pub enum ConnectorSourceInner<T: ExchangeData> {
 #[derive(Debug, Clone)]
 pub enum ConnectorSourceTechnology<T: ExchangeData> {
     Kafka(KafkaSourceConnector<T>),
+    #[allow(dead_code)]
     Redis(RedisSourceConnector<T>),
     None,
 }
@@ -74,6 +79,16 @@ impl<T: ExchangeData> Operator for ConnectorSource<T> {
     type Out = T;
 
     fn setup(&mut self, metadata: &mut ExecutionMetadata) {
+        // if metadata.global_id == 0 {
+        //     std::thread::spawn(move || {
+        //         let client = ClientConfig::new()
+        //             .set("bootstrap.servers", vec![""])
+        //             .set("group.id", "sono un gruppo")
+        //             .set("enable.auto.commit", "true")
+        //             .set("auto.offset.reset", "earliest");
+        //         HeartbeatReceiver::new(Duration::from_secs(10), "renoir-heartbeat", client);
+        //     })
+        // }
         match &mut self.inner {
             ConnectorSourceInner::Local(start) => start.setup(metadata),
             ConnectorSourceInner::Remote(tech) => tech.setup(metadata),
@@ -138,19 +153,22 @@ impl<T: ExchangeData> ConnectorSource<T> {
         }
     }
 
-    pub(crate) fn new_remote(technology: ConnectorSourceTechnology<T>) -> Self {
+    pub(crate) fn new_remote(config: Arc<DistributedConfig>) -> Self {
+        let technology = match config.input_group() {
+            ConnectorTechnology::Kafka(kafka_config) => {
+                let heartbeat = HeartbeatManager::new(config.clone());
+                ConnectorSourceTechnology::Kafka(KafkaSourceConnector::new(
+                    kafka_config.brokers,
+                    kafka_config.topic,
+                    kafka_config.timeout,
+                    heartbeat,
+                ))
+            }
+            ConnectorTechnology::None => ConnectorSourceTechnology::None,
+            e => todo!("Missing implementation for this technology: {e:?}"),
+        };
         ConnectorSource {
             inner: ConnectorSourceInner::Remote(technology),
         }
-    }
-}
-
-impl crate::StreamContext {
-    pub fn stream_connector<T: ExchangeData>(
-        &self,
-        connector: ConnectorSourceTechnology<T>,
-    ) -> Stream<impl Operator<Out = T>> {
-        let source = ConnectorSource::new_remote(connector);
-        self.stream(source)
     }
 }

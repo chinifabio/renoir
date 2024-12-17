@@ -17,7 +17,6 @@ mod async_stream;
 #[cfg(feature = "avro")]
 mod avro;
 mod channel;
-pub(crate) mod connectors;
 mod csv;
 mod file;
 mod iterator;

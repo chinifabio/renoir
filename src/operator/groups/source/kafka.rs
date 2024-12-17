@@ -1,24 +1,28 @@
-use std::{io::Read, time::Duration};
+use std::{collections::HashMap, io::Read, sync::Arc, time::Duration};
 
+use parking_lot::lock_api::Mutex;
 use rdkafka::{
     consumer::{BaseConsumer, Consumer},
     util::Timeout,
     ClientConfig, Message,
 };
 
-use crate::{
-    config::KafkaConfig,
-    operator::{ExchangeData, StreamElement},
+use crate::operator::{
+    groups::heartbeat::{GroupMap, HeartbeatManager},
+    ExchangeData, StreamElement,
 };
 
-use super::{ConnectorSource, ConnectorSourceStrategy};
+use super::ConnectorSourceStrategy;
 
 pub struct KafkaSourceConnector<T: ExchangeData> {
     hosts: Vec<String>,
     consumer: Option<BaseConsumer>,
     topic: String,
-    _phantom: std::marker::PhantomData<T>,
     timeout: Timeout,
+    _phantom: std::marker::PhantomData<T>,
+
+    groups: GroupMap,
+    heartbeat: HeartbeatManager,
 }
 
 impl<T: ExchangeData> std::fmt::Debug for KafkaSourceConnector<T> {
@@ -38,12 +42,19 @@ impl<T: ExchangeData> Clone for KafkaSourceConnector<T> {
             topic: self.topic.clone(),
             _phantom: std::marker::PhantomData,
             timeout: self.timeout,
+            groups: self.groups.clone(),
+            heartbeat: self.heartbeat.clone(),
         }
     }
 }
 
 impl<T: ExchangeData> KafkaSourceConnector<T> {
-    pub fn new(hosts: Vec<String>, topic: impl Into<String>, timeout: Option<u64>) -> Self {
+    pub fn new(
+        hosts: Vec<String>,
+        topic: impl Into<String>,
+        timeout: Option<u64>,
+        heartbeat: HeartbeatManager,
+    ) -> Self {
         let timeout = match timeout {
             Some(timeout) => Timeout::After(Duration::from_secs(timeout)),
             None => Timeout::Never,
@@ -55,6 +66,8 @@ impl<T: ExchangeData> KafkaSourceConnector<T> {
             topic: topic.into(),
             _phantom: std::marker::PhantomData,
             timeout,
+            groups: Arc::new(Mutex::new(HashMap::new())),
+            heartbeat,
         }
     }
 }
@@ -92,6 +105,10 @@ impl<T: ExchangeData> ConnectorSourceStrategy<T> for KafkaSourceConnector<T> {
             .subscribe(&[self.topic.as_str()])
             .expect("Kafka consumer subscription failed");
         self.consumer = Some(consumer);
+
+        // todo penso posso togliere un po' di thread perchè tanto se sharo la hashmap è sempre aggiornata
+        self.heartbeat
+            .start_receiver(self.groups.clone(), metadata.global_id);
     }
 
     fn next(&mut self) -> StreamElement<T> {
@@ -122,25 +139,5 @@ impl<T: ExchangeData> ConnectorSourceStrategy<T> for KafkaSourceConnector<T> {
 
     fn technology(&self) -> String {
         "Kafka".to_string()
-    }
-}
-
-impl<T: ExchangeData> From<&KafkaConfig> for KafkaSourceConnector<T> {
-    fn from(value: &KafkaConfig) -> Self {
-        KafkaSourceConnector::new(value.brokers.clone(), value.topic.clone(), value.timeout)
-    }
-}
-
-impl crate::StreamContext {
-    pub fn stream_from_kafka<T: ExchangeData>(
-        &self,
-        brokers: Vec<String>,
-        topic: impl Into<String>,
-        timeout: Option<u64>,
-    ) -> crate::Stream<ConnectorSource<T>> {
-        let kafka_strategy = KafkaSourceConnector::new(brokers, topic, timeout);
-        self.stream(ConnectorSource::new_remote(
-            super::ConnectorSourceTechnology::Kafka(kafka_strategy),
-        ))
     }
 }

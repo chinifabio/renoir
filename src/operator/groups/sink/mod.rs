@@ -2,13 +2,19 @@ pub mod kafka;
 pub mod redis;
 
 use core::panic;
+use std::sync::Arc;
 
 use kafka::KafkaSinkConnector;
 use redis::RedisSinkConnector;
 
 use crate::block::{BlockStructure, OperatorKind, OperatorStructure};
+use crate::config::{ConnectorTechnology, DistributedConfig};
 use crate::operator::{ExchangeData, Operator, StreamElement};
 use crate::scheduler::ExecutionMetadata;
+
+use self::heartbeat::HeartbeatManager;
+
+use super::heartbeat;
 
 #[derive(Debug, Clone)]
 pub struct ConnectorSink<T, Op>
@@ -23,6 +29,7 @@ where
 #[derive(Debug, Clone)]
 pub enum ConnectorSinkTechnology<T: ExchangeData> {
     Kafka(KafkaSinkConnector<T>),
+    #[allow(dead_code)]
     Redis(RedisSinkConnector<T>),
     None,
 }
@@ -38,7 +45,19 @@ where
     T: ExchangeData,
     Op: Operator<Out = T>,
 {
-    pub fn new(prev: Op, technology: ConnectorSinkTechnology<T>) -> Self {
+    pub fn new(prev: Op, config: Arc<DistributedConfig>) -> Self {
+        let technology = match config.output_group() {
+            ConnectorTechnology::Kafka(kafka_config) => {
+                let heartbeat = HeartbeatManager::new(config.clone());
+                ConnectorSinkTechnology::Kafka(KafkaSinkConnector::new(
+                    kafka_config.brokers,
+                    kafka_config.topic,
+                    heartbeat,
+                ))
+            }
+            ConnectorTechnology::None => ConnectorSinkTechnology::None,
+            e => todo!("Missing implementation for this sink technology: {e:?}"),
+        };
         ConnectorSink {
             inner: technology,
             prev,

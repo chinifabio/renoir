@@ -7,16 +7,12 @@ use std::fmt::{Display, Formatter};
 use std::path::Path;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::Arc;
 
 #[cfg(feature = "clap")]
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 
-use crate::operator::sink::connectors::kafka::KafkaSinkConnector;
-use crate::operator::sink::connectors::ConnectorSinkTechnology;
-use crate::operator::ExchangeData;
-use crate::prelude::connectors::kafka::KafkaSourceConnector;
-use crate::prelude::connectors::ConnectorSourceTechnology;
 use crate::runner::spawn_remote_workers;
 use crate::scheduler::HostId;
 use crate::CoordUInt;
@@ -91,7 +87,7 @@ pub enum RuntimeConfig {
     /// Use both local threads and remote workers and divide in group the computation.
     Distributed {
         remote_config: RemoteConfig,
-        distributed_config: DistributedConfig,
+        distributed_config: Arc<DistributedConfig>,
     },
 }
 
@@ -145,9 +141,11 @@ pub struct DistributedConfig {
     /// The group's replica which this host belongs to.
     pub(crate) host_group_replica: Option<String>,
     /// The input source for the computation group.
-    pub(crate) group_input: Option<ConnectorTechnology>,
+    group_input: Option<ConnectorTechnology>,
     /// The output sink for the computation group.
-    pub(crate) group_output: Option<ConnectorTechnology>,
+    group_output: Option<ConnectorTechnology>,
+
+    pub heartbeat_channel: Option<KafkaConfig>,
 }
 
 impl DistributedConfig {
@@ -232,38 +230,6 @@ pub struct KafkaConfig {
 pub struct RedisConfig {
     pub urls: Vec<String>,
     pub key: String,
-}
-
-impl ConnectorTechnology {
-    pub fn into_sink<T: ExchangeData>(&self) -> ConnectorSinkTechnology<T> {
-        match self {
-            ConnectorTechnology::Kafka(kafka_config) => {
-                ConnectorSinkTechnology::Kafka(kafka_config.into_sink())
-            }
-            ConnectorTechnology::Redis(_) => todo!(),
-            ConnectorTechnology::None => ConnectorSinkTechnology::None,
-        }
-    }
-
-    pub fn into_source<T: ExchangeData>(&self) -> ConnectorSourceTechnology<T> {
-        match self {
-            ConnectorTechnology::Kafka(kafka_config) => {
-                ConnectorSourceTechnology::Kafka(kafka_config.into_source())
-            }
-            ConnectorTechnology::Redis(_) => todo!(),
-            ConnectorTechnology::None => ConnectorSourceTechnology::None,
-        }
-    }
-}
-
-impl KafkaConfig {
-    pub fn into_sink<T: ExchangeData>(&self) -> KafkaSinkConnector<T> {
-        KafkaSinkConnector::new(self.brokers.clone(), self.topic.clone())
-    }
-
-    pub fn into_source<T: ExchangeData>(&self) -> KafkaSourceConnector<T> {
-        KafkaSourceConnector::new(self.brokers.clone(), self.topic.clone(), self.timeout)
-    }
 }
 
 impl std::fmt::Debug for SSHConfig {
@@ -588,7 +554,7 @@ impl DistributedConfigBuilder {
         if let RuntimeConfig::Remote(remote_config) = self.config_builder.build()? {
             Ok(RuntimeConfig::Distributed {
                 remote_config,
-                distributed_config,
+                distributed_config: Arc::new(distributed_config),
             })
         } else {
             unreachable!()

@@ -13,9 +13,8 @@ use flume::{unbounded, Receiver};
 use futures::Future;
 use serde::{Deserialize, Serialize};
 
-use sink::connectors::kafka::KafkaSinkConnector;
-use sink::connectors::{ConnectorSink, ConnectorSinkTechnology};
-use source::connectors::ConnectorSource;
+use groups::sink::ConnectorSink;
+use groups::source::ConnectorSource;
 pub(crate) use start::*;
 
 pub use rich_map_custom::ElementGenerator;
@@ -70,6 +69,7 @@ mod flat_map;
 mod flatten;
 mod fold;
 mod group_decorator;
+pub(crate) mod groups;
 mod inspect;
 #[cfg(feature = "timestamp")]
 mod interval_join;
@@ -2078,15 +2078,6 @@ where
         StreamOutput::from(output)
     }
 
-    /// WARNING: this method is experimental only and will be removed in the future
-    pub fn collect_into_kakfa(self, topic: impl Into<String>, brokers: Vec<String>) {
-        let kafka_strategy = KafkaSinkConnector::new(brokers, topic);
-        self.add_operator(|prev| {
-            ConnectorSink::new(prev, ConnectorSinkTechnology::Kafka(kafka_strategy))
-        })
-        .finalize_block();
-    }
-
     /// Change the group of the stream.
     ///
     /// When the stream is executed in a distributed environment, one can decide to divide the stream in sub-streams
@@ -2126,8 +2117,8 @@ where
             RuntimeConfig::Distributed {
                 distributed_config, ..
             } => {
-                let technology = distributed_config.output_group().into_sink();
-                let block = block.add_operator(|prev| ConnectorSink::new(prev, technology));
+                let config = distributed_config.clone();
+                let block = block.add_operator(|prev| ConnectorSink::new(prev, config));
                 lock.close_block(block)
             }
             _ => {
@@ -2142,10 +2133,10 @@ where
             RuntimeConfig::Distributed {
                 distributed_config, ..
             } => {
-                let technology = distributed_config.input_group().into_source();
+                let config = distributed_config.clone();
                 lock.update_group(new_group);
                 lock.new_block(
-                    ConnectorSource::new_remote(technology),
+                    ConnectorSource::new_remote(config),
                     Default::default(),
                     Default::default(),
                 )

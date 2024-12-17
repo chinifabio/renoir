@@ -4,12 +4,11 @@ use rdkafka::{
     ClientConfig,
 };
 
-use crate::{
-    config::KafkaConfig,
-    operator::{ExchangeData, StreamElement},
-};
+use crate::operator::{ExchangeData, StreamElement};
 
-use super::ConnectorSinkStrategy;
+use self::heartbeat::HeartbeatManager;
+
+use super::{heartbeat, ConnectorSinkStrategy};
 
 const DEFAULT_FLUSH_TIMER: u32 = 32;
 
@@ -18,8 +17,10 @@ pub struct KafkaSinkConnector<T: ExchangeData> {
     producer: Option<BaseProducer>,
     topic: String,
     topic_key: Option<String>,
-    _phantom: std::marker::PhantomData<T>,
     flush_timer: u32,
+    _phantom: std::marker::PhantomData<T>,
+
+    heartbeat: HeartbeatManager,
 }
 
 impl<T: ExchangeData> Clone for KafkaSinkConnector<T> {
@@ -29,8 +30,10 @@ impl<T: ExchangeData> Clone for KafkaSinkConnector<T> {
             producer: None,
             topic: self.topic.clone(),
             topic_key: self.topic_key.clone(),
-            _phantom: std::marker::PhantomData,
             flush_timer: self.flush_timer,
+            _phantom: std::marker::PhantomData,
+
+            heartbeat: self.heartbeat.clone(),
         }
     }
 }
@@ -46,14 +49,16 @@ impl<T: ExchangeData> std::fmt::Debug for KafkaSinkConnector<T> {
 }
 
 impl<T: ExchangeData> KafkaSinkConnector<T> {
-    pub fn new(hosts: Vec<String>, topic: impl Into<String>) -> Self {
+    pub fn new(hosts: Vec<String>, topic: impl Into<String>, heartbeat: HeartbeatManager) -> Self {
         Self {
             hosts,
             producer: None,
             topic: topic.into(),
             topic_key: None,
-            _phantom: std::marker::PhantomData,
             flush_timer: DEFAULT_FLUSH_TIMER,
+            _phantom: std::marker::PhantomData,
+
+            heartbeat,
         }
     }
 }
@@ -85,6 +90,10 @@ impl<T: ExchangeData> ConnectorSinkStrategy<T> for KafkaSinkConnector<T> {
 
         self.producer = Some(producer);
         self.topic_key = Some(client_id);
+
+        if metadata.global_id == 0 {
+            self.heartbeat.start_emitter();
+        }
     }
 
     fn append(&mut self, item: &StreamElement<T>) {
@@ -110,11 +119,5 @@ impl<T: ExchangeData> ConnectorSinkStrategy<T> for KafkaSinkConnector<T> {
 
     fn technology(&self) -> String {
         "Kafka".to_string()
-    }
-}
-
-impl<T: ExchangeData> From<&KafkaConfig> for KafkaSinkConnector<T> {
-    fn from(value: &KafkaConfig) -> Self {
-        KafkaSinkConnector::new(value.brokers.clone(), value.topic.clone())
     }
 }
