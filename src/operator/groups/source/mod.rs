@@ -31,6 +31,7 @@ pub enum ConnectorSourceInner<T: ExchangeData> {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum ConnectorSourceTechnology<T: ExchangeData> {
     Kafka(KafkaSourceConnector<T>),
     #[allow(dead_code)]

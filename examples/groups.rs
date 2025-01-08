@@ -33,10 +33,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .filter(|x| x % 2 == 0)
         .change_group("servers")
-        .window_all(ProcessingTimeWindow::sliding(
-            Duration::from_secs(10),
-            Duration::from_secs(2),
-        ))
+        .window_all(EventTimeWindow::sliding(10, 2))
         .max()
         .unkey()
         .for_each(|x| log::info!("received: {x:?}"));

@@ -139,8 +139,9 @@ impl HeartbeatManager {
         *is_running.lock() = true;
         self.handle.push(thread::spawn(move || {
             while *is_running.lock() {
-                match consumer.poll(Timeout::Never) {
+                match consumer.poll(Timeout::After(Duration::from_secs(1))) {
                     Some(Ok(bmessage)) => {
+                        let now = Instant::now();
                         let payload = bmessage.payload().unwrap();
                         let Heartbeat(group_name, parallelism) =
                             serde_json::from_slice(payload).unwrap();
@@ -149,10 +150,19 @@ impl HeartbeatManager {
                         let mut times_guard = kafka_times.lock();
                         let mut groups_guard = kafka_groups.lock();
 
-                        if !groups_guard.contains_key(&group_name) {
+                        if groups_guard.contains_key(&group_name) {
+                            let earlier: Instant = times_guard[&group_name];
+                            if now.duration_since(earlier) > interval + Duration::from_secs(5) {
+                                log::warn!("GROUP DISCONNECTED: {group_name}");
+                                groups_guard.remove(&group_name);
+                                times_guard.remove(&group_name);
+                            } else {
+                                times_guard.insert(group_name, now);
+                            }
+                        } else {
                             groups_guard.insert(group_name.clone(), parallelism);
+                            times_guard.insert(group_name, now);
                         }
-                        times_guard.insert(group_name, Instant::now());
                     }
                     Some(Err(e)) => {
                         log::error!("Kafka failed: {e:?}");
@@ -161,30 +171,6 @@ impl HeartbeatManager {
                         log::warn!("Received empty message from Kafka")
                     }
                 }
-            }
-        }));
-
-        self.handle.push(std::thread::spawn(move || {
-            loop {
-                log::debug!("Checking times...");
-                let now = Instant::now();
-                let mut times_guard = times.lock();
-                let mut groups_guard = groups.lock();
-                let mut disconnected = Vec::new();
-                for (group_name, earlier) in times_guard.iter() {
-                    // TODO improve how to handle/define the time delta
-                    if now.duration_since(*earlier) > interval + Duration::from_secs(5) {
-                        log::warn!("GROUP DISCONNECTED: {group_name}");
-                        disconnected.push(group_name.clone());
-                        groups_guard.remove(group_name);
-                    }
-                }
-                disconnected.into_iter().for_each(|k| {
-                    times_guard.remove(&k);
-                });
-                log::debug!("Connected groups: {:?}", times_guard.keys());
-
-                std::thread::sleep(interval);
             }
         }));
     }
@@ -197,7 +183,7 @@ pub struct WatermarkManager {
     /// The current minimum time.
     ///
     /// It's tracked the minimum because the timestamp are monotonically increasing
-    min_time: HashMap<GroupName, Timestamp>,
+    min_time: Timestamp,
     /// The mapping of current host connected
     groups: GroupMap,
 }
@@ -206,13 +192,18 @@ impl WatermarkManager {
     pub fn new(groups: GroupMap) -> Self {
         WatermarkManager {
             time_tracking: HashMap::new(),
-            min_time: HashMap::new(),
+            min_time: -1,
             groups,
         }
     }
 
     /// Return a watermark if the tracked time for a group advance, otherwise returns a None
-    pub fn update(&mut self, group: GroupName, timestamp: Timestamp, id: CoordUInt) -> Option<Timestamp> {
+    pub fn update(
+        &mut self,
+        group: GroupName,
+        timestamp: Timestamp,
+        id: CoordUInt,
+    ) -> Option<Timestamp> {
         let groups_guard = self.groups.lock();
 
         if !groups_guard.contains_key(&group) {
@@ -231,18 +222,29 @@ impl WatermarkManager {
         }
 
         log::debug!("Received Watermark {timestamp} from {group}:{id}");
-        let inner_map = self.time_tracking.entry(group.clone()).or_default();
 
+        let inner_map = self.time_tracking.entry(group.clone()).or_default();
         if let Some(replica_time) = inner_map.get(&id) {
             assert!(*replica_time < timestamp);
         }
         inner_map.insert(id, timestamp);
 
-        let min_time_entry = self.min_time.entry(group.clone()).or_insert(timestamp);
-        let min_time = inner_map.values().min().cloned().unwrap_or(timestamp);
-        if min_time > *min_time_entry {
-            log::debug!("Advancing time ({min_time}) for {group}");
-            *min_time_entry = min_time;
+        let expected_n: u64 = groups_guard.values().copied().sum();
+        let received_n: u64 = self
+            .time_tracking
+            .values()
+            .map(|im| im.len())
+            .sum::<usize>() as u64;
+        let min_time = self
+            .time_tracking
+            .iter()
+            .flat_map(|(_, im)| im.values())
+            .min()
+            .copied()
+            .unwrap_or(-1);
+        if expected_n == received_n && min_time > self.min_time {
+            log::debug!("Time advanced {min_time}");
+            self.min_time = min_time;
             return Some(min_time);
         }
 
