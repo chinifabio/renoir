@@ -9,22 +9,17 @@ use rdkafka::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::config::DistributedConfig;
+use crate::{config::DistributedConfig, operator::Timestamp, CoordUInt};
 use std::thread;
 use std::time::Duration;
+
+use super::{GroupMap, GroupName};
 
 pub(crate) mod emitter;
 pub(crate) mod receiver;
 
-pub(crate) type GroupName = String;
-pub(crate) type GroupMap = Arc<Mutex<HashMap<GroupName, usize>>>;
-
 #[derive(Debug, Serialize, Deserialize)]
-enum HearbeatMessage {
-    GroupJoin(GroupName, usize),
-    Heartbeat(GroupName),
-    GroupLeave(GroupName),
-}
+struct Heartbeat(GroupName, CoordUInt);
 
 #[derive(Debug)]
 pub struct HeartbeatManager {
@@ -60,7 +55,7 @@ impl HeartbeatManager {
         }
     }
 
-    pub fn start_emitter(&mut self) {
+    pub fn start_emitter(&mut self, group_parallelism: CoordUInt) {
         log::debug!("Starting emitter...");
         let channel = self
             .config
@@ -75,16 +70,18 @@ impl HeartbeatManager {
             .set("bootstrap.servers", channel.brokers.join(","))
             .create()
             .expect("Cannot create producer for heartbear manager");
-        let interval = channel
-            .timeout
-            .expect("Missing timeout distributed_config.heartbeat_channel.timeout");
+        let interval = Duration::from_secs(
+            channel
+                .timeout
+                .expect("Missing timeout distributed_config.heartbeat_channel.timeout"),
+        );
 
         let is_running = self.is_running.clone();
         *is_running.lock() = true;
         self.handle.push(thread::spawn(move || {
             log::debug!("Sending group join");
             Self::send_message(
-                HearbeatMessage::GroupJoin(group_name.clone(), 999),
+                Heartbeat(group_name.clone(), group_parallelism),
                 &producer,
                 channel.topic.as_str(),
             )
@@ -93,29 +90,26 @@ impl HeartbeatManager {
             while *is_running.lock() {
                 // todo capire se serve aggiungere il numero progressivo
                 log::debug!("Sending heartbeat");
-                let message = HearbeatMessage::Heartbeat(group_name.clone());
+                let message = Heartbeat(group_name.clone(), group_parallelism);
                 Self::send_message(message, &producer, channel.topic.as_str())
                     .expect("Failed to send heartbeat!");
-                thread::sleep(Duration::from_secs(interval / 2));
+                thread::sleep(interval);
             }
         }));
     }
 
-    fn send_message(
-        message: HearbeatMessage,
-        producer: &BaseProducer,
-        topic: &str,
-    ) -> Result<(), ()> {
+    fn send_message(message: Heartbeat, producer: &BaseProducer, topic: &str) -> Result<(), ()> {
         let json = serde_json::to_string(&message)
             .unwrap_or_else(|_| panic!("Failed to serialize heartbeat message {:?}", message));
-        let record = BaseRecord::to(topic).payload(&json).key("franca-garzotto");
+        let record = BaseRecord::to(topic).payload(&json).key("renoir");
         producer
             .send(record)
-            .expect(format!("Failed to send heartbeat message {:?}", message).as_str());
+            .unwrap_or_else(|_| panic!("Failed to send heartbeat message {:?}", message));
         Ok(())
     }
 
     pub fn start_receiver(&mut self, groups: GroupMap, id: u64) {
+        log::debug!("Starting receiver");
         let times = Arc::new(Mutex::new(HashMap::new()));
 
         let channel = self
@@ -127,7 +121,7 @@ impl HeartbeatManager {
             .set("bootstrap.servers", channel.brokers.join(","))
             .set("group.id", format!("renoir-heartbeat-receiver-{id}"))
             .set("enable.auto.commit", "true")
-            .set("auto.offset.reset", "earliest")
+            .set("auto.offset.reset", "latest")
             .create()
             .expect("Cannot create producer for heartbear manager");
         consumer
@@ -145,30 +139,23 @@ impl HeartbeatManager {
         *is_running.lock() = true;
         self.handle.push(thread::spawn(move || {
             while *is_running.lock() {
-                match consumer.poll(Timeout::After(interval)) {
+                match consumer.poll(Timeout::Never) {
                     Some(Ok(bmessage)) => {
                         let payload = bmessage.payload().unwrap();
-                        match serde_json::from_slice(payload).unwrap() {
-                            HearbeatMessage::GroupJoin(key, parallelism) => {
-                                kafka_times.lock().insert(key.clone(), Instant::now());
-                                kafka_groups.lock().insert(key, parallelism);
-                            }
-                            HearbeatMessage::Heartbeat(key) => {
-                                kafka_times.lock().insert(key.clone(), Instant::now());
-                                assert!(
-                                    kafka_groups.lock().contains_key(&key),
-                                    "Heartbeat without group join"
-                                );
-                            }
-                            HearbeatMessage::GroupLeave(key) => {
-                                kafka_times.lock().remove(&key);
-                                kafka_groups.lock().remove(&key);
-                            }
+                        let Heartbeat(group_name, parallelism) =
+                            serde_json::from_slice(payload).unwrap();
+                        log::debug!("Received heartbeat message ({group_name}, {parallelism})");
+
+                        let mut times_guard = kafka_times.lock();
+                        let mut groups_guard = kafka_groups.lock();
+
+                        if !groups_guard.contains_key(&group_name) {
+                            groups_guard.insert(group_name.clone(), parallelism);
                         }
+                        times_guard.insert(group_name, Instant::now());
                     }
                     Some(Err(e)) => {
                         log::error!("Kafka failed: {e:?}");
-                        panic!("Kafka failed, see logs for details.");
                     }
                     None => {
                         log::warn!("Received empty message from Kafka")
@@ -177,31 +164,88 @@ impl HeartbeatManager {
             }
         }));
 
-        let mut earlier = Instant::now();
         self.handle.push(std::thread::spawn(move || {
-            let now = Instant::now();
             loop {
+                log::debug!("Checking times...");
+                let now = Instant::now();
                 let mut times_guard = times.lock();
+                let mut groups_guard = groups.lock();
                 let mut disconnected = Vec::new();
-                for (key, last_time) in times_guard.iter() {
-                    if now.duration_since(*last_time) > interval {
-                        log::warn!("GROUP DISCONNECTED: {key}");
-                        disconnected.push(key.clone());
-                        groups.lock().remove(key);
+                for (group_name, earlier) in times_guard.iter() {
+                    // TODO improve how to handle/define the time delta
+                    if now.duration_since(*earlier) > interval + Duration::from_secs(5) {
+                        log::warn!("GROUP DISCONNECTED: {group_name}");
+                        disconnected.push(group_name.clone());
+                        groups_guard.remove(group_name);
                     }
                 }
                 disconnected.into_iter().for_each(|k| {
                     times_guard.remove(&k);
                 });
-                log::debug!("Connected groups: {:?}", times.lock().keys());
+                log::debug!("Connected groups: {:?}", times_guard.keys());
 
-                if let Some(time_to_sleep) =
-                    interval.checked_sub(Instant::now().duration_since(earlier))
-                {
-                    std::thread::sleep(time_to_sleep);
-                }
-                earlier = Instant::now();
+                std::thread::sleep(interval);
             }
         }));
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WatermarkManager {
+    /// Maps each group to a map that tracks for each coord the last time
+    time_tracking: HashMap<GroupName, HashMap<CoordUInt, Timestamp>>,
+    /// The current minimum time.
+    ///
+    /// It's tracked the minimum because the timestamp are monotonically increasing
+    min_time: HashMap<GroupName, Timestamp>,
+    /// The mapping of current host connected
+    groups: GroupMap,
+}
+
+impl WatermarkManager {
+    pub fn new(groups: GroupMap) -> Self {
+        WatermarkManager {
+            time_tracking: HashMap::new(),
+            min_time: HashMap::new(),
+            groups,
+        }
+    }
+
+    /// Return a watermark if the tracked time for a group advance, otherwise returns a None
+    pub fn update(&mut self, group: GroupName, timestamp: Timestamp, id: CoordUInt) -> Option<Timestamp> {
+        let groups_guard = self.groups.lock();
+
+        if !groups_guard.contains_key(&group) {
+            log::warn!("Watermark received from a non connected source");
+            return None;
+        }
+
+        let keys_to_remove: Vec<String> = self
+            .time_tracking
+            .keys()
+            .filter(|k| !groups_guard.contains_key(*k))
+            .cloned()
+            .collect();
+        for key in keys_to_remove {
+            self.time_tracking.remove(&key);
+        }
+
+        log::debug!("Received Watermark {timestamp} from {group}:{id}");
+        let inner_map = self.time_tracking.entry(group.clone()).or_default();
+
+        if let Some(replica_time) = inner_map.get(&id) {
+            assert!(*replica_time < timestamp);
+        }
+        inner_map.insert(id, timestamp);
+
+        let min_time_entry = self.min_time.entry(group.clone()).or_insert(timestamp);
+        let min_time = inner_map.values().min().cloned().unwrap_or(timestamp);
+        if min_time > *min_time_entry {
+            log::debug!("Advancing time ({min_time}) for {group}");
+            *min_time_entry = min_time;
+            return Some(min_time);
+        }
+
+        None
     }
 }

@@ -1,10 +1,6 @@
-use crate::{
-    config::RedisConfig,
-    operator::{ExchangeData, StreamElement},
-    ExecutionMetadata,
-};
+use crate::{config::RedisConfig, operator::ExchangeData, ExecutionMetadata};
 
-use super::ConnectorSinkStrategy;
+use super::{ConnectorSinkStrategy, GroupStreamElement};
 
 pub struct RedisSinkConnector<T: ExchangeData> {
     client: redis::Client,
@@ -54,7 +50,7 @@ impl<T: ExchangeData> ConnectorSinkStrategy<T> for RedisSinkConnector<T> {
         self.maybe_connection = self.client.get_connection().ok();
     }
 
-    fn append(&mut self, item: &StreamElement<T>) {
+    fn append(&mut self, item: &GroupStreamElement<T>) {
         let connection = self
             .maybe_connection
             .as_mut()

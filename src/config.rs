@@ -148,7 +148,28 @@ pub struct DistributedConfig {
     pub heartbeat_channel: Option<KafkaConfig>,
 }
 
+impl RemoteConfig {
+    /// Return the total number of core of the cluster
+    pub fn parallelism(&self) -> CoordUInt {
+        self.hosts.iter().map(|h| h.num_cores).sum()
+    }
+}
+
 impl DistributedConfig {
+    pub fn new(
+        host_group: String,
+        host_group_replica: Option<String>,
+        heartbeat_channel: Option<KafkaConfig>,
+    ) -> Self {
+        Self {
+            host_group,
+            host_group_replica,
+            group_input: None,
+            group_output: None,
+            heartbeat_channel,
+        }
+    }
+
     /// Returns the technology where to send the output of the group.
     pub fn output_group(&self) -> ConnectorTechnology {
         self.group_output.clone().unwrap_or_default()
@@ -331,6 +352,7 @@ impl RuntimeConfig {
         builder.build()
     }
 
+    /// TODO docs
     pub fn distributed() -> Result<RuntimeConfig, ConfigError> {
         let mut builder = ConfigBuilder::new_remote();
 
@@ -391,6 +413,14 @@ impl RuntimeConfig {
                 distributed_config, ..
             } => distributed_config.host_group_replica.clone(),
             _ => None,
+        }
+    }
+
+    pub fn parallelism(&self) -> CoordUInt {
+        match self {
+            RuntimeConfig::Local(local_config) => local_config.parallelism,
+            RuntimeConfig::Remote(remote_config) => remote_config.parallelism(),
+            RuntimeConfig::Distributed { remote_config, .. } => remote_config.parallelism(),
         }
     }
 }

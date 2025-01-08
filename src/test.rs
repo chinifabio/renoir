@@ -117,6 +117,7 @@ impl<T: ExchangeData> FakeNetworkTopology<T> {
             batch_mode: BatchMode::adaptive(100, Duration::from_millis(100)),
             group: None,
             group_replica: None,
+            max_parallelism: 1,
         }
     }
 

@@ -41,7 +41,7 @@ where
     type Out = (String, Op::Out);
 
     fn setup(&mut self, metadata: &mut crate::ExecutionMetadata) {
-        self.group_name = metadata.group_replica.clone();
+        self.group_name = metadata.group_name().clone();
         self.previous.setup(metadata);
     }
 

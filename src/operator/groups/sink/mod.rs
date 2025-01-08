@@ -11,19 +11,37 @@ use crate::block::{BlockStructure, OperatorKind, OperatorStructure};
 use crate::config::{ConnectorTechnology, DistributedConfig};
 use crate::operator::{ExchangeData, Operator, StreamElement};
 use crate::scheduler::ExecutionMetadata;
+use crate::CoordUInt;
 
 use self::heartbeat::HeartbeatManager;
 
-use super::heartbeat;
+use super::{heartbeat, GroupName, GroupStreamElement};
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct ConnectorSink<T, Op>
 where
     T: ExchangeData,
     Op: Operator<Out = T>,
 {
     inner: ConnectorSinkTechnology<T>,
+    group_name: Option<GroupName>,
+    global_id: Option<CoordUInt>,
     prev: Op,
+}
+
+impl<T: Clone, Op: Clone> Clone for ConnectorSink<T, Op>
+where
+    T: ExchangeData,
+    Op: Operator<Out = T>,
+{
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+            group_name: self.group_name.clone(),
+            global_id: None,
+            prev: self.prev.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -36,7 +54,7 @@ pub enum ConnectorSinkTechnology<T: ExchangeData> {
 
 pub trait ConnectorSinkStrategy<T: ExchangeData>: Clone + Send {
     fn setup(&mut self, metadata: &mut ExecutionMetadata);
-    fn append(&mut self, item: &StreamElement<T>);
+    fn append(&mut self, item: &GroupStreamElement<T>);
     fn technology(&self) -> String;
 }
 
@@ -60,6 +78,8 @@ where
         };
         ConnectorSink {
             inner: technology,
+            group_name: None,
+            global_id: None,
             prev,
         }
     }
@@ -83,14 +103,20 @@ where
     type Out = T;
 
     fn setup(&mut self, metadata: &mut ExecutionMetadata) {
+        self.group_name = metadata.group_name();
+        self.global_id = Some(metadata.global_id);
         self.inner.setup(metadata);
         self.prev.setup(metadata);
     }
 
     fn next(&mut self) -> StreamElement<Self::Out> {
-        let item = self.prev.next();
+        let item = GroupStreamElement::wrap(
+            self.prev.next(),
+            self.group_name.clone(),
+            self.global_id.expect("Missing id"),
+        );
         self.inner.append(&item);
-        item
+        item.element
     }
 
     fn structure(&self) -> BlockStructure {
@@ -112,7 +138,7 @@ where
         }
     }
 
-    fn append(&mut self, item: &StreamElement<T>) {
+    fn append(&mut self, item: &GroupStreamElement<T>) {
         match self {
             ConnectorSinkTechnology::Kafka(connector) => connector.append(item),
             ConnectorSinkTechnology::Redis(connector) => connector.append(item),

@@ -1,9 +1,6 @@
-use crate::{
-    config::RedisConfig,
-    operator::{ExchangeData, StreamElement},
-};
+use crate::{config::RedisConfig, operator::ExchangeData};
 
-use super::ConnectorSourceStrategy;
+use super::{ConnectorSourceStrategy, GroupStreamElement};
 
 pub struct RedisSourceConnector<T: ExchangeData> {
     client: redis::Client,
@@ -57,7 +54,7 @@ impl<T: ExchangeData> ConnectorSourceStrategy<T> for RedisSourceConnector<T> {
         self.connection = self.client.get_connection().ok();
     }
 
-    fn next(&mut self) -> StreamElement<T> {
+    fn next(&mut self) -> GroupStreamElement<T> {
         let connection = self.connection.as_mut().unwrap();
         let value = redis::cmd("BLPOP") // Blocking Left POP
             .arg(self.final_key.as_ref().unwrap())

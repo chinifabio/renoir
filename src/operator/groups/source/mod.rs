@@ -16,7 +16,7 @@ use crate::scheduler::ExecutionMetadata;
 
 use self::heartbeat::HeartbeatManager;
 
-use super::heartbeat;
+use super::{heartbeat, GroupStreamElement};
 
 #[derive(Debug)]
 pub struct ConnectorSource<T: ExchangeData> {
@@ -41,7 +41,7 @@ pub enum ConnectorSourceTechnology<T: ExchangeData> {
 pub trait ConnectorSourceStrategy<T: ExchangeData>: Clone + Send {
     fn replication(&self) -> Replication;
     fn setup(&mut self, metadata: &mut ExecutionMetadata);
-    fn next(&mut self) -> StreamElement<T>;
+    fn next(&mut self) -> GroupStreamElement<T>;
     fn technology(&self) -> String;
 }
 
@@ -98,7 +98,7 @@ impl<T: ExchangeData> Operator for ConnectorSource<T> {
     fn next(&mut self) -> StreamElement<Self::Out> {
         match &mut self.inner {
             ConnectorSourceInner::Local(start) => start.next(),
-            ConnectorSourceInner::Remote(tech) => tech.next(),
+            ConnectorSourceInner::Remote(tech) => tech.next().element,
         }
     }
 
@@ -126,7 +126,7 @@ impl<T: ExchangeData> ConnectorSourceStrategy<T> for ConnectorSourceTechnology<T
         }
     }
 
-    fn next(&mut self) -> StreamElement<T> {
+    fn next(&mut self) -> GroupStreamElement<T> {
         match self {
             ConnectorSourceTechnology::Kafka(connector) => connector.next(),
             ConnectorSourceTechnology::Redis(connector) => connector.next(),

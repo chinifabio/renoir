@@ -6,6 +6,7 @@ use std::thread::JoinHandle;
 use crate::block::{BatchMode, Block, BlockStructure, JobGraphGenerator, Replication};
 use crate::config::{LocalConfig, RemoteConfig, RuntimeConfig};
 use crate::network::{Coord, NetworkTopology};
+use crate::operator::groups::GroupName;
 use crate::operator::Operator;
 use crate::profiler::{log_trace, wait_profiler};
 use crate::worker::spawn_worker;
@@ -37,9 +38,11 @@ pub struct ExecutionMetadata<'a> {
     /// The batching mode to use inside this block.
     pub batch_mode: BatchMode,
     /// The group of the block
-    pub group: Option<String>,
+    pub(crate) group: Option<String>,
     /// The replica name of the group
-    pub group_replica: Option<String>,
+    pub(crate) group_replica: Option<String>,
+    /// The number of core of the execution context
+    pub(crate) max_parallelism: CoordUInt,
 }
 
 /// Information about a block in the job graph.
@@ -72,6 +75,16 @@ pub(crate) struct Scheduler {
     block_init: Vec<(Coord, BlockInitFn)>,
     /// The network topology that keeps track of all the connections inside the execution graph.
     network: NetworkTopology,
+}
+
+impl ExecutionMetadata<'_> {
+    pub fn group_name(&self) -> Option<GroupName> {
+        let top = self.group.as_deref()?;
+        match self.group_replica.as_deref() {
+            Some(replica) => Some(format!("{top}-{replica}")),
+            None => Some(top.to_string()),
+        }
+    }
 }
 
 impl Scheduler {
@@ -173,6 +186,7 @@ impl Scheduler {
                 batch_mode: block_info.batch_mode,
                 group: self.config.host_group(),
                 group_replica: self.config.host_group_replica(),
+                max_parallelism: self.config.parallelism(),
             };
             let (handle, structure) = init_fn(&mut metadata);
             join.push(handle);

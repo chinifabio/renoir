@@ -11,9 +11,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     log::debug!("this is the config: {config:?}");
     let context = StreamContext::new(config);
 
+    let mut time = 0;
+    let mut counter = 0;
     context
         .initial_group("laptops")
         .stream_par_iter(Generator {})
+        .add_timestamps(
+            move |_| {
+                time += 1;
+                time
+            },
+            move |_, &ts| {
+                counter += 1;
+                if counter == 2 {
+                    counter = 0;
+                    Some(ts)
+                } else {
+                    None
+                }
+            },
+        )
         .filter(|x| x % 2 == 0)
         .change_group("servers")
         .window_all(ProcessingTimeWindow::sliding(
@@ -37,7 +54,7 @@ impl Iterator for Generator {
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut rng = rand::thread_rng();
-        let rnd_secs = rng.gen_range(5..20);
+        let rnd_secs = rng.gen_range(1..5);
         thread::sleep(Duration::from_secs(rnd_secs));
         Some(rng.gen_range(0..100))
     }

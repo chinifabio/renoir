@@ -4,11 +4,14 @@ use rdkafka::{
     ClientConfig,
 };
 
-use crate::operator::{ExchangeData, StreamElement};
+use crate::{
+    operator::{ExchangeData, StreamElement},
+    CoordUInt,
+};
 
 use self::heartbeat::HeartbeatManager;
 
-use super::{heartbeat, ConnectorSinkStrategy};
+use super::{heartbeat, ConnectorSinkStrategy, GroupStreamElement};
 
 const DEFAULT_FLUSH_TIMER: u32 = 32;
 
@@ -16,11 +19,26 @@ pub struct KafkaSinkConnector<T: ExchangeData> {
     hosts: Vec<String>,
     producer: Option<BaseProducer>,
     topic: String,
-    topic_key: Option<String>,
+    replica_id: Option<CoordUInt>,
     flush_timer: u32,
     _phantom: std::marker::PhantomData<T>,
 
     heartbeat: HeartbeatManager,
+    n_partition: usize,
+}
+
+impl<T: ExchangeData + std::fmt::Debug> std::fmt::Debug for KafkaSinkConnector<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KafkaSinkConnector")
+            .field("hosts", &self.hosts)
+            .field("topic", &self.topic)
+            .field("replica_id", &self.replica_id)
+            .field("flush_timer", &self.flush_timer)
+            .field("_phantom", &self._phantom)
+            .field("heartbeat", &self.heartbeat)
+            .field("n_partition", &self.n_partition)
+            .finish()
+    }
 }
 
 impl<T: ExchangeData> Clone for KafkaSinkConnector<T> {
@@ -29,22 +47,13 @@ impl<T: ExchangeData> Clone for KafkaSinkConnector<T> {
             hosts: self.hosts.clone(),
             producer: None,
             topic: self.topic.clone(),
-            topic_key: self.topic_key.clone(),
+            replica_id: None,
             flush_timer: self.flush_timer,
             _phantom: std::marker::PhantomData,
 
             heartbeat: self.heartbeat.clone(),
+            n_partition: self.n_partition,
         }
-    }
-}
-
-impl<T: ExchangeData> std::fmt::Debug for KafkaSinkConnector<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("KafkaSinkConnector")
-            .field("hosts", &self.hosts)
-            .field("topic", &self.topic)
-            .field("topic_key", &self.topic_key)
-            .finish()
     }
 }
 
@@ -54,61 +63,69 @@ impl<T: ExchangeData> KafkaSinkConnector<T> {
             hosts,
             producer: None,
             topic: topic.into(),
-            topic_key: None,
+            replica_id: None,
             flush_timer: DEFAULT_FLUSH_TIMER,
             _phantom: std::marker::PhantomData,
 
             heartbeat,
+            n_partition: 0,
+        }
+    }
+
+    /// broad cast watermark to all partition. TODO presave the partition number to avoid overhead in communication
+    fn broadcast_watermark(&mut self, item: &GroupStreamElement<T>) {
+        let producer = self.producer.as_mut().expect("Missing producer");
+        let json = serde_json::to_string(item).expect("Serialization failed");
+        for p_id in 0..self.n_partition {
+            let record = BaseRecord::to(self.topic.as_str())
+                .payload(&json)
+                .key(&[0]) // todo capire che chiave mettere
+                .partition(p_id as i32);
+            producer.send(record).expect("Kafka send failed");
+            producer.flush(Timeout::Never).expect("Kafka flush failed");
         }
     }
 }
 
 impl<T: ExchangeData> ConnectorSinkStrategy<T> for KafkaSinkConnector<T> {
     fn setup(&mut self, metadata: &mut crate::ExecutionMetadata) {
-        let group = match metadata.group.as_deref() {
-            Some(group_name) => group_name,
-            None => {
-                log::warn!("No groups specified for Kafka sink, using 'default'");
-                "default"
-            }
-        };
+        let client_id = format!(
+            "renoir-{}",
+            metadata.group_name().as_deref().unwrap_or("default"),
+        );
 
-        let client_id = match metadata.group_replica.as_deref() {
-            Some(group_name) => {
-                format!("renoir-{}-{}-{}", group, group_name, metadata.global_id)
-            }
-            None => {
-                format!("renoir-{}-{}", group, metadata.global_id)
-            }
-        };
-
-        let producer = ClientConfig::new()
+        let producer: BaseProducer = ClientConfig::new()
             .set("bootstrap.servers", self.hosts.join(","))
-            .set("client.id", client_id.clone())
+            .set("client.id", client_id)
             .create()
             .expect("Kafka producer creation failed");
 
+        let topic_metadata = producer
+            .client()
+            .fetch_metadata(Some(self.topic.as_str()), Timeout::Never)
+            .expect("Failed to fetch metadata");
+        // this is because i assume each partition has a progressi id
+        self.n_partition = topic_metadata.topics().first().unwrap().partitions().len();
+
         self.producer = Some(producer);
-        self.topic_key = Some(client_id);
+        self.replica_id = Some(metadata.global_id);
 
         if metadata.global_id == 0 {
-            self.heartbeat.start_emitter();
+            self.heartbeat.start_emitter(metadata.max_parallelism);
         }
     }
 
-    fn append(&mut self, item: &StreamElement<T>) {
-        if !matches!(
-            item,
-            StreamElement::Item(_) | StreamElement::Timestamped(_, _)
-        ) {
-            log::warn!("Skipping non-item element: {}", item.variant_str());
+    fn append(&mut self, item: &GroupStreamElement<T>) {
+        if let StreamElement::Watermark(t) = item.element {
+            log::debug!("Broadcasting watermark with time {t}");
+            self.broadcast_watermark(item);
             return;
         }
-
-        let json = serde_json::to_string(item).expect("Serialization failed");
+        let payload = serde_json::to_string(item).expect("Serialization failed");
+        let key = self.replica_id.expect("Missing global id").to_string();
         let record = BaseRecord::to(self.topic.as_str())
-            .payload(&json)
-            .key(self.topic_key.as_deref().expect("Topic key not set"));
+            .payload(&payload)
+            .key(key.as_str());
         let producer = self
             .producer
             .as_mut()

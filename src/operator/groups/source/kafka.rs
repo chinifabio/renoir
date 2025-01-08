@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io::Read, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use parking_lot::lock_api::Mutex;
 use rdkafka::{
@@ -8,11 +8,11 @@ use rdkafka::{
 };
 
 use crate::operator::{
-    groups::heartbeat::{GroupMap, HeartbeatManager},
+    groups::{heartbeat::HeartbeatManager, GroupMap},
     ExchangeData, StreamElement,
 };
 
-use super::ConnectorSourceStrategy;
+use super::{heartbeat::WatermarkManager, ConnectorSourceStrategy, GroupStreamElement};
 
 pub struct KafkaSourceConnector<T: ExchangeData> {
     hosts: Vec<String>,
@@ -23,28 +23,35 @@ pub struct KafkaSourceConnector<T: ExchangeData> {
 
     groups: GroupMap,
     heartbeat: HeartbeatManager,
+    watermarks: WatermarkManager,
 }
 
-impl<T: ExchangeData> std::fmt::Debug for KafkaSourceConnector<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("KafkaSourceConnector")
-            .field("hosts", &self.hosts)
-            .field("topic", &self.topic)
-            .finish()
-    }
-}
-
-impl<T: ExchangeData> Clone for KafkaSourceConnector<T> {
+impl<T: ExchangeData + Clone> Clone for KafkaSourceConnector<T> {
     fn clone(&self) -> Self {
         Self {
             hosts: self.hosts.clone(),
             consumer: None,
             topic: self.topic.clone(),
-            _phantom: std::marker::PhantomData,
-            timeout: self.timeout,
+            timeout: self.timeout.clone(),
+            _phantom: self._phantom.clone(),
             groups: self.groups.clone(),
             heartbeat: self.heartbeat.clone(),
+            watermarks: self.watermarks.clone(),
         }
+    }
+}
+
+impl<T: ExchangeData + std::fmt::Debug> std::fmt::Debug for KafkaSourceConnector<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KafkaSourceConnector")
+            .field("hosts", &self.hosts)
+            .field("topic", &self.topic)
+            .field("timeout", &self.timeout)
+            .field("_phantom", &self._phantom)
+            .field("groups", &self.groups)
+            .field("heartbeat", &self.heartbeat)
+            .field("watermarks", &self.watermarks)
+            .finish()
     }
 }
 
@@ -59,6 +66,7 @@ impl<T: ExchangeData> KafkaSourceConnector<T> {
             Some(timeout) => Timeout::After(Duration::from_secs(timeout)),
             None => Timeout::Never,
         };
+        let groups = Arc::new(Mutex::new(HashMap::new()));
 
         Self {
             hosts,
@@ -66,8 +74,9 @@ impl<T: ExchangeData> KafkaSourceConnector<T> {
             topic: topic.into(),
             _phantom: std::marker::PhantomData,
             timeout,
-            groups: Arc::new(Mutex::new(HashMap::new())),
+            groups: groups.clone(),
             heartbeat,
+            watermarks: WatermarkManager::new(groups),
         }
     }
 }
@@ -78,20 +87,10 @@ impl<T: ExchangeData> ConnectorSourceStrategy<T> for KafkaSourceConnector<T> {
     }
 
     fn setup(&mut self, metadata: &mut crate::ExecutionMetadata) {
-        let group = match metadata.group.as_deref() {
-            Some(group_name) => group_name,
-            None => {
-                log::warn!("No groups specified for Kafka source, using 'default'");
-                "default"
-            }
-        };
-
-        let consumer_group = match metadata.group_replica.as_deref() {
-            Some(group_name) => {
-                format!("renoir-{}-{}", group, group_name)
-            }
-            None => format!("renoir-{}", group),
-        };
+        let consumer_group = format!(
+            "renoir-{}",
+            metadata.group_name().as_deref().unwrap_or("default")
+        );
 
         log::info!("Creating Kafka consumer with group id: {}", consumer_group);
         let consumer: BaseConsumer = ClientConfig::new()
@@ -106,33 +105,65 @@ impl<T: ExchangeData> ConnectorSourceStrategy<T> for KafkaSourceConnector<T> {
             .expect("Kafka consumer subscription failed");
         self.consumer = Some(consumer);
 
-        // todo penso posso togliere un po' di thread perchè tanto se sharo la hashmap è sempre aggiornata
-        self.heartbeat
-            .start_receiver(self.groups.clone(), metadata.global_id);
+        // I'm using replica_id since its different per host and I need a different Arc per host
+        if metadata.coord.replica_id == 0 {
+            self.heartbeat
+                .start_receiver(self.groups.clone(), metadata.global_id);
+        }
     }
 
-    fn next(&mut self) -> StreamElement<T> {
+    // TODO: aggiungere i flush batch, ecc..
+    fn next(&mut self) -> GroupStreamElement<T> {
         let consumer = self
             .consumer
             .as_mut()
             .expect("Kafka consumer not configured");
 
         loop {
-            match consumer.poll(self.timeout) {
+            let item = match consumer.poll(self.timeout) {
                 Some(Ok(message)) => {
-                    let mut payload = message.payload().unwrap();
-                    let mut buffer = Vec::new();
-                    payload.read_to_end(&mut buffer).unwrap();
-                    let json = String::from_utf8(buffer).unwrap();
-                    return serde_json::from_str(&json).expect("Failed to parse JSON");
+                    let payload = message.payload().unwrap();
+                    let item: GroupStreamElement<T> =
+                        serde_json::from_slice(payload).expect("Failed to parse the element");
+                    match item.element {
+                        StreamElement::Item(_) | StreamElement::Timestamped(_, _) => Some(item),
+                        StreamElement::Watermark(watermark_time) => self
+                            .watermarks
+                            .update(
+                                item.group
+                                    .as_deref()
+                                    .expect("Missing group name in item read from group connection")
+                                    .to_string(),
+                                watermark_time,
+                                item.id,
+                            )
+                            .map(|min_time| {
+                                GroupStreamElement::wrap(
+                                    StreamElement::Watermark(min_time),
+                                    item.group,
+                                    item.id,
+                                )
+                            }),
+                        e => unreachable!(
+                            "Group Source received {}, but it's not allowed.",
+                            e.variant_str()
+                        ),
+                    }
                 }
                 Some(Err(e)) => {
-                    log::error!("Kafka message error: {:?}", e);
-                    panic!("some error occurred while consuming kafka message, todo: should i stay or should i go?");
+                    panic!(
+                        "Failed to poll message from Kafka on topic {}: {:?}",
+                        self.topic, e
+                    );
                 }
                 None => {
                     log::warn!("Ignoring empty message from Kafka");
+                    None
                 }
+            };
+
+            if let Some(item) = item {
+                return item;
             }
         }
     }
