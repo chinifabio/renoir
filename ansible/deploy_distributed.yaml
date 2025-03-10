@@ -51,7 +51,6 @@
           brokers = {{ renoir_heartbeat["brokers"] }}
           timeout = {{ renoir_heartbeat["timeout"] }}
           {% endif %}
-    
     - name: Prepare execution
       set_fact:
         renoir_executable_directory: "/tmp/renoir"

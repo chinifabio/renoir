@@ -1,0 +1,88 @@
+[[host]]
+name = "laptop_1"
+num_cores = 1
+base_port = 9500
+[host.annotations]
+n_cpu = 1
+ram = 2
+gpu = "no"
+zone = "milan"
+[host.ssh]
+host = "127.0.0.1"
+user = "fabio"
+keyfile = "~/.ssh/id_ed25519"
+
+[[host]]
+name = "laptop_2"
+num_cores = 1
+base_port = 9600
+[host.annotations]
+n_cpu = 1
+ram = 2
+gpu = "no"
+zone = "milan"
+[host.ssh]
+host = "127.0.0.2"
+user = "fabio"
+keyfile = "~/.ssh/id_ed25519"
+
+[[host]]
+name = "laptop_3"
+num_cores = 1
+base_port = 9700
+[host.annotations]
+n_cpu = 1
+ram = 2
+gpu = "no"
+zone = "turin"
+[host.ssh]
+host = "127.0.0.3"
+user = "fabio"
+keyfile = "~/.ssh/id_ed25519"
+
+[[host]]
+name = "laptop_4"
+num_cores = 1
+base_port = 9800
+[host.annotations]
+n_cpu = 1
+ram = 2
+gpu = "no"
+zone = "turin"
+[host.ssh]
+host = "127.0.0.4"
+user = "fabio"
+keyfile = "~/.ssh/id_ed25519"
+
+[[host]]
+name = "laptop_5"
+num_cores = 6
+base_port = 9900
+[host.annotations]
+n_cpu = 6
+ram = 16
+gpu = "yes"
+[host.ssh]
+host = "127.0.0.5"
+user = "fabio"
+password = "~/.ssh/id_ed25519"
+
+[[group]]
+name = "sensors"
+annotations = "n_cpu < 4,gpu = no"
+replicate_by = "zone"
+[group.output]
+type = "Kafka"
+brokers = ["127.0.0.1:9093"]
+topic = "channel"
+
+[[group]]
+name = "servers"
+annotations = "n_cpu >= 4,gpu = yes"
+[group.input]
+type = "Kafka"
+brokers = ["127.0.0.1:9093"]
+topic = "channel"
+
+[heartbeat]
+brokers = ["127.0.0.1:9093"]
