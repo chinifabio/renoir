@@ -82,13 +82,12 @@
         mode: 0755
     - name: Debug distributed config
       debug:
-        var: distributed_config
+        var: remote_config
     - name: Execute renoir
-      shell: "/bin/bash -c '{{ renoir_executable_destination }} {{ hostvars[inventory_hostname]['renoir_arguments'] | default('') }} 2> {{ log_destination }}'"
+      shell: "/bin/bash -c '{{ renoir_executable_destination }} {{ hostvars[inventory_hostname]['renoir_arguments'] | default('-d') }} 2>&1 | tee -a {{ log_destination }}'"
       environment:
         RENOIR_HOST_ID: "{{ host_id }}"
         RENOIR_CONFIG: "{{ remote_config }}"
         RENOIR_DISTRIBUTED_CONFIG: "{{ distributed_config }}"
+        RENOIR_TEST_SIZE: "1000"
         RUST_LOG: "debug"
-      async: 3600
-      poll: 0

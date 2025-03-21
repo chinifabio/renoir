@@ -1,68 +1,35 @@
-use rand::Rng;
-use std::thread;
-use std::time::Duration;
-
 use renoir::prelude::*;
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
-    let (config, _args) = RuntimeConfig::from_args();
-    log::debug!("this is the config: {config:?}");
+    let (config, _) = RuntimeConfig::from_args();
+    config.spawn_remote_workers();
+
+    let size = std::env::var("RENOIR_TEST_SIZE")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(100);
+
     let context = StreamContext::new(config);
+    let result = context
+        .initial_group("edge")
+        .stream_par_iter(0..size)
+        .filter(|x| x % 3 == 0)
+        .change_group("site")
+        .group_by_avg(|x| x % 100, |x| *x as f64)
+        .drop_key()
+        .map(|x| x.round() as i32)
+        .change_group("cloud")
+        .group_by_avg(|x| x % 10, |x| *x as f64)
+        .drop_key()
+        .map(|x| x.round() as i32)
+        .collect_all::<Vec<_>>();
 
-    let mut time = 0;
-    let mut counter = 0;
-    context
-        .initial_group("laptops")
-        .stream_par_iter(Generator {})
-        .add_timestamps(
-            move |_| {
-                time += 1;
-                time
-            },
-            move |_, &ts| {
-                counter += 1;
-                if counter == 2 {
-                    counter = 0;
-                    Some(ts)
-                } else {
-                    None
-                }
-            },
-        )
-        .filter(|x| x % 2 == 0)
-        .change_group("servers")
-        .window_all(EventTimeWindow::sliding(10, 2))
-        .max()
-        .unkey()
-        .for_each(|x| log::info!("received: {x:?}"));
+    context.execute().await;
 
-    context.execute_blocking();
+    println!("done: {:?}", result.get());
 
     Ok(())
-}
-
-#[derive(Debug, Clone)]
-struct Generator;
-
-impl Iterator for Generator {
-    type Item = i32;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let mut rng = rand::thread_rng();
-        let rnd_secs = rng.gen_range(1..5);
-        thread::sleep(Duration::from_secs(rnd_secs));
-        Some(rng.gen_range(0..100))
-    }
-}
-
-impl IntoParallelSource for Generator {
-    type Iter = Generator;
-
-    fn generate_iterator(self, index: renoir::CoordUInt, peers: renoir::CoordUInt) -> Self::Iter {
-        let _ = peers;
-        let _ = index;
-        Generator {}
-    }
 }

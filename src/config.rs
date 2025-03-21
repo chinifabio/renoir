@@ -382,7 +382,7 @@ impl RuntimeConfig {
                 remote_config: config,
                 ..
             } => {
-                spawn_remote_workers(config.clone());
+                // spawn_remote_workers(config.clone());
             }
         }
     }

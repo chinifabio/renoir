@@ -9,10 +9,9 @@ ANNOTATION_REGEX = r"(\w+)\s*(=|<|>|<=|>=)\s*(\w+)"
 
 
 class SSH(BaseModel):
-    host: str
     user: str
     password: str | None = None
-    keyfile: str | None = None
+    key_file: str | None = None
     port: int | None = 22
 
 
@@ -25,8 +24,7 @@ class Connection(BaseModel):
 
 class Group(BaseModel):
     name: str
-    annotations: str | None = None
-    replicate_by: str | None = None
+    constraints: str | None = None
     input: Connection | None = None
     output: Connection | None = None
 
@@ -43,14 +41,16 @@ class Group(BaseModel):
 
 class Host(BaseModel):
     name: str
+    address: str
     base_port: int
     num_cores: int
     ssh: SSH
-    annotations: dict = Field(default={})
+    capabilites: dict = Field(default={})
+    zone: str | None = None
 
     def dump_ansible(self):
         return {
-            "ansible_host": self.ssh.host,
+            "ansible_host": self.address,
             "renoir_arguments": "-d",
             "renoir_base_port": self.base_port,
             "renoir_num_cores": self.num_cores,
@@ -157,7 +157,7 @@ def parse_annotation(annotation) -> Annotation:
 
 def host_belong_group(host: Host, annotations: list[Annotation]) -> bool:
     temp = True
-    for name, value in host.annotations.items():
+    for name, value in host.capabilites.items():
         for annotation in annotations:
             if annotation.key == name:
                 temp &= annotation.is_satisfied(value)
@@ -195,6 +195,13 @@ def main():
         default="deploy_distributed.yaml",
         required=False,
     )
+    parser.add_argument(
+        "-ra",
+        "--renoir_arguments",
+        help="Arguments to pass to the executable",
+        default="-d",
+        required=False,
+    )
     args = parser.parse_args()
 
     if not re.match(r".+\.toml", args.input_config):
@@ -208,22 +215,13 @@ def main():
     # TODO: Handle the case in which a host belongs to multiple groups
     mapping = {}
     for group in input_config.groups:
-        if not group.annotations:
+        if not group.constraints:
             raise ValueError(f"Group {group.name} has no annotations")
-        annotations = [parse_annotation(a) for a in group.annotations.split(",")]
+        annotations = [parse_annotation(a) for a in group.constraints.split(",")]
 
         for host in input_config.hosts:
             if host_belong_group(host, annotations):
-                if group.replicate_by:
-                    if not host.annotations.get(group.replicate_by):
-                        raise ValueError(
-                            f"Host {host.name} does not have the annotation {group.replicate_by}"
-                        )
-                    mapping.setdefault(group.name, {}).setdefault(
-                        host.annotations[group.replicate_by], []
-                    ).append(host.name)
-                else:
-                    mapping.setdefault(group.name, []).append(host.name)
+                mapping.setdefault(group.name, []).append(host.name)
 
     all_childer = {}
 
@@ -287,6 +285,8 @@ def main():
             f"renoir_executable={args.executable}",
             "-e",
             f"renoir_target_group={args.target_group}",
+            "-e",
+            f"renoir_arguments={args.renoir_arguments}",
         ]
     )
 

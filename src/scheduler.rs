@@ -222,7 +222,10 @@ impl Scheduler {
             self.network.stop_and_wait(),
             tokio::task::spawn_blocking(move || {
                 for handle in join {
-                    handle.join().unwrap();
+                    match handle.join() {
+                        Ok(_) => {}
+                        Err(e) => log::error!("Worker thread panicked: {:?}", e),
+                    }
                 }
             })
         );

@@ -1,140 +1,148 @@
+use std::time::Duration;
+
 use rdkafka::{
-    producer::{BaseProducer, BaseRecord, Producer},
+    producer::{FutureProducer, FutureRecord, Producer},
     util::Timeout,
     ClientConfig,
 };
+use tokio::task::JoinHandle;
 
-use crate::{
-    operator::{ExchangeData, StreamElement},
-    CoordUInt,
-};
+use crate::{config::KafkaConfig, operator::ExchangeData, CoordUInt};
 
 use self::heartbeat::HeartbeatManager;
 
 use super::{heartbeat, ConnectorSinkStrategy, GroupStreamElement};
 
-const DEFAULT_FLUSH_TIMER: u32 = 32;
+const MAX_PARALLEL_SEND: usize = 2048;
 
+#[derive(Derivative)]
+#[derivative(Debug)]
 pub struct KafkaSinkConnector<T: ExchangeData> {
-    hosts: Vec<String>,
-    producer: Option<BaseProducer>,
+    #[derivative(Debug = "ignore")]
+    producer: FutureProducer,
     topic: String,
-    replica_id: Option<CoordUInt>,
-    flush_timer: u32,
+    rt: tokio::runtime::Handle,
     _phantom: std::marker::PhantomData<T>,
 
+    // these are used for the heartbeat
+    replica_id: Option<CoordUInt>,
     heartbeat: HeartbeatManager,
     n_partition: usize,
+
+    joinset: Option<Vec<JoinHandle<()>>>,
 }
 
-impl<T: ExchangeData + std::fmt::Debug> std::fmt::Debug for KafkaSinkConnector<T> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("KafkaSinkConnector")
-            .field("hosts", &self.hosts)
-            .field("topic", &self.topic)
-            .field("replica_id", &self.replica_id)
-            .field("flush_timer", &self.flush_timer)
-            .field("_phantom", &self._phantom)
-            .field("heartbeat", &self.heartbeat)
-            .field("n_partition", &self.n_partition)
-            .finish()
-    }
-}
-
-impl<T: ExchangeData> Clone for KafkaSinkConnector<T> {
+impl<T: ExchangeData + Clone> Clone for KafkaSinkConnector<T> {
     fn clone(&self) -> Self {
         Self {
-            hosts: self.hosts.clone(),
-            producer: None,
+            producer: self.producer.clone(),
             topic: self.topic.clone(),
-            replica_id: None,
-            flush_timer: self.flush_timer,
-            _phantom: std::marker::PhantomData,
-
+            rt: self.rt.clone(),
+            _phantom: self._phantom.clone(),
+            replica_id: self.replica_id.clone(),
             heartbeat: self.heartbeat.clone(),
-            n_partition: self.n_partition,
+            n_partition: self.n_partition.clone(),
+            joinset: None,
         }
     }
 }
 
 impl<T: ExchangeData> KafkaSinkConnector<T> {
-    pub fn new(hosts: Vec<String>, topic: impl Into<String>, heartbeat: HeartbeatManager) -> Self {
+    pub fn new(config: KafkaConfig, heartbeat: HeartbeatManager, group: String) -> Self {
+        let producer = ClientConfig::new()
+            .set("bootstrap.servers", config.brokers.join(","))
+            .set("client.id", format!("renoir-{}", group))
+            .create()
+            .expect("Kafka producer creation failed");
+
         Self {
-            hosts,
-            producer: None,
-            topic: topic.into(),
-            replica_id: None,
-            flush_timer: DEFAULT_FLUSH_TIMER,
+            producer,
+            topic: config.topic,
+            rt: tokio::runtime::Handle::current(),
             _phantom: std::marker::PhantomData,
 
+            replica_id: None,
             heartbeat,
             n_partition: 0,
+
+            joinset: None,
         }
     }
 
     /// broad cast watermark to all partition. TODO presave the partition number to avoid overhead in communication
+    #[allow(dead_code)]
     fn broadcast_watermark(&mut self, item: &GroupStreamElement<T>) {
-        let producer = self.producer.as_mut().expect("Missing producer");
-        let json = serde_json::to_string(item).expect("Serialization failed");
-        for p_id in 0..self.n_partition {
-            let record = BaseRecord::to(self.topic.as_str())
-                .payload(&json)
-                .key(&[0]) // todo capire che chiave mettere
-                .partition(p_id as i32);
-            producer.send(record).expect("Kafka send failed");
-            producer.flush(Timeout::Never).expect("Kafka flush failed");
+        let _ = item;
+        todo!("broadcast watermark to all partition");
+    }
+
+    /// Empty the joinset and wait for all tasks to finish
+    pub fn wait(&mut self) {
+        match self.joinset.as_mut() {
+            Some(joinset) => {
+                let mut joinset = std::mem::take(joinset);
+                let (tx, rx) = flume::bounded(0);
+                self.rt.spawn(async move {
+                    for handle in joinset.drain(..) {
+                        handle.await.expect("Kafka send failed");
+                    }
+                    tx.send(()).unwrap();
+                });
+                rx.recv().unwrap();
+            }
+            None => {
+                log::warn!("KafkaSinkConnector has no joinset");
+            }
         }
     }
 }
 
 impl<T: ExchangeData> ConnectorSinkStrategy<T> for KafkaSinkConnector<T> {
     fn setup(&mut self, metadata: &mut crate::ExecutionMetadata) {
-        let client_id = format!(
-            "renoir-{}",
-            metadata.group_name().as_deref().unwrap_or("default"),
-        );
+        self.joinset = Some(Vec::new());
 
-        let producer: BaseProducer = ClientConfig::new()
-            .set("bootstrap.servers", self.hosts.join(","))
-            .set("client.id", client_id)
-            .create()
-            .expect("Kafka producer creation failed");
-
-        let topic_metadata = producer
+        // this is because i assume each partition has a progressive id
+        let topic_metadata = self
+            .producer
             .client()
             .fetch_metadata(Some(self.topic.as_str()), Timeout::Never)
             .expect("Failed to fetch metadata");
-        // this is because i assume each partition has a progressi id
         self.n_partition = topic_metadata.topics().first().unwrap().partitions().len();
-
-        self.producer = Some(producer);
         self.replica_id = Some(metadata.global_id);
 
-        if metadata.global_id == 0 {
-            self.heartbeat.start_emitter(metadata.max_parallelism);
-        }
+        // if metadata.global_id == 0 {
+        //     self.heartbeat.start_emitter(metadata.max_parallelism);
+        // }
     }
 
     fn append(&mut self, item: &GroupStreamElement<T>) {
-        if let StreamElement::Watermark(t) = item.element {
-            log::debug!("Broadcasting watermark with time {t}");
-            self.broadcast_watermark(item);
-            return;
-        }
-        let payload = serde_json::to_string(item).expect("Serialization failed");
-        let key = self.replica_id.expect("Missing global id").to_string();
-        let record = BaseRecord::to(self.topic.as_str())
-            .payload(&payload)
-            .key(key.as_str());
-        let producer = self
-            .producer
-            .as_mut()
-            .expect("Kafka producer not configured");
-        producer.send(record).expect("Kafka send failed");
-        producer.flush(Timeout::Never).expect("Kafka flush failed");
+        let producer = self.producer.clone();
+        let topic = self.topic.clone();
+
+        let bytes = bincode::serialize(&item).expect("bincode serialization failed");
+        let handle = self.rt.spawn(async move {
+            let record = FutureRecord::to(&topic).key(&[]).payload(bytes.as_slice());
+
+            producer
+                .send(record, Timeout::After(Duration::from_secs(10)))
+                .await
+                .expect("kafka producer fail");
+        });
+
+        self.joinset.as_mut().expect("Missing joinset").push(handle);
+        // if self.joinset.as_ref().unwrap().len() > MAX_PARALLEL_SEND {
+        //     self.wait();
+        // }
     }
 
     fn technology(&self) -> String {
         "Kafka".to_string()
+    }
+}
+
+impl<T: ExchangeData> Drop for KafkaSinkConnector<T> {
+    fn drop(&mut self) {
+        // self.heartbeat.stop();
+        self.wait();
     }
 }

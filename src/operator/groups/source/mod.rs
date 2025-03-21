@@ -159,10 +159,9 @@ impl<T: ExchangeData> ConnectorSource<T> {
             ConnectorTechnology::Kafka(kafka_config) => {
                 let heartbeat = HeartbeatManager::new(config.clone());
                 ConnectorSourceTechnology::Kafka(KafkaSourceConnector::new(
-                    kafka_config.brokers,
-                    kafka_config.topic,
-                    kafka_config.timeout,
+                    kafka_config,
                     heartbeat,
+                    config.host_group.clone(),
                 ))
             }
             ConnectorTechnology::None => ConnectorSourceTechnology::None,

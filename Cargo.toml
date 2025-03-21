@@ -14,11 +14,12 @@ homepage = "https://github.com/deib-polimi/renoir"
 readme = "README.md"
 
 [features]
-default = ["clap", "ssh", "timestamp", "avro"]
+default = ["clap", "ssh", "timestamp", "avro", "rdkafka"]
 timestamp = []
 ssh = ["ssh2", "whoami", "shell-escape", "sha2", "base64"]
 tokio = ["dep:tokio", "futures", "tokio/net", "tokio/io-util", "tokio/time", "tokio/rt-multi-thread", "tokio/macros"]
 avro = ["dep:apache-avro"]
+rdkafka = ["dep:rdkafka", "tokio"]
 profiler = []
 
 [dependencies]
@@ -82,7 +83,9 @@ dashmap = "5.5.3"
 apache-avro = { version = "0.16.0", features = ["derive"], optional = true }
 dyn-clone = "1.0.17"
 redis = "0.27.5"
-rdkafka = "0.36.2"
+rdkafka = { version = "0.36.2", optional = true}
+anyhow = "1.0.97"
+tokio-util = { version = "0.7.14", features = ["rt"] }
 
 [dev-dependencies]
 # for the tests

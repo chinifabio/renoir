@@ -68,9 +68,9 @@ where
             ConnectorTechnology::Kafka(kafka_config) => {
                 let heartbeat = HeartbeatManager::new(config.clone());
                 ConnectorSinkTechnology::Kafka(KafkaSinkConnector::new(
-                    kafka_config.brokers,
-                    kafka_config.topic,
+                    kafka_config,
                     heartbeat,
+                    config.host_group.clone(),
                 ))
             }
             ConnectorTechnology::None => ConnectorSinkTechnology::None,
