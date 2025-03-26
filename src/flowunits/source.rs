@@ -3,13 +3,19 @@ use std::{sync::Arc, time::Duration};
 use crate::{
     block::{BlockStructure, OperatorKind, OperatorStructure},
     config::DistributedConfig,
-    operator::{iteration::IterationStateLock, ExchangeData, Operator, SimpleStartReceiver, Start, StreamElement},
+    operator::{
+        iteration::IterationStateLock, ExchangeData, Operator, SimpleStartReceiver, Start,
+        StreamElement,
+    },
     prelude::Source,
     scheduler::BlockId,
     Replication,
 };
 
-use super::{channel::{LayerChannel, LayerChannelExt}, layout_frontier::LayoutFrontier};
+use super::{
+    channel::{LayerChannel, LayerChannelExt},
+    layout_frontier::LayoutFrontier,
+};
 
 #[derive(Debug, Clone)]
 enum LayerConnectorSourceInner<T: ExchangeData> {
@@ -113,7 +119,7 @@ impl<T: ExchangeData> LayerConnector<T> {
     pub fn new(config: DistributedConfig) -> Self {
         Self {
             config,
-            frontier: Default::default(),
+            frontier: LayoutFrontier::new(),
             channel: None,
         }
     }
@@ -130,14 +136,26 @@ impl<T: ExchangeData> Operator for LayerConnector<T> {
         loop {
             let channel = self.channel.as_mut().expect("Channel not initialized");
             let timeout = Duration::from_secs(self.config.heartbeat_interval);
-            let (metadata, item): (super::MessageMetadata, crate::operator::StreamElement<T>) =
-                channel
-                    .recv_timeout(timeout)
-                    .expect("Channel receive failed");
+            let (metadata, item) =
+                match channel.recv_timeout(timeout) {
+                    Some((metadata, Some(item))) => (metadata, item),
+                    Some((metadata, None)) => {
+                        self.frontier.heartbeat(std::time::Instant::now(), &metadata);
+                        continue;
+                    }
+                    None => {
+                        self.frontier.timed_out(std::time::Instant::now(), timeout);
+                        continue;
+                    }
+                };
 
+            let now = std::time::Instant::now();
             let item = match item {
                 StreamElement::Item(_) | StreamElement::Timestamped(_, _) => Some(item),
-                StreamElement::Watermark(_) | StreamElement::FlushBatch | StreamElement::Terminate | StreamElement::FlushAndRestart => self.frontier.update(metadata, &item),
+                StreamElement::Watermark(_)
+                | StreamElement::FlushBatch
+                | StreamElement::Terminate
+                | StreamElement::FlushAndRestart => self.frontier.update(metadata, &item, now),
             };
 
             if let Some(item) = item {

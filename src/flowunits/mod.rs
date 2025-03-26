@@ -72,7 +72,7 @@ enum MessageContent<T> {
     Heartbeat,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 struct MessageMetadata {
     /// Layer name
     layer: String,
@@ -80,12 +80,6 @@ struct MessageMetadata {
     rch: u64,
     /// Parallelism level, used to await for all the broadcasts messages
     parallelism: u64,
-}
-
-#[derive(Debug, Clone)]
-struct Message<T: ExchangeData> {
-    metadata: MessageMetadata,
-    content: MessageContent<T>,
 }
 
 impl MessageMetadata {
@@ -98,18 +92,4 @@ impl MessageMetadata {
     }
 }
 
-impl<T: ExchangeData> Message<T> {
-    fn new_element(metadata: MessageMetadata, element: StreamElement<T>) -> Self {
-        Self {
-            metadata,
-            content: MessageContent::Element(element),
-        }
-    }
-
-    fn new_heartbeat(metadata: MessageMetadata) -> Self {
-        Self {
-            metadata,
-            content: MessageContent::Heartbeat,
-        }
-    }
-}
+// TODO fare il tipo Message come (gruppo metadata, optional di element)

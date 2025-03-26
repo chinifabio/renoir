@@ -55,8 +55,9 @@ impl<T: ExchangeData> std::fmt::Display for LayerChannel<T> {
 pub(crate) trait LayerChannelExt<T: ExchangeData> {
     fn send(&mut self, metadata: &MessageMetadata, item: &StreamElement<T>);
     fn broadcast(&mut self, metadata: &MessageMetadata, item: &StreamElement<T>);
-    fn recv(&mut self) -> Option<(MessageMetadata, StreamElement<T>)>;
-    fn recv_timeout(&mut self, timeout: std::time::Duration) -> Option<(MessageMetadata, StreamElement<T>)>;
+    #[allow(dead_code)]
+    fn recv(&mut self) -> Option<(MessageMetadata, Option<StreamElement<T>>)>;
+    fn recv_timeout(&mut self, timeout: std::time::Duration) -> Option<(MessageMetadata, Option<StreamElement<T>>)>;
 }
 
 impl<T: ExchangeData> LayerChannel<T> {
@@ -94,14 +95,14 @@ impl<T: ExchangeData> LayerChannelExt<T> for LayerChannel<T> {
         }
     }
 
-    fn recv(&mut self) -> Option<(MessageMetadata, StreamElement<T>)> {
+    fn recv(&mut self) -> Option<(MessageMetadata, Option<StreamElement<T>>)> {
         match &mut self.inner {
             LayerChannelInner::Kafka(channel) => channel.recv(),
             LayerChannelInner::None => None,
         }
     }
 
-    fn recv_timeout(&mut self, timeout: std::time::Duration) -> Option<(MessageMetadata, StreamElement<T>)> {
+    fn recv_timeout(&mut self, timeout: std::time::Duration) -> Option<(MessageMetadata, Option<StreamElement<T>>)> {
         match &mut self.inner {
             LayerChannelInner::Kafka(channel) => channel.recv_timeout(timeout),
             LayerChannelInner::None => None,

@@ -128,7 +128,7 @@ pub type Timestamp = ();
 /// In general a stream may be composed of a sequence of this kind:
 ///
 /// `((Item | Timestamped | Watermark | FlushBatch)* FlushAndRestart)+ Terminate`
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum StreamElement<Out> {
     /// A normal element containing just the value of the message.
     Item(Out),

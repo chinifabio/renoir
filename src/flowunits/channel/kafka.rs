@@ -22,8 +22,9 @@ use super::LayerChannelExt;
 const MAX_PARALLEL_SEND: usize = 2048;
 
 struct KafkaConsumer<T: ExchangeData> {
-    topic: String,
-    rx: flume::Receiver<(MessageMetadata, StreamElement<T>)>,
+    rx: flume::Receiver<(MessageMetadata, Option<StreamElement<T>>)>,
+    // TODO wait nel drop
+    #[allow(dead_code)]
     cancel_token: Arc<AtomicBool>,
 }
 
@@ -87,7 +88,7 @@ impl<T: ExchangeData> LayerChannelExt<T> for KafkaChannel<T> {
         }
     }
 
-    fn recv(&mut self) -> Option<(MessageMetadata, StreamElement<T>)> {
+    fn recv(&mut self) -> Option<(MessageMetadata, Option<StreamElement<T>>)> {
         match &mut self.inner {
             KafkaChannelInner::Producer(_) => panic!("Cannot receive from a producer"),
             KafkaChannelInner::Consumer(channel) => channel.recv(),
@@ -97,7 +98,7 @@ impl<T: ExchangeData> LayerChannelExt<T> for KafkaChannel<T> {
     fn recv_timeout(
         &mut self,
         timeout: std::time::Duration,
-    ) -> Option<(MessageMetadata, StreamElement<T>)> {
+    ) -> Option<(MessageMetadata, Option<StreamElement<T>>)> {
         match &mut self.inner {
             KafkaChannelInner::Producer(_) => panic!("Cannot receive from a producer"),
             KafkaChannelInner::Consumer(channel) => channel.recv_timeout(timeout),
@@ -214,7 +215,7 @@ impl<T: ExchangeData> KafkaConsumer<T> {
                 }
                 let owned = msg.detach();
                 let bytes = owned.payload().unwrap();
-                let message: (MessageMetadata, StreamElement<T>) =
+                let message: (MessageMetadata, Option<StreamElement<T>>) =
                     bincode::deserialize(bytes).expect("bincode deserialization failed");
                 if let Err(e) = tx.send(message) {
                     if cancel.load(Ordering::SeqCst) {
@@ -227,20 +228,20 @@ impl<T: ExchangeData> KafkaConsumer<T> {
         });
 
         Self {
-            topic: config.topic,
             rx,
             cancel_token,
         }
     }
 
-    fn recv(&mut self) -> Option<(MessageMetadata, StreamElement<T>)> {
+    #[allow(dead_code)]
+    fn recv(&mut self) -> Option<(MessageMetadata, Option<StreamElement<T>>)> {
         self.rx.try_recv().ok()
     }
 
     fn recv_timeout(
         &mut self,
         timeout: std::time::Duration,
-    ) -> Option<(MessageMetadata, StreamElement<T>)> {
+    ) -> Option<(MessageMetadata, Option<StreamElement<T>>)> {
         self.rx.recv_timeout(timeout).ok()
     }
 }
