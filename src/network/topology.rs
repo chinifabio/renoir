@@ -374,7 +374,7 @@ impl NetworkTopology {
             .unwrap_or_else(|| panic!("Channel for endpoint {receiver_endpoint} not registered",));
 
         match self.config.as_ref() {
-            RuntimeConfig::Remote(_) => {
+            RuntimeConfig::Remote(_) | RuntimeConfig::Distributed { .. } => {
                 if sender_metadata.to_remote {
                     let sender = self.register_mux(receiver_endpoint);
 
@@ -505,11 +505,12 @@ impl NetworkTopology {
         log::debug!("finalizing topology");
         // Close handles to multiplexers to start the worker threads
 
-        let config = if let RuntimeConfig::Remote(config) = self.config.as_ref() {
-            config
-        } else {
-            return;
+        let config = match &*self.config {
+            RuntimeConfig::Local(_) => return,
+            RuntimeConfig::Remote(config) => config,
+            RuntimeConfig::Distributed { remote_config, .. } => remote_config,
         };
+
         let mut coords = IndexSet::new();
         for (&(from, _typ), to) in self.next.iter() {
             for &(to, _fragile) in to {

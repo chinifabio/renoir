@@ -37,6 +37,10 @@ pub struct ExecutionMetadata<'a> {
     pub(crate) network: &'a mut NetworkTopology,
     /// The batching mode to use inside this block.
     pub batch_mode: BatchMode,
+    /// The layer of the block
+    pub(crate) layer: Option<String>,
+    /// The number of core of the execution context
+    pub(crate) parallelism: CoordUInt,
 }
 
 /// Information about a block in the job graph.
@@ -168,6 +172,8 @@ impl Scheduler {
                 prev: self.network.prev(coord),
                 network: &mut self.network,
                 batch_mode: block_info.batch_mode,
+                layer: self.config.host_layer(),
+                parallelism: self.config.parallelism(),
             };
             let (handle, structure) = init_fn(&mut metadata);
             join.push(handle);
@@ -322,6 +328,24 @@ impl Scheduler {
         match self.config.as_ref() {
             RuntimeConfig::Local(local) => self.local_block_info(block, local),
             RuntimeConfig::Remote(remote) => self.remote_block_info(block, remote),
+            RuntimeConfig::Distributed {
+                remote_config,
+                distributed_config,
+            } => match block.layer.as_deref() {
+                Some(block_layer) => {
+                    log::debug!(
+                        "(block layer) {:?} == {:?} (host layer)",
+                        block_layer,
+                        distributed_config.layer
+                    );
+                    if block_layer == distributed_config.layer {
+                        self.remote_block_info(block, remote_config)
+                    } else {
+                        self.foreign_block_info()
+                    }
+                }
+                None => panic!("You should consider using groups in the stream definition."),
+            },
         }
     }
 
@@ -427,6 +451,20 @@ impl Scheduler {
             global_ids,
             batch_mode: block.batch_mode,
             is_only_one_strategy: block.is_only_one_strategy,
+        }
+    }
+
+    /// Extract the `SchedulerBlockInfo` of a block that runs on a foreign host.
+    ///
+    /// This is used when the block is not running on the same group as the host.
+    fn foreign_block_info(&self) -> SchedulerBlockInfo {
+        log::debug!("creating foreign block...");
+        SchedulerBlockInfo {
+            repr: "foreign block".to_string(),
+            replicas: Default::default(),
+            global_ids: Default::default(),
+            batch_mode: Default::default(),
+            is_only_one_strategy: false,
         }
     }
 }

@@ -23,6 +23,8 @@ pub(crate) struct StreamContextInner {
     /// The scheduler that will start the computation. It's an option because it will be moved out
     /// of this struct when the computation starts.
     scheduler: Option<Scheduler>,
+    /// The tag to use for the first block of a stream
+    pub(crate) layer: Option<String>,
 }
 
 /// Streaming environment from which it's possible to register new streams and start the
@@ -102,10 +104,20 @@ impl StreamContext {
 
     /// Get the total number of processing cores in the cluster.
     pub fn parallelism(&self) -> CoordUInt {
-        match self.inner.lock().config.as_ref() {
+        match &*self.inner.lock().config {
             RuntimeConfig::Local(local) => local.parallelism,
             RuntimeConfig::Remote(remote) => remote.hosts.iter().map(|h| h.num_cores).sum(),
+            RuntimeConfig::Distributed { remote_config, .. } => {
+                remote_config.hosts.iter().map(|h| h.num_cores).sum()
+            }
         }
+    }
+
+    /// Set the layer name for the first block in the stream
+    pub fn initial_layer(&self, name: impl Into<String>) -> &Self {
+        let mut inner = self.inner.lock();
+        inner.update_layer(name);
+        self
     }
 }
 
@@ -115,6 +127,7 @@ impl StreamContextInner {
             config: config.clone(),
             block_count: 0,
             scheduler: Some(Scheduler::new(config)),
+            layer: None,
         }
     }
 
@@ -128,7 +141,19 @@ impl StreamContextInner {
         let replication = source.replication();
         let scheduling = Scheduling { replication };
         info!("new block (b{new_id:02}), replication {replication:?}",);
-        Block::new(new_id, source, batch_mode, iteration_ctx, scheduling)
+        let layer = match self.layer.as_deref() {
+            Some(t) => format!(", layer: {}", t),
+            None => "".to_string(),
+        };
+        info!("new block (b{new_id:02}), replication {replication:?}{layer}",);
+        Block::new(
+            new_id,
+            source,
+            batch_mode,
+            iteration_ctx,
+            scheduling,
+            self.layer.clone(),
+        )
     }
 
     pub(crate) fn close_block<Out: Data, Op: Operator<Out = Out> + 'static>(
@@ -173,5 +198,16 @@ impl StreamContextInner {
         self.scheduler
             .as_mut()
             .expect("The environment has already been started, cannot access the scheduler")
+    }
+
+    /// Update the layer name for this stream
+    pub(crate) fn update_layer(&mut self, name: impl Into<String>) {
+        self.layer = Some(name.into());
+    }
+}
+
+impl From<Arc<Mutex<StreamContextInner>>> for StreamContext {
+    fn from(inner: Arc<Mutex<StreamContextInner>>) -> Self {
+        StreamContext { inner }
     }
 }

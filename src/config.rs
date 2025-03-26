@@ -12,15 +12,18 @@ use std::str::FromStr;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 
+use crate::runner::spawn_remote_workers;
 use crate::scheduler::HostId;
 use crate::CoordUInt;
 
 /// Environment variable set by the runner with the host id of the process. If it's missing the
 /// process will have to spawn the processes by itself.
-pub const HOST_ID_ENV_VAR: &str = "NOIR_HOST_ID";
+pub const HOST_ID_ENV_VAR: &str = "RENOIR_HOST_ID";
 /// Environment variable set by the runner with the content of the config file so that it's not
 /// required to have it on all the hosts.
-pub const CONFIG_ENV_VAR: &str = "NOIR_CONFIG";
+pub const CONFIG_ENV_VAR: &str = "RENOIR_CONFIG";
+/// Environment variable set by the automation tool to configure the distributed environment.
+pub const DISTRIBUTED_CONFIG_ENV_VAR: &str = "RENOIR_DISTRIBUTED_CONFIG";
 
 /// The runtime configuration of the environment,
 ///
@@ -80,6 +83,11 @@ pub enum RuntimeConfig {
     Local(LocalConfig),
     /// Use both local threads and remote workers.
     Remote(RemoteConfig),
+    /// Use both local threads and remote workers and divide in group the computation.
+    Distributed {
+        remote_config: RemoteConfig, // TODO: remove this field and implement remote from distributed
+        distributed_config: DistributedConfig,
+    },
 }
 
 impl Default for RuntimeConfig {
@@ -125,6 +133,25 @@ pub struct RemoteConfig {
     pub cleanup_executable: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+pub struct DistributedConfig {
+    /// The group which this host belongs to.
+    pub layer: String,
+    /// The input source for the computation group.
+    pub group_input: Option<ChannelConfig>,
+    /// The output sink for the computation group.
+    pub group_output: Option<ChannelConfig>,
+    /// Heartbeat interval in seconds.
+    pub heartbeat_interval: u64,
+}
+
+impl RemoteConfig {
+    /// Return the total number of core of the cluster
+    pub fn parallelism(&self) -> CoordUInt {
+        self.hosts.iter().map(|h| h.num_cores).sum()
+    }
+}
+
 /// The configuration of a single remote host.
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub struct HostConfig {
@@ -166,6 +193,20 @@ pub struct SSHConfig {
     pub key_file: Option<PathBuf>,
     /// The passphrase for decrypting the private SSH key.
     pub key_passphrase: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default, Hash)]
+#[serde(tag = "type")]
+pub enum ChannelConfig {
+    Kafka(KafkaConfig),
+    #[default]
+    None,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
+pub struct KafkaConfig {
+    pub brokers: Vec<String>,
+    pub topic: String,
 }
 
 impl std::fmt::Debug for SSHConfig {
@@ -211,6 +252,12 @@ pub struct CommandLineOptions {
     #[clap(short, long)]
     local: Option<CoordUInt>,
 
+    /// Whether to use a distributed configuration.
+    ///
+    /// When this is specified the execution will be distributed. This conflicts with `--local` and `--remote`.
+    #[clap(short, long, action)]
+    distributed: bool,
+
     /// The rest of the arguments.
     args: Vec<String>,
 }
@@ -229,6 +276,8 @@ impl RuntimeConfig {
             (Self::local(parallelism).expect("Configuration error"), args)
         } else if let Some(remote) = opt.remote {
             (Self::remote(remote).expect("Configuration error"), args)
+        } else if opt.distributed {
+            (Self::distributed().expect("Configuration error"), args)
         } else {
             unreachable!("Invalid configuration")
         }
@@ -259,6 +308,19 @@ impl RuntimeConfig {
         builder.build()
     }
 
+    /// TODO docs
+    pub fn distributed() -> Result<RuntimeConfig, ConfigError> {
+        let mut builder = ConfigBuilder::new_remote();
+
+        builder.parse_env()?;
+        builder.host_id_from_env()?;
+
+        let mut distributed_builder = builder.distributed()?;
+        distributed_builder.parse_env()?;
+
+        distributed_builder.build()
+    }
+
     /// Spawn the remote workers via SSH and exit if this is the process that should spawn. If this
     /// is already a spawned process nothing is done.
     pub fn spawn_remote_workers(&self) {
@@ -266,11 +328,14 @@ impl RuntimeConfig {
             RuntimeConfig::Local(_) => {}
             #[cfg(feature = "ssh")]
             RuntimeConfig::Remote(remote) => {
-                crate::runner::spawn_remote_workers(remote.clone());
+                spawn_remote_workers(remote.clone());
             }
             #[cfg(not(feature = "ssh"))]
             RuntimeConfig::Remote(_) => {
                 panic!("spawn_remote_workers() requires the `ssh` feature for remote configs.");
+            }
+            RuntimeConfig::Distributed { .. } => {
+                // TODO: spawn the distributed workers
             }
         }
     }
@@ -279,6 +344,27 @@ impl RuntimeConfig {
         match self {
             RuntimeConfig::Local(_) => Some(0),
             RuntimeConfig::Remote(remote) => remote.host_id,
+            RuntimeConfig::Distributed {
+                remote_config: config,
+                ..
+            } => config.host_id,
+        }
+    }
+
+    pub fn host_layer(&self) -> Option<String> {
+        match self {
+            RuntimeConfig::Distributed {
+                distributed_config, ..
+            } => Some(distributed_config.layer.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn parallelism(&self) -> CoordUInt {
+        match self {
+            RuntimeConfig::Local(local_config) => local_config.parallelism,
+            RuntimeConfig::Remote(remote_config) => remote_config.parallelism(),
+            RuntimeConfig::Distributed { remote_config, .. } => remote_config.parallelism(),
         }
     }
 }
@@ -293,8 +379,8 @@ impl Display for HostConfig {
 impl CommandLineOptions {
     /// Check that the configuration provided is valid.
     fn validate(&self) {
-        if !(self.remote.is_some() ^ self.local.is_some()) {
-            panic!("Use one of --remote or --local");
+        if !(self.remote.is_some() ^ self.local.is_some() ^ self.distributed) {
+            panic!("Use one of --remote,  --local or --distributed");
         }
     }
 }
@@ -404,6 +490,49 @@ impl ConfigBuilder {
             cleanup_executable: self.cleanup_executable,
         });
         Ok(conf)
+    }
+
+    pub fn distributed(self) -> Result<DistributedConfigBuilder, ConfigError> {
+        Ok(DistributedConfigBuilder::new(self))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct DistributedConfigBuilder {
+    config_builder: ConfigBuilder,
+    distributed_config: Option<DistributedConfig>,
+}
+
+impl DistributedConfigBuilder {
+    pub fn new(config_builder: ConfigBuilder) -> Self {
+        Self {
+            config_builder,
+            distributed_config: None,
+        }
+    }
+
+    pub fn parse_env(&mut self) -> Result<&mut Self, ConfigError> {
+        let config_str = env::var(DISTRIBUTED_CONFIG_ENV_VAR)
+            .map_err(|e| ConfigError::Environment(DISTRIBUTED_CONFIG_ENV_VAR.to_string(), e))?;
+        let config: DistributedConfig = toml::from_str(config_str.as_str())?;
+        self.distributed_config = Some(config);
+        Ok(self)
+    }
+
+    pub fn build(&mut self) -> Result<RuntimeConfig, ConfigError> {
+        let distributed_config = self
+            .distributed_config
+            .take()
+            .ok_or_else(|| ConfigError::Invalid("Distributed configuration not set".into()))?;
+
+        if let RuntimeConfig::Remote(remote_config) = self.config_builder.build()? {
+            Ok(RuntimeConfig::Distributed {
+                remote_config,
+                distributed_config,
+            })
+        } else {
+            unreachable!()
+        }
     }
 }
 
