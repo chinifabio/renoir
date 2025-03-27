@@ -1,0 +1,77 @@
+all:
+  children:
+    cloud:
+      hosts:
+        worker7:
+          ansible_host: 127.0.0.1
+          renoir_base_port: 10100
+          renoir_num_cores: 4
+      vars:
+        renoir_connections:
+          default:
+            input:
+              brokers:
+              - 127.0.0.1:9093
+              timeout: null
+              topic: site-cloud
+              type: Kafka
+            output: null
+    edge:
+      hosts:
+        worker1:
+          ansible_host: 127.0.0.1
+          renoir_base_port: 9500
+          renoir_num_cores: 1
+        worker2:
+          ansible_host: 127.0.0.1
+          renoir_base_port: 9600
+          renoir_num_cores: 1
+        worker3:
+          ansible_host: 127.0.0.1
+          renoir_base_port: 9700
+          renoir_num_cores: 1
+        worker4:
+          ansible_host: 127.0.0.1
+          renoir_base_port: 9800
+          renoir_num_cores: 1
+      vars:
+        renoir_connections:
+          default:
+            input: null
+            output:
+              brokers:
+              - 127.0.0.1:9093
+              timeout: null
+              topic: edge-site
+              type: Kafka
+    site:
+      hosts:
+        worker5:
+          ansible_host: 127.0.0.1
+          renoir_base_port: 9900
+          renoir_num_cores: 2
+        worker6:
+          ansible_host: 127.0.0.1
+          renoir_base_port: 10000
+          renoir_num_cores: 2
+      vars:
+        renoir_connections:
+          default:
+            input:
+              brokers:
+              - 127.0.0.1:9093
+              timeout: null
+              topic: edge-site
+              type: Kafka
+            output:
+              brokers:
+              - 127.0.0.1:9093
+              timeout: null
+              topic: site-cloud
+              type: Kafka
+  vars:
+    renoir_heartbeat:
+      brokers:
+      - 127.0.0.1:9093
+      timeout: 30
+      topic: heartbeat

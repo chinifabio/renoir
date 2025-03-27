@@ -1,7 +1,7 @@
 mod channel;
+mod layout_frontier;
 mod sink;
 mod source;
-mod layout_frontier;
 
 use serde::{Deserialize, Serialize};
 use sink::LayerConnectorSink;
@@ -28,9 +28,8 @@ where
             RuntimeConfig::Distributed {
                 distributed_config, ..
             } => {
-                let block = block.add_operator(|prev| {
-                    LayerConnectorSink::new(prev, distributed_config.clone())
-                }); // TODO cambiare il clone con Arc o anche Rc
+                let block = block
+                    .add_operator(|prev| LayerConnectorSink::new(prev, distributed_config.clone())); // TODO cambiare il clone con Arc o anche Rc
                 lock.close_block(block)
             }
             _ => {
@@ -66,13 +65,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-enum MessageContent<T> {
-    Element(StreamElement<T>),
-    Heartbeat,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 struct MessageMetadata {
     /// Layer name
     layer: String,
@@ -80,6 +73,22 @@ struct MessageMetadata {
     rch: u64,
     /// Parallelism level, used to await for all the broadcasts messages
     parallelism: u64,
+}
+
+impl std::fmt::Debug for MessageMetadata {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("MessageMetadata")
+            .field("layer", &self.layer)
+            .field("rch", &format_args!("{:x}", self.rch))
+            .field("parallelism", &self.parallelism)
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct RenoirMessage<T> {
+    metadata: MessageMetadata,
+    element: Option<StreamElement<T>>,
 }
 
 impl MessageMetadata {

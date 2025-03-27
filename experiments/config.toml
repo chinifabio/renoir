@@ -1,0 +1,121 @@
+[[host]]
+name = "worker1"
+address = "127.0.0.1"
+num_cores = 1
+base_port = 9500
+[host.capabilites]
+n_cpu = 1
+ram = 2
+gpu = "no"
+[host.ssh]
+user = "fabio"
+key_file = "/home/fabio/.ssh/id_ed25519"
+
+[[host]]
+name = "worker2"
+address = "127.0.0.1"
+num_cores = 1
+base_port = 9600
+[host.capabilites]
+n_cpu = 1
+ram = 2
+gpu = "no"
+[host.ssh]
+user = "fabio"
+key_file = "/home/fabio/.ssh/id_ed25519"
+
+[[host]]
+name = "worker3"
+address = "127.0.0.1"
+num_cores = 1
+base_port = 9700
+[host.capabilites]
+n_cpu = 1
+ram = 2
+gpu = "no"
+[host.ssh]
+user = "fabio"
+key_file = "/home/fabio/.ssh/id_ed25519"
+
+[[host]]
+name = "worker4"
+address = "127.0.0.1"
+num_cores = 1
+base_port = 9800
+[host.capabilites]
+n_cpu = 1
+ram = 2
+gpu = "no"
+[host.ssh]
+user = "fabio"
+key_file = "/home/fabio/.ssh/id_ed25519"
+
+[[host]]
+name = "worker5"
+address = "127.0.0.1"
+num_cores = 2
+base_port = 9900
+[host.capabilites]
+n_cpu = 2
+ram = 8
+gpu = "no"
+[host.ssh]
+user = "fabio"
+key_file = "/home/fabio/.ssh/id_ed25519"
+
+[[host]]
+name = "worker6"
+address = "127.0.0.1"
+num_cores = 2
+base_port = 10000
+[host.capabilites]
+n_cpu = 2
+ram = 8
+gpu = "no"
+[host.ssh]
+user = "fabio"
+key_file = "/home/fabio/.ssh/id_ed25519"
+
+[[host]]
+name = "worker7"
+address = "127.0.0.1"
+num_cores = 4
+base_port = 10100
+[host.capabilites]
+n_cpu = 4
+ram = 64
+gpu = "yes"
+[host.ssh]
+user = "fabio"
+key_file = "/home/fabio/.ssh/id_ed25519"
+
+[[group]]
+name = "edge"
+constraints = "n_cpu = 1,gpu = no"
+[group.output]
+type = "Kafka"
+brokers = ["127.0.0.1:9093"]
+topic = "edge-site"
+
+[[group]]
+name = "site"
+constraints = "n_cpu > 1,gpu = no"
+[group.input]
+type = "Kafka"
+brokers = ["127.0.0.1:9093"]
+topic = "edge-site"
+[group.output]
+type = "Kafka"
+brokers = ["127.0.0.1:9093"]
+topic = "site-cloud"
+
+[[group]]
+name = "cloud"
+constraints = "n_cpu >= 4,gpu = yes"
+[group.input]
+type = "Kafka"
+brokers = ["127.0.0.1:9093"]
+topic = "site-cloud"
+
+[heartbeat]
+brokers = ["127.0.0.1:9093"]

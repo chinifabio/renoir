@@ -15,6 +15,7 @@ use crate::{
 use super::{
     channel::{LayerChannel, LayerChannelExt},
     layout_frontier::LayoutFrontier,
+    RenoirMessage,
 };
 
 #[derive(Debug, Clone)]
@@ -136,18 +137,25 @@ impl<T: ExchangeData> Operator for LayerConnector<T> {
         loop {
             let channel = self.channel.as_mut().expect("Channel not initialized");
             let timeout = Duration::from_secs(self.config.heartbeat_interval);
-            let (metadata, item) =
-                match channel.recv_timeout(timeout) {
-                    Some((metadata, Some(item))) => (metadata, item),
-                    Some((metadata, None)) => {
-                        self.frontier.heartbeat(std::time::Instant::now(), &metadata);
-                        continue;
-                    }
-                    None => {
-                        self.frontier.timed_out(std::time::Instant::now(), timeout);
-                        continue;
-                    }
-                };
+            let (metadata, item) = match channel.recv_timeout(timeout) {
+                Some(message) => {
+                    let RenoirMessage { metadata, element } = message;
+                    (metadata, element)
+                }
+                None => {
+                    self.frontier.timed_out(std::time::Instant::now(), timeout);
+                    continue;
+                }
+            };
+
+            let item = match item {
+                Some(item) => item,
+                None => {
+                    self.frontier
+                        .heartbeat(std::time::Instant::now(), &metadata);
+                    continue;
+                }
+            };
 
             let now = std::time::Instant::now();
             let item = match item {

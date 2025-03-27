@@ -1,0 +1,92 @@
+- name: Setup environment
+  hosts: "{{ renoir_target_group | default('all') }}"
+  tasks:
+    - name: Setup remote config
+      set_fact:
+        host_id: "{{ groups[group_names|first].index(inventory_hostname) }}"
+    - name: Generate remote config
+      set_fact:
+        remote_config: |
+          {% set target_group = hostvars[inventory_hostname]["renoir_group"]|default(None) %}
+          {% set hostnames = groups[group_names|first] %}
+          {% for hostname in hostnames %}
+          {% set hostinfo = hostvars[hostname] %}
+          {% set hostgroup = hostinfo["renoir_group"]|default(None) %}
+          {% if hostgroup == target_group %}
+          [[host]]
+          address = "{{ hostinfo.ansible_host }}"
+          base_port = {{ hostinfo["renoir_base_port"] | default(-1) }}
+          num_cores = {{ hostinfo["renoir_num_cores"] | default(-1) }}
+          {% endif %}
+          {% endfor %}
+    - name: Generate distributed config
+      set_fact:
+        distributed_config: |
+          heartbeat_interval = 300
+          {% set host_group = group_names|last %}
+          layer = "{{ host_group }}"
+          {% set host_group_replica = group_names|first %}
+          {% if host_group != host_group_replica %}
+          host_group_replica = "{{ host_group_replica }}"
+          {% else %}
+          {% set host_group_replica = "default" %}
+          {% endif %}
+          {% set group_connections = hostvars[inventory_hostname]["renoir_connections"][host_group_replica] %}
+          {% set group_input = group_connections["input"]|default(None) %}
+          {% set group_output = group_connections["output"]|default(None) %}
+          {% if group_input != None %}
+          [group_input]
+          type = "{{ group_input["type"] }}"
+          brokers = {{ group_input["brokers"] }}
+          topic = "{{ group_input["topic"] }}"
+          {% endif %}
+          {% if group_output != None %}
+          [group_output]
+          type = "{{ group_output["type"] }}"
+          brokers = {{ group_output["brokers"] }}
+          topic = "{{ group_output["topic"] }}"
+          {% endif %}
+    - name: Debug remote config
+      debug:
+        msg: "{{ remote_config }}"
+    - name: Debug distributed config
+      debug:
+        msg: "{{ distributed_config }}"
+    - name: Prepare execution
+      set_fact:
+        renoir_executable_directory: "/tmp/renoir"
+        renoir_log_directory: "/tmp/renoir/log"
+    - name: Create executable directory
+      file:
+        path: "{{ renoir_executable_directory }}"
+        state: directory
+    - name: Create log directory
+      file:
+        path: "{{ renoir_log_directory }}"
+        state: directory
+    - name: Prepare execution
+      set_fact:
+        renoir_executable_destination: "{{ renoir_executable_directory }}/renoir_{{ inventory_hostname }}"
+        log_destination: "{{ renoir_log_directory }}/renoir_{{ inventory_hostname }}.log"
+    - name: Find PID of a process by name
+      ansible.builtin.shell: "pidof renoir_{{ inventory_hostname }}"
+      register: process_pid
+      failed_when: false
+    - name: Kill the process
+      ansible.builtin.shell: "kill -9 {{ process_pid.stdout | default('') }}"
+      when: process_pid.stdout != ""
+      failed_when: false
+    - name: Send the renoir executable
+      copy:
+        src: "{{ renoir_executable }}"
+        dest: "{{ renoir_executable_destination }}"
+        mode: 0755
+    - name: Execute renoir
+      shell: "/bin/bash -c '{{ renoir_executable_destination }} {{ renoir_arguments }} 2>&1 | tee -a {{ log_destination }}'"
+      environment:
+        RENOIR_HOST_ID: "{{ host_id }}"
+        RENOIR_CONFIG: "{{ remote_config }}"
+        RENOIR_DISTRIBUTED_CONFIG: "{{ distributed_config }}"
+        RUST_LOG: "debug"
+      async: 3600
+      poll: 0

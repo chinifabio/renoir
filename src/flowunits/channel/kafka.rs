@@ -1,5 +1,8 @@
 use std::{
-    sync::{atomic::{AtomicBool, Ordering}, Arc},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
@@ -13,7 +16,7 @@ use rdkafka::{
 
 use crate::{
     config::KafkaConfig,
-    flowunits::MessageMetadata,
+    flowunits::{MessageMetadata, RenoirMessage},
     operator::{ExchangeData, StreamElement},
 };
 
@@ -22,7 +25,7 @@ use super::LayerChannelExt;
 const MAX_PARALLEL_SEND: usize = 2048;
 
 struct KafkaConsumer<T: ExchangeData> {
-    rx: flume::Receiver<(MessageMetadata, Option<StreamElement<T>>)>,
+    rx: flume::Receiver<RenoirMessage<T>>,
     // TODO wait nel drop
     #[allow(dead_code)]
     cancel_token: Arc<AtomicBool>,
@@ -88,17 +91,14 @@ impl<T: ExchangeData> LayerChannelExt<T> for KafkaChannel<T> {
         }
     }
 
-    fn recv(&mut self) -> Option<(MessageMetadata, Option<StreamElement<T>>)> {
+    fn recv(&mut self) -> Option<RenoirMessage<T>> {
         match &mut self.inner {
             KafkaChannelInner::Producer(_) => panic!("Cannot receive from a producer"),
             KafkaChannelInner::Consumer(channel) => channel.recv(),
         }
     }
 
-    fn recv_timeout(
-        &mut self,
-        timeout: std::time::Duration,
-    ) -> Option<(MessageMetadata, Option<StreamElement<T>>)> {
+    fn recv_timeout(&mut self, timeout: std::time::Duration) -> Option<RenoirMessage<T>> {
         match &mut self.inner {
             KafkaChannelInner::Producer(_) => panic!("Cannot receive from a producer"),
             KafkaChannelInner::Consumer(channel) => channel.recv_timeout(timeout),
@@ -144,14 +144,14 @@ impl<T: ExchangeData> KafkaProducer<T> {
     }
 
     fn send(&mut self, metadata: &MessageMetadata, item: &StreamElement<T>) {
+        log::debug!("Sending to kafka: {}", item.variant_str());
         let producer = self.producer.clone();
         let topic = self.topic.clone();
 
-        let bytes = bincode::serialize(&(metadata, item)).expect("bincode serialization failed");
+        let bytes = serde_json::to_string(&(metadata, item)).expect("bincode serialization failed");
         let handle = self.rt.spawn(async move {
             let record: FutureRecord<[u8], [u8]> =
-                FutureRecord::to(&topic).payload(bytes.as_slice());
-
+                FutureRecord::to(&topic).payload(bytes.as_bytes());
             producer
                 .send(record, Timeout::After(Duration::from_secs(10)))
                 .await
@@ -170,10 +170,10 @@ impl<T: ExchangeData> KafkaProducer<T> {
             let topic = self.topic.clone();
 
             let bytes =
-                bincode::serialize(&(metadata, item)).expect("bincode serialization failed");
+                serde_json::to_string(&(metadata, item)).expect("bincode serialization failed");
             let handle = self.rt.spawn(async move {
                 let record: FutureRecord<[u8], [u8]> = FutureRecord::to(&topic)
-                    .payload(bytes.as_slice())
+                    .payload(bytes.as_bytes())
                     .partition(partition as i32);
 
                 producer
@@ -201,7 +201,9 @@ impl<T: ExchangeData> KafkaConsumer<T> {
             .create::<StreamConsumer>()
             .expect("Kafka consumer creation failed");
 
-        consumer.subscribe(&[config.topic.as_str()]).expect("Failed to subscribe");
+        consumer
+            .subscribe(&[config.topic.as_str()])
+            .expect("Failed to subscribe");
 
         let (tx, rx) = flume::unbounded();
         let cancel_token = Arc::new(AtomicBool::new(false));
@@ -215,8 +217,9 @@ impl<T: ExchangeData> KafkaConsumer<T> {
                 }
                 let owned = msg.detach();
                 let bytes = owned.payload().unwrap();
-                let message: (MessageMetadata, Option<StreamElement<T>>) =
-                    bincode::deserialize(bytes).expect("bincode deserialization failed");
+                log::debug!("Received bytes: {}", String::from_utf8_lossy(bytes));
+                let message: RenoirMessage<T> =
+                    serde_json::from_slice(bytes).expect("bincode deserialization failed");
                 if let Err(e) = tx.send(message) {
                     if cancel.load(Ordering::SeqCst) {
                         break;
@@ -227,21 +230,21 @@ impl<T: ExchangeData> KafkaConsumer<T> {
             }
         });
 
-        Self {
-            rx,
-            cancel_token,
-        }
+        Self { rx, cancel_token }
     }
 
     #[allow(dead_code)]
-    fn recv(&mut self) -> Option<(MessageMetadata, Option<StreamElement<T>>)> {
+    fn recv(&mut self) -> Option<RenoirMessage<T>> {
         self.rx.try_recv().ok()
     }
 
-    fn recv_timeout(
-        &mut self,
-        timeout: std::time::Duration,
-    ) -> Option<(MessageMetadata, Option<StreamElement<T>>)> {
-        self.rx.recv_timeout(timeout).ok()
+    fn recv_timeout(&mut self, timeout: std::time::Duration) -> Option<RenoirMessage<T>> {
+        self.rx
+            .recv_timeout(timeout)
+            .inspect_err(|err| {
+                log::error!("Kafka consumer error: {}", err);
+                panic!()
+            })
+            .ok()
     }
 }

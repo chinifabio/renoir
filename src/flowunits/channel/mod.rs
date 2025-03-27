@@ -5,7 +5,7 @@ use crate::{
     operator::{ExchangeData, StreamElement},
 };
 
-use super::MessageMetadata;
+use super::{MessageMetadata, RenoirMessage};
 
 mod kafka;
 
@@ -26,7 +26,9 @@ impl DistributedConfig {
         self.group_input
             .as_ref()
             .map(|channel_config| match channel_config {
-                ChannelConfig::Kafka(config) => LayerChannel::new_kafka_consumer(config.clone(), self.layer.clone()),
+                ChannelConfig::Kafka(config) => {
+                    LayerChannel::new_kafka_consumer(config.clone(), self.layer.clone())
+                }
                 ChannelConfig::None => LayerChannel::none(),
             })
             .unwrap_or(LayerChannel::none())
@@ -36,7 +38,9 @@ impl DistributedConfig {
         self.group_output
             .as_ref()
             .map(|channel_config| match channel_config {
-                ChannelConfig::Kafka(config) => LayerChannel::new_kafka_producer(config.clone(), self.layer.clone()),
+                ChannelConfig::Kafka(config) => {
+                    LayerChannel::new_kafka_producer(config.clone(), self.layer.clone())
+                }
                 ChannelConfig::None => LayerChannel::none(),
             })
             .unwrap_or(LayerChannel::none())
@@ -56,8 +60,8 @@ pub(crate) trait LayerChannelExt<T: ExchangeData> {
     fn send(&mut self, metadata: &MessageMetadata, item: &StreamElement<T>);
     fn broadcast(&mut self, metadata: &MessageMetadata, item: &StreamElement<T>);
     #[allow(dead_code)]
-    fn recv(&mut self) -> Option<(MessageMetadata, Option<StreamElement<T>>)>;
-    fn recv_timeout(&mut self, timeout: std::time::Duration) -> Option<(MessageMetadata, Option<StreamElement<T>>)>;
+    fn recv(&mut self) -> Option<RenoirMessage<T>>;
+    fn recv_timeout(&mut self, timeout: std::time::Duration) -> Option<RenoirMessage<T>>;
 }
 
 impl<T: ExchangeData> LayerChannel<T> {
@@ -95,14 +99,14 @@ impl<T: ExchangeData> LayerChannelExt<T> for LayerChannel<T> {
         }
     }
 
-    fn recv(&mut self) -> Option<(MessageMetadata, Option<StreamElement<T>>)> {
+    fn recv(&mut self) -> Option<RenoirMessage<T>> {
         match &mut self.inner {
             LayerChannelInner::Kafka(channel) => channel.recv(),
             LayerChannelInner::None => None,
         }
     }
 
-    fn recv_timeout(&mut self, timeout: std::time::Duration) -> Option<(MessageMetadata, Option<StreamElement<T>>)> {
+    fn recv_timeout(&mut self, timeout: std::time::Duration) -> Option<RenoirMessage<T>> {
         match &mut self.inner {
             LayerChannelInner::Kafka(channel) => channel.recv_timeout(timeout),
             LayerChannelInner::None => None,
