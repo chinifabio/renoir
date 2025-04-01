@@ -508,7 +508,7 @@ impl NetworkTopology {
         let config = match &*self.config {
             RuntimeConfig::Local(_) => return,
             RuntimeConfig::Remote(config) => config,
-            RuntimeConfig::Distributed { remote_config, .. } => remote_config,
+            RuntimeConfig::Distributed(config) => &config.remote_config,
         };
 
         let mut coords = IndexSet::new();

@@ -100,17 +100,17 @@ where
         let metadata = self.metadata.as_ref().expect("Metadata not set");
         match &item {
             StreamElement::Item(_) | StreamElement::Timestamped(_, _) => {
-                channel.send(&metadata, &item);
+                channel.send(metadata, &item);
             }
             StreamElement::Watermark(_) => {
-                channel.broadcast(&metadata, &item);
+                channel.broadcast(metadata, &item);
             }
 
             StreamElement::FlushBatch
             | StreamElement::Terminate
             | StreamElement::FlushAndRestart => {
                 // self.channel.wait(); TODO capire se serve wait o lo faccio a livello di tecnologia
-                channel.broadcast(&metadata, &item);
+                channel.broadcast(metadata, &item);
             }
         };
         item

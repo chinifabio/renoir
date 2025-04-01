@@ -5,7 +5,7 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use crate::block::{BatchMode, Block, BlockStructure, JobGraphGenerator, Replication};
-use crate::config::{LocalConfig, RemoteConfig, RuntimeConfig};
+use crate::config::{HostConfig, LocalConfig, RemoteConfig, RuntimeConfig};
 use crate::network::{Coord, NetworkTopology};
 use crate::operator::Operator;
 use crate::profiler::{log_trace, wait_profiler};
@@ -37,8 +37,6 @@ pub struct ExecutionMetadata<'a> {
     pub(crate) network: &'a mut NetworkTopology,
     /// The batching mode to use inside this block.
     pub batch_mode: BatchMode,
-    /// The layer of the block
-    pub(crate) layer: Option<String>,
     /// The number of core of the execution context
     pub(crate) parallelism: CoordUInt,
 }
@@ -172,7 +170,7 @@ impl Scheduler {
                 prev: self.network.prev(coord),
                 network: &mut self.network,
                 batch_mode: block_info.batch_mode,
-                layer: self.config.host_layer(),
+                // layer: self.config.host_layer(),
                 parallelism: self.config.parallelism(),
             };
             let (handle, structure) = init_fn(&mut metadata);
@@ -328,20 +326,19 @@ impl Scheduler {
         match self.config.as_ref() {
             RuntimeConfig::Local(local) => self.local_block_info(block, local),
             RuntimeConfig::Remote(remote) => self.remote_block_info(block, remote),
-            RuntimeConfig::Distributed {
-                remote_config,
-                distributed_config,
-            } => match block.layer.as_deref() {
+            RuntimeConfig::Distributed(distributed) => match block.layer.as_deref() {
                 Some(block_layer) => {
                     log::debug!(
                         "(block layer) {:?} == {:?} (host layer)",
                         block_layer,
-                        distributed_config.layer
+                        distributed.layer
                     );
-                    if block_layer == distributed_config.layer {
-                        self.remote_block_info(block, remote_config)
+                    // TODO: qui sarà dove andro anche a controllare capabilities/requirements
+                    // ma se tanto dopo filtro anche sul layer dell'host, questo check non serve no?
+                    if block_layer == distributed.layer {
+                        self.remote_block_info(block, &distributed.remote_config)
                     } else {
-                        self.foreign_block_info()
+                        Default::default()
                     }
                 }
                 None => panic!("You should consider using groups in the stream definition."),
@@ -422,26 +419,35 @@ impl Scheduler {
             }};
         }
 
+        let mut filtered_hosts = remote.hosts.iter()
+            .filter(|h| self.check_mapping(h, block));
+
         match replication {
             Replication::Unlimited => {
-                for (host_id, host_info) in remote.hosts.iter().enumerate() {
+                for (host_id, host_info) in filtered_hosts.enumerate() {
                     add_replicas!(host_id.try_into().unwrap(), host_info, host_info.num_cores);
                 }
             }
             Replication::Limited(mut remaining) => {
-                for (host_id, host_info) in remote.hosts.iter().enumerate() {
+                for (host_id, host_info) in filtered_hosts.enumerate() {
                     let n = remaining.min(host_info.num_cores);
                     add_replicas!(host_id.try_into().unwrap(), host_info, n);
                     remaining -= n;
                 }
             }
             Replication::Host => {
-                for (host_id, host_info) in remote.hosts.iter().enumerate() {
+                for (host_id, host_info) in filtered_hosts.enumerate() {
                     add_replicas!(host_id.try_into().unwrap(), host_info, 1);
                 }
             }
             Replication::One => {
-                add_replicas!(0, remote.hosts[0], 1);
+                add_replicas!(
+                    0,
+                    filtered_hosts
+                        .next()
+                        .expect("Failed to find available host"),
+                    1
+                );
             }
         }
 
@@ -454,18 +460,24 @@ impl Scheduler {
         }
     }
 
-    /// Extract the `SchedulerBlockInfo` of a block that runs on a foreign host.
-    ///
-    /// This is used when the block is not running on the same group as the host.
-    fn foreign_block_info(&self) -> SchedulerBlockInfo {
-        log::debug!("creating foreign block...");
-        SchedulerBlockInfo {
-            repr: "foreign block".to_string(),
-            replicas: Default::default(),
-            global_ids: Default::default(),
-            batch_mode: Default::default(),
-            is_only_one_strategy: false,
-        }
+    fn check_mapping<OperatorChain>(&self, host: &HostConfig, block: &Block<OperatorChain>) -> bool
+    where
+        OperatorChain: Operator,
+    {
+        // this way we use the the maximum number of replicas possible
+        let layer_match = match (block.layer.as_deref(), host.layer.as_deref()) {
+            (Some(block_layer), Some(host_layer)) => block_layer == host_layer,
+            (_, None) => true,
+            (None, Some(_)) => false,
+        };
+        log::debug!(
+            "layer: (host) {} == {} (block) => {}",
+            host.layer.as_deref().unwrap_or(&"...".to_string()),
+            block.layer.as_deref().unwrap_or(&"...".to_string()),
+            layer_match
+        );
+        // TODO: match delle capabilities
+        return layer_match;
     }
 }
 
@@ -473,6 +485,18 @@ impl SchedulerBlockInfo {
     /// The list of replicas of the block inside a given host.
     fn replicas(&self, host_id: HostId) -> Vec<Coord> {
         self.replicas.get(&host_id).cloned().unwrap_or_default()
+    }
+}
+
+impl Default for SchedulerBlockInfo {
+    fn default() -> Self {
+        Self {
+            repr: "default".to_string(),
+            replicas: Default::default(),
+            global_ids: Default::default(),
+            batch_mode: Default::default(),
+            is_only_one_strategy: false,
+        }
     }
 }
 

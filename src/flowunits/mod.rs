@@ -25,11 +25,9 @@ where
         let iteration_ctx = block.iteration_ctx.clone();
 
         let prev_id = match &*lock.config {
-            RuntimeConfig::Distributed {
-                distributed_config, ..
-            } => {
+            RuntimeConfig::Distributed(config) => {
                 let block = block
-                    .add_operator(|prev| LayerConnectorSink::new(prev, distributed_config.clone())); // TODO cambiare il clone con Arc o anche Rc
+                    .add_operator(|prev| LayerConnectorSink::new(prev, config.clone())); // TODO cambiare il clone con Arc o anche Rc
                 lock.close_block(block)
             }
             _ => {
@@ -40,12 +38,10 @@ where
             }
         };
 
+        lock.update_layer(name);
         let new_block = match &*lock.config {
-            RuntimeConfig::Distributed {
-                distributed_config, ..
-            } => {
-                let source = LayerConnectorSource::new_remote(distributed_config);
-                lock.update_layer(name);
+            RuntimeConfig::Distributed(config) => {
+                let source = LayerConnectorSource::new_remote(config);
                 lock.new_block(source, Default::default(), Default::default())
             }
             _ => {

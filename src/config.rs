@@ -84,10 +84,7 @@ pub enum RuntimeConfig {
     /// Use both local threads and remote workers.
     Remote(RemoteConfig),
     /// Use both local threads and remote workers and divide in group the computation.
-    Distributed {
-        remote_config: RemoteConfig, // TODO: remove this field and implement remote from distributed
-        distributed_config: DistributedConfig,
-    },
+    Distributed(DistributedConfig),
 }
 
 impl Default for RuntimeConfig {
@@ -118,7 +115,7 @@ pub struct LocalConfig {
 }
 
 /// This environment uses local threads and remote hosts.
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct RemoteConfig {
     /// The identifier for this host.
     #[serde(skip)]
@@ -143,6 +140,8 @@ pub struct DistributedConfig {
     pub group_output: Option<ChannelConfig>,
     /// Heartbeat interval in seconds.
     pub heartbeat_interval: u64,
+    /// Remote config for the group.
+    pub remote_config: RemoteConfig,
 }
 
 impl RemoteConfig {
@@ -153,7 +152,7 @@ impl RemoteConfig {
 }
 
 /// The configuration of a single remote host.
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Hash)]
 pub struct HostConfig {
     /// The IP address or domain name to use for connecting to this remote host.
     ///
@@ -174,10 +173,12 @@ pub struct HostConfig {
     /// If specified the remote worker will be spawned under `perf`, and its output will be stored
     /// at this location.
     pub perf_path: Option<PathBuf>,
+    /// the layer name of the host
+    pub layer: Option<String>,
 }
 
 /// The information used to connect to a remote host via SSH.
-#[derive(Clone, Serialize, Deserialize, Derivative, Eq, PartialEq)]
+#[derive(Clone, Serialize, Deserialize, Derivative, Eq, PartialEq, Hash)]
 #[derivative(Default)]
 #[allow(clippy::upper_case_acronyms)]
 pub struct SSHConfig {
@@ -344,18 +345,13 @@ impl RuntimeConfig {
         match self {
             RuntimeConfig::Local(_) => Some(0),
             RuntimeConfig::Remote(remote) => remote.host_id,
-            RuntimeConfig::Distributed {
-                remote_config: config,
-                ..
-            } => config.host_id,
+            RuntimeConfig::Distributed(config) => config.remote_config.host_id,
         }
     }
 
     pub fn host_layer(&self) -> Option<String> {
         match self {
-            RuntimeConfig::Distributed {
-                distributed_config, ..
-            } => Some(distributed_config.layer.clone()),
+            RuntimeConfig::Distributed(config) => Some(config.layer.clone()),
             _ => None,
         }
     }
@@ -364,7 +360,7 @@ impl RuntimeConfig {
         match self {
             RuntimeConfig::Local(local_config) => local_config.parallelism,
             RuntimeConfig::Remote(remote_config) => remote_config.parallelism(),
-            RuntimeConfig::Distributed { remote_config, .. } => remote_config.parallelism(),
+            RuntimeConfig::Distributed(remote_config)=> remote_config.remote_config.parallelism(),
         }
     }
 }
@@ -520,16 +516,14 @@ impl DistributedConfigBuilder {
     }
 
     pub fn build(&mut self) -> Result<RuntimeConfig, ConfigError> {
-        let distributed_config = self
+        let mut distributed_config = self
             .distributed_config
             .take()
             .ok_or_else(|| ConfigError::Invalid("Distributed configuration not set".into()))?;
 
         if let RuntimeConfig::Remote(remote_config) = self.config_builder.build()? {
-            Ok(RuntimeConfig::Distributed {
-                remote_config,
-                distributed_config,
-            })
+            distributed_config.remote_config = remote_config;
+            Ok(RuntimeConfig::Distributed(distributed_config))
         } else {
             unreachable!()
         }
