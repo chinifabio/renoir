@@ -32,9 +32,8 @@ fn main() {
 
     let ctx = StreamContext::new(config);
     let result = ctx
-        .initial_layer("sensors")
+        .initial_layer("sensor")
         .stream_par_iter(0..args.n)
-        // .batch_mode(BatchMode::timed(1024, Duration::from_millis(100)))
         .change_layer("edge")
         .filter(|i| i % 3 == 0)
         .change_layer("site")
