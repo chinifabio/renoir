@@ -1,3 +1,5 @@
+
+#[cfg(feature = "rdkafka")]
 use kafka::KafkaChannel;
 
 use crate::{
@@ -7,13 +9,20 @@ use crate::{
 
 use super::{MessageMetadata, RenoirMessage};
 
+#[cfg(feature = "rdkafka")]
 mod kafka;
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) enum LayerChannelInner<T: ExchangeData> {
+    #[cfg(feature = "rdkafka")]
     Kafka(KafkaChannel<T>),
-    #[default]
-    None,
+    None(std::marker::PhantomData<T>),
+}
+
+impl<T: ExchangeData> Default for LayerChannelInner<T> {
+    fn default() -> Self {
+        LayerChannelInner::None(std::marker::PhantomData)
+    }
 }
 
 #[derive(Debug, Default)]
@@ -26,6 +35,7 @@ impl DistributedConfig {
         self.group_input
             .as_ref()
             .map(|channel_config| match channel_config {
+                #[cfg(feature = "rdkafka")]
                 ChannelConfig::Kafka(config) => {
                     LayerChannel::new_kafka_consumer(config.clone(), self.layer.clone())
                 }
@@ -38,6 +48,7 @@ impl DistributedConfig {
         self.group_output
             .as_ref()
             .map(|channel_config| match channel_config {
+                #[cfg(feature = "rdkafka")]
                 ChannelConfig::Kafka(config) => {
                     LayerChannel::new_kafka_producer(config.clone(), self.layer.clone())
                 }
@@ -50,8 +61,9 @@ impl DistributedConfig {
 impl<T: ExchangeData> std::fmt::Display for LayerChannel<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.inner {
+            #[cfg(feature = "rdkafka")]
             LayerChannelInner::Kafka(_) => write!(f, "Kafka"),
-            LayerChannelInner::None => write!(f, "None"),
+            LayerChannelInner::None(_) => write!(f, "None"),
         }
     }
 }
@@ -67,16 +79,18 @@ pub(crate) trait LayerChannelExt<T: ExchangeData> {
 impl<T: ExchangeData> LayerChannel<T> {
     pub fn none() -> Self {
         Self {
-            inner: LayerChannelInner::None,
+            inner: LayerChannelInner::None(std::marker::PhantomData),
         }
     }
 
+    #[cfg(feature = "rdkafka")]
     pub fn new_kafka_producer(config: KafkaConfig, layer: String) -> Self {
         Self {
             inner: LayerChannelInner::Kafka(KafkaChannel::new_producer(config, layer)),
         }
     }
 
+    #[cfg(feature = "rdkafka")]
     pub fn new_kafka_consumer(config: KafkaConfig, layer: String) -> Self {
         Self {
             inner: LayerChannelInner::Kafka(KafkaChannel::new_consumer(config, layer)),
@@ -87,29 +101,33 @@ impl<T: ExchangeData> LayerChannel<T> {
 impl<T: ExchangeData> LayerChannelExt<T> for LayerChannel<T> {
     fn send(&mut self, metadata: &MessageMetadata, item: &StreamElement<T>) {
         match &mut self.inner {
+            #[cfg(feature = "rdkafka")]
             LayerChannelInner::Kafka(channel) => channel.send(metadata, item),
-            LayerChannelInner::None => {}
+            LayerChannelInner::None(_) => {}
         }
     }
 
     fn broadcast(&mut self, metadata: &MessageMetadata, item: &StreamElement<T>) {
         match &mut self.inner {
+            #[cfg(feature = "rdkafka")]
             LayerChannelInner::Kafka(channel) => channel.broadcast(metadata, item),
-            LayerChannelInner::None => {}
+            LayerChannelInner::None(_) => {}
         }
     }
 
     fn recv(&mut self) -> Option<RenoirMessage<T>> {
         match &mut self.inner {
+            #[cfg(feature = "rdkafka")]
             LayerChannelInner::Kafka(channel) => channel.recv(),
-            LayerChannelInner::None => None,
+            LayerChannelInner::None(_) => None,
         }
     }
 
     fn recv_timeout(&mut self, timeout: std::time::Duration) -> Option<RenoirMessage<T>> {
         match &mut self.inner {
+            #[cfg(feature = "rdkafka")]
             LayerChannelInner::Kafka(channel) => channel.recv_timeout(timeout),
-            LayerChannelInner::None => None,
+            LayerChannelInner::None(_) => None,
         }
     }
 }

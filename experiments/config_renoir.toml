@@ -1,4 +1,44 @@
 [[host]]
+name = "sensor1"
+layer = "sensor"
+address = "sensor1"
+num_cores = 1
+base_port = 9500
+[host.ssh]
+username = "renoir"
+key_file = "/renoir/id_rsa"
+
+[[host]]
+name = "sensor2"
+layer = "sensor"
+address = "sensor2"
+num_cores = 1
+base_port = 9500
+[host.ssh]
+username = "renoir"
+key_file = "/renoir/id_rsa"
+
+[[host]]
+name = "sensor3"
+layer = "sensor"
+address = "sensor3"
+num_cores = 1
+base_port = 9500
+[host.ssh]
+username = "renoir"
+key_file = "/renoir/id_rsa"
+
+[[host]]
+name = "sensor4"
+layer = "sensor"
+address = "sensor4"
+num_cores = 1
+base_port = 9500
+[host.ssh]
+username = "renoir"
+key_file = "/renoir/id_rsa"
+
+[[host]]
 name = "worker1"
 address = "worker1"
 num_cores = 1
@@ -9,7 +49,7 @@ ram = 2
 gpu = "no"
 [host.ssh]
 username = "renoir"
-key_file = "/root/.ssh/id_ed25519"
+key_file = "/renoir/id_rsa"
 
 [[host]]
 name = "worker2"
@@ -22,7 +62,7 @@ ram = 2
 gpu = "no"
 [host.ssh]
 username = "renoir"
-key_file = "/root/.ssh/id_ed25519"
+key_file = "/renoir/id_rsa"
 
 [[host]]
 name = "worker3"
@@ -35,7 +75,7 @@ ram = 2
 gpu = "no"
 [host.ssh]
 username = "renoir"
-key_file = "/root/.ssh/id_ed25519"
+key_file = "/renoir/id_rsa"
 
 [[host]]
 name = "worker4"
@@ -48,12 +88,12 @@ ram = 2
 gpu = "no"
 [host.ssh]
 username = "renoir"
-key_file = "/root/.ssh/id_ed25519"
+key_file = "/renoir/id_rsa"
 
 [[host]]
 name = "worker5"
 address = "worker5"
-num_cores = 2
+num_cores = 4
 base_port = 9500
 [host.capabilites]
 n_cpu = 2
@@ -61,12 +101,12 @@ ram = 8
 gpu = "no"
 [host.ssh]
 username = "renoir"
-key_file = "/root/.ssh/id_ed25519"
+key_file = "/renoir/id_rsa"
 
 [[host]]
 name = "worker6"
 address = "worker6"
-num_cores = 2
+num_cores = 4
 base_port = 9500
 [host.capabilites]
 n_cpu = 2
@@ -74,12 +114,12 @@ ram = 8
 gpu = "no"
 [host.ssh]
 username = "renoir"
-key_file = "/root/.ssh/id_ed25519"
+key_file = "/renoir/id_rsa"
 
 [[host]]
 name = "worker7"
 address = "worker7"
-num_cores = 4
+num_cores = 16
 base_port = 9500
 [host.capabilites]
 n_cpu = 4
@@ -87,7 +127,7 @@ ram = 64
 gpu = "yes"
 [host.ssh]
 username = "renoir"
-key_file = "/root/.ssh/id_ed25519"
+key_file = "/renoir/id_rsa"
 
 [[group]]
 name = "edge"

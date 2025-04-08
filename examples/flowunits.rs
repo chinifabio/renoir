@@ -1,3 +1,5 @@
+// use std::time::Duration;
+
 use clap::Parser;
 use renoir::prelude::*;
 
@@ -6,8 +8,21 @@ struct Args {
     n: u64,
 }
 
-#[tokio::main]
-async fn main() {
+fn collatz_seq(n: u64) -> u64 {
+    let mut n = n;
+    let mut steps = 0;
+    while n > 1 {
+        if n % 2 == 0 {
+            n = n / 2;
+        } else {
+            n = 3 * n + 1;
+        }
+        steps += 1;
+    }
+    steps
+}
+
+fn main() {
     env_logger::init();
 
     let (config, args) = RuntimeConfig::from_args();
@@ -17,17 +32,28 @@ async fn main() {
 
     let ctx = StreamContext::new(config);
     let result = ctx
-        .initial_layer("edge")
+        .initial_layer("sensors")
         .stream_par_iter(0..args.n)
-        .filter(|i| i % 2 == 0)
+        // .batch_mode(BatchMode::timed(1024, Duration::from_millis(100)))
+        .change_layer("edge")
+        .filter(|i| i % 3 == 0)
         .change_layer("site")
-        .group_by_avg(move |e| e  % 100, |e| *e as f64)
+        .group_by(|e| e % 10)
+        .window(CountWindow::tumbling(10))
+        .sum()
         .drop_key()
         .change_layer("cloud")
-        .map(|e| e * e)
+        .filter_map(|e: u64| {
+            let n = collatz_seq(e);
+            if n < 100 {
+                Some((e, n))
+            } else {
+                None
+            }
+        })
         .collect_all::<Vec<_>>();
 
-    ctx.execute().await;
+    ctx.execute_blocking();
 
     log::info!("Result: {:?}", result.get());
 }

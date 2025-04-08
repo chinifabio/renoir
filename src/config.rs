@@ -199,6 +199,7 @@ pub struct SSHConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default, Hash)]
 #[serde(tag = "type")]
 pub enum ChannelConfig {
+    #[cfg(feature = "rdkafka")]
     Kafka(KafkaConfig),
     #[default]
     None,

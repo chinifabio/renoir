@@ -1,122 +1,175 @@
 services:
-  worker1:
+  sensor1:
     image: fabiochini/renoir-test
-    container_name: worker1
-    restart: unless-stopped
-    cap_add:
-      - NET_ADMIN
-    environment:
-      - AUTHORIZED_KEYS=ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBACh2vvsiL0JNUjZJot0imVqEbyMGAgrVOx5m03cvJt fabio@yoga
-      - SSH_PASSWORD=Renoir<3
-      - SSH_USERNAME=renoir
-      - ALLOWED_HOSTS=launcher,kafka,worker2,worker3,worker4
-      - SLOW_DELAY=50ms
-    ports:
-      - "2201:22"
-  
-  worker2:
-    image: fabiochini/renoir-test
-    container_name: worker2
-    restart: unless-stopped
-    cap_add:
-      - NET_ADMIN
-    environment:
-      - AUTHORIZED_KEYS=ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBACh2vvsiL0JNUjZJot0imVqEbyMGAgrVOx5m03cvJt fabio@yoga
-      - SSH_PASSWORD=Renoir<3
-      - SSH_USERNAME=renoir
-      - ALLOWED_HOSTS=launcher,kafka,worker1,worker3,worker4
-      - SLOW_DELAY=50ms
-    ports:
-      - "2202:22"
-
-  worker3:
-    image: fabiochini/renoir-test
-    container_name: worker3
-    restart: unless-stopped
-    cap_add:
-      - NET_ADMIN
-    environment:
-      - AUTHORIZED_KEYS=ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBACh2vvsiL0JNUjZJot0imVqEbyMGAgrVOx5m03cvJt fabio@yoga
-      - SSH_PASSWORD=Renoir<3
-      - SSH_USERNAME=renoir
-      - ALLOWED_HOSTS=launcher,kafka,worker1,worker2,worker4
-      - SLOW_DELAY=50ms
-    ports:
-      - "2203:22"
-
-  worker4:
-    image: fabiochini/renoir-test
-    container_name: worker4
-    restart: unless-stopped
-    cap_add:
-      - NET_ADMIN
-    environment:
-      - AUTHORIZED_KEYS=ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBACh2vvsiL0JNUjZJot0imVqEbyMGAgrVOx5m03cvJt fabio@yoga
-      - SSH_PASSWORD=Renoir<3
-      - SSH_USERNAME=renoir
-      - ALLOWED_HOSTS=launcher,kafka,worker1,worker2,worker3
-      - SLOW_DELAY=50ms
-    ports:
-      - "2204:22"
-
-  worker5:
-    image: fabiochini/renoir-test
-    container_name: worker5
-    restart: unless-stopped
-    cap_add:
-      - NET_ADMIN
-    environment:
-      - AUTHORIZED_KEYS=ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBACh2vvsiL0JNUjZJot0imVqEbyMGAgrVOx5m03cvJt fabio@yoga
-      - SSH_PASSWORD=Renoir<3
-      - SSH_USERNAME=renoir
-      - ALLOWED_HOSTS=launcher,kafka,worker6
-      - SLOW_DELAY=50ms
-    ports:
-      - "2205:22"
-
-  worker6:
-    image: fabiochini/renoir-test
-    container_name: worker6
-    restart: unless-stopped
-    cap_add:
-      - NET_ADMIN
-    environment:
-      - AUTHORIZED_KEYS=ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBACh2vvsiL0JNUjZJot0imVqEbyMGAgrVOx5m03cvJt fabio@yoga
-      - SSH_PASSWORD=Renoir<3
-      - SSH_USERNAME=renoir
-      - ALLOWED_HOSTS=launcher,kafka,worker5
-      - SLOW_DELAY=50ms
-    ports:
-      - "2206:22"
-
-  worker7:
-    image: fabiochini/renoir-test
-    container_name: worker7
-    restart: unless-stopped
-    cap_add:
-      - NET_ADMIN
-    environment:
-      - AUTHORIZED_KEYS=ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBACh2vvsiL0JNUjZJot0imVqEbyMGAgrVOx5m03cvJt fabio@yoga
-      - SSH_PASSWORD=Renoir<3
-      - SSH_USERNAME=renoir
-      - ALLOWED_HOSTS=launcher,kafka
-      - SLOW_DELAY=50ms
-    ports:
-      - "2207:22"
-  
-  launcher:
-    image: fabiochini/renoir-test
-    container_name: launcher
-    restart: unless-stopped
+    container_name: sensor1
     cap_add:
       - NET_ADMIN
       - NET_RAW
     environment:
-      - AUTHORIZED_KEYS=ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBACh2vvsiL0JNUjZJot0imVqEbyMGAgrVOx5m03cvJt fabio@yoga
-      - SSH_PASSWORD=Renoir<3
-      - SSH_USERNAME=renoir
-      - ALLOWED_HOSTS=kafka,worker1,worker2,worker3,worker4,worker5,worker6,worker7
+      - INTERFACE=eth0
+      - BANDWIDTH_RATE
+      - LATENCY_MS
+      - AUTHORIZED_KEYS
+      - SSH_PASSWORD
+      - SSH_USERNAME
+
+  sensor2:
+    image: fabiochini/renoir-test
+    container_name: sensor2
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - INTERFACE=eth0
+      - BANDWIDTH_RATE
+      - LATENCY_MS
+      - AUTHORIZED_KEYS
+      - SSH_PASSWORD
+      - SSH_USERNAME
+
+  sensor3:
+    image: fabiochini/renoir-test
+    container_name: sensor3
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - INTERFACE=eth0
+      - BANDWIDTH_RATE
+      - LATENCY_MS
+      - AUTHORIZED_KEYS
+      - SSH_PASSWORD
+      - SSH_USERNAME
+
+  sensor4:
+    image: fabiochini/renoir-test
+    container_name: sensor4
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - INTERFACE=eth0
+      - BANDWIDTH_RATE
+      - LATENCY_MS
+      - AUTHORIZED_KEYS
+      - SSH_PASSWORD
+      - SSH_USERNAME
+  
+  worker1:
+    image: fabiochini/renoir-test
+    container_name: worker1
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - INTERFACE=eth0
+      - TARGET_HOSTS="worker5 worker6 worker7"
+      - BANDWIDTH_RATE
+      - LATENCY_MS
+      - AUTHORIZED_KEYS
+      - SSH_PASSWORD
+      - SSH_USERNAME
+  
+  worker2:
+    image: fabiochini/renoir-test
+    container_name: worker2
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - INTERFACE=eth0
+      - TARGET_HOSTS="worker5 worker6 worker7"
+      - BANDWIDTH_RATE
+      - LATENCY_MS
+      - AUTHORIZED_KEYS
+      - SSH_PASSWORD
+      - SSH_USERNAME
+
+  worker3:
+    image: fabiochini/renoir-test
+    container_name: worker3
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - INTERFACE=eth0
+      - TARGET_HOSTS="worker5 worker6 worker7"
+      - BANDWIDTH_RATE
+      - LATENCY_MS
+      - AUTHORIZED_KEYS
+      - SSH_PASSWORD
+      - SSH_USERNAME
+
+  worker4:
+    image: fabiochini/renoir-test
+    container_name: worker4
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - INTERFACE=eth0
+      - TARGET_HOSTS="worker5 worker6 worker7"
+      - BANDWIDTH_RATE
+      - LATENCY_MS
+      - AUTHORIZED_KEYS
+      - SSH_PASSWORD
+      - SSH_USERNAME
+
+  worker5:
+    image: fabiochini/renoir-test
+    container_name: worker5
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - INTERFACE=eth0
+      - TARGET_HOSTS="worker1 worker2 worker3 worker4 worker7"
+      - BANDWIDTH_RATE
+      - LATENCY_MS
+      - AUTHORIZED_KEYS
+      - SSH_PASSWORD
+      - SSH_USERNAME
+
+  worker6:
+    image: fabiochini/renoir-test
+    container_name: worker6
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - INTERFACE=eth0
+      - TARGET_HOSTS="worker1 worker2 worker3 worker4 worker7"
+      - BANDWIDTH_RATE
+      - LATENCY_MS
+      - AUTHORIZED_KEYS
+      - SSH_PASSWORD
+      - SSH_USERNAME
+
+  worker7:
+    image: fabiochini/renoir-test
+    container_name: worker7
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - INTERFACE=eth0
+      - TARGET_HOSTS="worker1 worker2 worker3 worker4 worker5 worker6"
+      - BANDWIDTH_RATE
+      - LATENCY_MS
+      - AUTHORIZED_KEYS
+      - SSH_PASSWORD
+      - SSH_USERNAME
+  
+  launcher:
+    image: fabiochini/renoir-test
+    container_name: launcher
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - AUTHORIZED_KEYS
+      - SSH_PASSWORD
+      - SSH_USERNAME
     volumes:
-      - /home/fabiochini/renoir/experiments/:/renoir
-      - /home/fabiochini/.ssh/id_ed25519:/root/.ssh/id_ed25519:ro
+      - ./:/renoir
     tty: true
