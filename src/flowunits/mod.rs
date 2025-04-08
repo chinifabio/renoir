@@ -26,8 +26,8 @@ where
 
         let prev_id = match &*lock.config {
             RuntimeConfig::Distributed(config) => {
-                let block = block
-                    .add_operator(|prev| LayerConnectorSink::new(prev, config.clone())); // TODO cambiare il clone con Arc o anche Rc
+                let block =
+                    block.add_operator(|prev| LayerConnectorSink::new(prev, config.clone())); // TODO cambiare il clone con Arc o anche Rc
                 lock.close_block(block)
             }
             _ => {

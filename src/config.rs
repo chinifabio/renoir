@@ -361,7 +361,7 @@ impl RuntimeConfig {
         match self {
             RuntimeConfig::Local(local_config) => local_config.parallelism,
             RuntimeConfig::Remote(remote_config) => remote_config.parallelism(),
-            RuntimeConfig::Distributed(remote_config)=> remote_config.remote_config.parallelism(),
+            RuntimeConfig::Distributed(remote_config) => remote_config.remote_config.parallelism(),
         }
     }
 }

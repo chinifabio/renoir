@@ -107,9 +107,12 @@ impl StreamContext {
         match &*self.inner.lock().config {
             RuntimeConfig::Local(local) => local.parallelism,
             RuntimeConfig::Remote(remote) => remote.hosts.iter().map(|h| h.num_cores).sum(),
-            RuntimeConfig::Distributed(distributed) => {
-                distributed.remote_config.hosts.iter().map(|h| h.num_cores).sum()
-            }
+            RuntimeConfig::Distributed(distributed) => distributed
+                .remote_config
+                .hosts
+                .iter()
+                .map(|h| h.num_cores)
+                .sum(),
         }
     }
 

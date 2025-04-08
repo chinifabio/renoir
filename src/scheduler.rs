@@ -419,8 +419,7 @@ impl Scheduler {
             }};
         }
 
-        let mut filtered_hosts = remote.hosts.iter()
-            .filter(|h| self.check_mapping(h, block));
+        let mut filtered_hosts = remote.hosts.iter().filter(|h| self.check_mapping(h, block));
 
         match replication {
             Replication::Unlimited => {

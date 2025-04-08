@@ -1,9 +1,11 @@
-
 #[cfg(feature = "rdkafka")]
 use kafka::KafkaChannel;
 
+#[cfg(feature = "rdkafka")]
+use crate::config::KafkaConfig;
+
 use crate::{
-    config::{ChannelConfig, DistributedConfig, KafkaConfig},
+    config::{ChannelConfig, DistributedConfig},
     operator::{ExchangeData, StreamElement},
 };
 
@@ -103,7 +105,10 @@ impl<T: ExchangeData> LayerChannelExt<T> for LayerChannel<T> {
         match &mut self.inner {
             #[cfg(feature = "rdkafka")]
             LayerChannelInner::Kafka(channel) => channel.send(metadata, item),
-            LayerChannelInner::None(_) => {}
+            LayerChannelInner::None(_) => {
+                let _ = metadata;
+                let _ = item;
+            }
         }
     }
 
@@ -111,7 +116,10 @@ impl<T: ExchangeData> LayerChannelExt<T> for LayerChannel<T> {
         match &mut self.inner {
             #[cfg(feature = "rdkafka")]
             LayerChannelInner::Kafka(channel) => channel.broadcast(metadata, item),
-            LayerChannelInner::None(_) => {}
+            LayerChannelInner::None(_) => {
+                let _ = metadata;
+                let _ = item;
+            }
         }
     }
 
@@ -127,7 +135,10 @@ impl<T: ExchangeData> LayerChannelExt<T> for LayerChannel<T> {
         match &mut self.inner {
             #[cfg(feature = "rdkafka")]
             LayerChannelInner::Kafka(channel) => channel.recv_timeout(timeout),
-            LayerChannelInner::None(_) => None,
+            LayerChannelInner::None(_) => {
+                let _ = timeout;
+                None
+            }
         }
     }
 }
