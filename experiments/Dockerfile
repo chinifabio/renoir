@@ -1,14 +1,11 @@
-# Use an official Ubuntu base image
 FROM ubuntu:24.04
 
-# Set environment variables to avoid interactive prompts during installation
 ENV DEBIAN_FRONTEND=noninteractive
 ENV SSH_USERNAME="ubuntu"
 ENV SSHD_CONFIG_ADDITIONAL=""
 
-# Install OpenSSH server, clean up, create directories, set permissions, and configure SSH
 RUN apt-get update \
-    && apt-get install -y iproute2 iputils-ping openssh-server telnet hyperfine python3 python3-pydantic python3-yaml python-is-python3 ansible-core --no-install-recommends \
+    && apt-get install -y iproute2 iputils-ping openssh-server telnet iperf3 iptables hyperfine python3 python3-pydantic python3-yaml python-is-python3 ansible-core --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* \
     && mkdir -p /run/sshd \
@@ -23,14 +20,14 @@ RUN apt-get update \
 
 RUN ansible-galaxy collection install ansible.posix
 
-# Copy the script to configure the user's password and authorized keys
 COPY start.sh /usr/local/bin/
 RUN chmod +x /usr/local/bin/start.sh
 
-# Expose SSH port
+COPY shape-network.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/shape-network.sh
+
 EXPOSE 22
 
 WORKDIR /renoir
 
-# Start SSH server
 CMD ["/usr/local/bin/start.sh"]
