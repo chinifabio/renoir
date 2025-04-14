@@ -1,10 +1,13 @@
 import json
-import matplotlib.pyplot as plt
-import numpy as np
-import matplotlib.colors as mcolors
-from argparse import ArgumentParser
 import pathlib
-# import seaborn as sns
+import re
+from argparse import ArgumentParser
+
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+
 
 parser = ArgumentParser(description="Plot execution time by item count, delay, and configuration.")
 parser.add_argument(
@@ -16,86 +19,71 @@ parser.add_argument(
 args = parser.parse_args()
 
 res_dir = pathlib.Path(args.dir)
-files = {}
-palette_map = {
-    "renoir": {},
-    "flowunits": {}
-}
 
-keys = []
+HEATMAP_FORMULAS = [
+    "renoir / flowunits",
+    "log(renoir / flowunits)",
+    "flowunits / renoir * 100",
+    "(1 - flowunits / renoir) * 100",
+]
+
+rows = []
 for file_path in res_dir.glob("*.json"):
-    delay = file_path.stem
-    keys.append(delay)
-    files[delay] = file_path
+    print(f"Processing {file_path}")
 
-    renoir_color = mcolors.to_rgba("blue", 1 - (keys.index(delay) * 0.05))
-    flowunits_color = mcolors.to_rgba("red", 1 - (keys.index(delay) * 0.05))
-
-    palette_map["renoir"][delay] = renoir_color
-    palette_map["flowunits"][delay] = flowunits_color
-
-# files = {
-#     "1ms": "data/1ms.json",
-#     "20ms": "data/20ms.json",
-#     "100ms": "data/100ms.json"
-# }
-
-# flare_palette = sns.color_palette("flare", n_colors=3)
-# crest_palette = sns.color_palette("crest", n_colors=3)
-# delays = ["1ms", "20ms", "100ms"]
-# palette_map = {
-#     "renoir": dict(zip(delays, flare_palette)),
-#     "flowunits": dict(zip(delays, crest_palette)),
-# }
-
-data = []
-for delay, file_path in files.items():
+    haystack = file_path.stem
+    match = re.match(r"(\d+ms)-(\d+\wbit)", haystack)
+    if not match: raise ValueError(f"File name {haystack} does not match expected pattern.")
+    delay = str(match.group(1))
+    bandwidth = str(match.group(2))
+    if bandwidth == "0mbit":
+        bandwidth = "unlimited"
+    
     with open(file_path, 'r') as f:
         results = json.load(f)["results"]
         for entry in results:
-            config = entry["parameters"]["type"]
-            size = entry["parameters"]["size"]
-            mean = entry["mean"]
-            label = f"{int(float(size)):,}"
-            color = mcolors.to_rgba(palette_map[config][delay])
-            data.append({
-                "delay": delay,
-                "config": config,
-                "size": label,
-                "mean": mean,
-                "color": color
-            })
+            data = {}
+            data["config"] = entry["parameters"]["type"]
+            data["size"] = str(entry["parameters"]["size"])
+            data["execution time"] = entry["mean"]
+            data["stddev"] = entry["stddev"]
+            data["min"] = entry["min"]
+            data["max"] = entry["max"]
+            data["bandwidth"] = bandwidth
+            data["delay"] = delay
+            rows.append(data)
+df = pd.DataFrame(rows)
+df = df[df['delay'] != '1ms']
 
-sizes = sorted(list(set(d["size"] for d in data)), key=lambda x: float(x.replace(",", "")))
-configs = ["flowunits", "renoir"]
-keys = list(files.keys())
+keys_delays = ["0ms", "10ms", "100ms"] # todo change to 10 ms
+keys_bandwidths = ["unlimited",  "1gbit", "100mbit", "10mbit" ] # unlimited
 
-x_labels = sizes
-x = np.arange(len(x_labels))
-bar_width = 0.1
+pivot_df = df[df['size'] == "10000000"].pivot_table(index=['delay', 'bandwidth'], columns='config', values='execution time')
 
-offsets = []
-for i, delay in enumerate(keys):
-    for j, config in enumerate(configs):
-        offsets.append(((i * len(configs) + j) - 2.5) * bar_width)
+pivot_df['ratio'] = pivot_df['renoir'] / pivot_df['flowunits']
 
-fig, ax = plt.subplots(figsize=(12, 6))
+pivot_df = pivot_df.reset_index()
 
-for idx, entry in enumerate(data):
-    x_pos = sizes.index(entry["size"]) + offsets[keys.index(entry["delay"]) * 2 + configs.index(entry["config"])]
-    ax.bar(x_pos, entry["mean"], width=bar_width, color=entry["color"], label=f"{entry['delay']} - {entry['config']}")
+pivot_df['delay'] = pd.Categorical(pivot_df['delay'], categories=keys_delays, ordered=True)
+pivot_df['bandwidth'] = pd.Categorical(pivot_df['bandwidth'], categories=keys_bandwidths, ordered=True)
+pivot_df = pivot_df.sort_values(['delay', 'bandwidth'])
 
-ax.set_yscale("log")
-ax.set_xticks(x)
-ax.set_xticklabels(x_labels)
-ax.set_xlabel("Item Count")
-ax.set_ylabel("Execution Time (s)")
-ax.set_title("Execution Time by Item Count, Delay, and Configuration")
+fig = sns.heatmap(
+    np.log2(pivot_df['ratio'].values.reshape(len(keys_delays), len(keys_bandwidths))),
+    annot=pivot_df['ratio'].values.reshape(len(keys_delays), len(keys_bandwidths)),
+    fmt=".2f",
+    cmap="crest",
+    linewidths=0.5,
+    annot_kws={"size": 14},
+    xticklabels=keys_bandwidths,
+    yticklabels=keys_delays,
+    cbar=False,
+)
 
-handles, labels = ax.get_legend_handles_labels()
-unique = dict(zip(labels, handles))
-ax.legend(unique.values(), unique.keys(), title="Delay - Config")
+fig.tick_params(axis='both', which='major', labelsize=14)
+fig.set_xlabel("Bandwidth", fontdict={"size": 14, "weight": "bold"})
+fig.set_ylabel("Delay", fontdict={"size": 14, "weight": "bold"})
+plt.yticks(rotation=0)
 
 plt.tight_layout()
-plt.grid(True, which="both", axis="y", linestyle="--", linewidth=0.5)
-plt.savefig(res_dir / "execution_time_by_item_count.pdf", dpi=300)
+plt.show()
