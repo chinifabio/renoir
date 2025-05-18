@@ -2,6 +2,7 @@
 //!
 //! See the documentation of [`RuntimeConfig`] for more details.
 
+use std::collections::HashMap;
 use std::env;
 use std::fmt::{Display, Formatter};
 use std::path::Path;
@@ -123,6 +124,8 @@ pub struct RemoteConfig {
     /// Remove remote binaries after execution
     #[serde(default)]
     pub cleanup_executable: bool,
+    /// Holds the connections between groups
+    pub groups_connections: HashMap<String, Vec<String>>,
 }
 
 /// The configuration of a single remote host.
@@ -147,6 +150,10 @@ pub struct HostConfig {
     /// If specified the remote worker will be spawned under `perf`, and its output will be stored
     /// at this location.
     pub perf_path: Option<PathBuf>,
+    /// Identifies the layer to which this host belongs.
+    pub layer: Option<String>,
+    /// The group (inside a layer) this host belongs to.
+    pub group: Option<String>,
 }
 
 /// The information used to connect to a remote host via SSH.
@@ -304,6 +311,7 @@ pub struct ConfigBuilder {
     hosts: Vec<HostConfig>,
     tracing_dir: Option<PathBuf>,
     cleanup_executable: bool,
+    groups_connections: HashMap<String, Vec<String>>,
 }
 
 impl ConfigBuilder {
@@ -323,6 +331,7 @@ impl ConfigBuilder {
             hosts: Vec::new(),
             tracing_dir: None,
             cleanup_executable: false,
+            groups_connections: HashMap::new(),
         }
     }
     /// Parse toml and integrate it in the builder.
@@ -334,6 +343,7 @@ impl ConfigBuilder {
             hosts,
             tracing_dir,
             cleanup_executable,
+            groups_connections,
         } = toml::from_str(config_str)?;
 
         // validate the configuration
@@ -348,6 +358,7 @@ impl ConfigBuilder {
         }
         self.tracing_dir = self.tracing_dir.take().or(tracing_dir);
         self.cleanup_executable |= cleanup_executable;
+        self.groups_connections.extend(groups_connections);
 
         Ok(self)
     }
@@ -402,6 +413,7 @@ impl ConfigBuilder {
             hosts: self.hosts.clone(),
             tracing_dir: self.tracing_dir.clone(),
             cleanup_executable: self.cleanup_executable,
+            groups_connections: self.groups_connections.drain().collect(),
         });
         Ok(conf)
     }

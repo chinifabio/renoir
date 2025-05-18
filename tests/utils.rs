@@ -161,6 +161,8 @@ impl TestHelper {
                 num_cores: cores_per_host,
                 ssh: Default::default(),
                 perf_path: None,
+                layer: None,
+                group: None,
             });
         }
 
