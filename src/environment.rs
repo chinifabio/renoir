@@ -24,6 +24,8 @@ pub(crate) struct StreamContextInner {
     /// The scheduler that will start the computation. It's an option because it will be moved out
     /// of this struct when the computation starts.
     scheduler: Option<Scheduler>,
+    /// Current layer in the stream. This is used to determine on which host the block will be executed.
+    layer: Option<String>,
 }
 
 /// Streaming environment from which it's possible to register new streams and start the
@@ -111,6 +113,13 @@ impl StreamContext {
             RuntimeConfig::Remote(remote) => remote.hosts.iter().map(|h| h.num_cores).sum(),
         }
     }
+
+    /// TODO: docs
+    pub fn update_layer(&self, layer: impl Into<String>) -> &Self {
+        let mut ctx = self.inner.lock();
+        ctx.layer = Some(layer.into());
+        self
+    }
 }
 
 impl StreamContextInner {
@@ -119,6 +128,7 @@ impl StreamContextInner {
             config: config.clone(),
             block_count: 0,
             scheduler: Some(Scheduler::new(config)),
+            layer: None,
         }
     }
 
@@ -132,7 +142,11 @@ impl StreamContextInner {
         let replication = source.replication();
         let scheduling = Scheduling { replication };
         info!("new block (b{new_id:02}), replication {replication:?}",);
-        Block::new(new_id, source, batch_mode, iteration_ctx, scheduling)
+        let mut new_block = Block::new(new_id, source, batch_mode, iteration_ctx, scheduling);
+        if let Some(layer) = self.layer.as_deref() {
+            new_block.set_layer(layer);
+        }
+        new_block
     }
 
     pub(crate) fn close_block<Out: Data, Op: Operator<Out = Out> + 'static>(
@@ -177,5 +191,10 @@ impl StreamContextInner {
         self.scheduler
             .as_mut()
             .expect("The environment has already been started, cannot access the scheduler")
+    }
+
+    /// TODO: docs
+    pub fn update_layer(&mut self, layer: impl Into<String>) {
+        self.layer = Some(layer.into());
     }
 }

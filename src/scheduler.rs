@@ -403,26 +403,35 @@ impl Scheduler {
             }};
         }
 
+
+        let mut filtered_hosts = remote.hosts.iter().enumerate().filter(|&(_, h)| {
+            match (h.layer.as_deref(), block.layer.as_deref()) {
+                (Some(host_layer), Some(block_layer)) => host_layer == block_layer,
+                (None, _) => true,
+                (_, None) => true,
+            }
+        });
+
         match replication {
             Replication::Unlimited => {
-                for (host_id, host_info) in remote.hosts.iter().enumerate() {
+                for (host_id, host_info) in filtered_hosts {
                     add_replicas!(host_id.try_into().unwrap(), host_info, host_info.num_cores);
                 }
             }
             Replication::Limited(mut remaining) => {
-                for (host_id, host_info) in remote.hosts.iter().enumerate() {
+                for (host_id, host_info) in filtered_hosts {
                     let n = remaining.min(host_info.num_cores);
                     add_replicas!(host_id.try_into().unwrap(), host_info, n);
                     remaining -= n;
                 }
             }
             Replication::Host => {
-                for (host_id, host_info) in remote.hosts.iter().enumerate() {
+                for (host_id, host_info) in filtered_hosts {
                     add_replicas!(host_id.try_into().unwrap(), host_info, 1);
                 }
             }
             Replication::One => {
-                add_replicas!(0, remote.hosts[0], 1);
+                add_replicas!(0, filtered_hosts.next().expect(format!("No host available for block with id {}", block.id).as_str()).1, 1);
             }
         }
 

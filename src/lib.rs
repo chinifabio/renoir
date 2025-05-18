@@ -128,6 +128,7 @@ pub mod block;
 pub(crate) mod channel;
 pub mod config;
 pub(crate) mod environment;
+pub(crate) mod flowunits;
 pub(crate) mod network;
 pub mod operator;
 mod profiler;

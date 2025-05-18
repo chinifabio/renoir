@@ -2,6 +2,7 @@ target
 .idea/
 /*.yml
 /*.yaml
+/*.toml
 /tracing/
 /bench_conf.toml
 /log.txt

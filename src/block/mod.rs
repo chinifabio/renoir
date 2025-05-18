@@ -43,6 +43,8 @@ where
     pub(crate) is_only_one_strategy: bool,
     /// The set of requirements that the block imposes on the scheduler.
     pub(crate) scheduling: Scheduling,
+    /// The layer of a block is used to determine on which host the block will be executed.
+    pub(crate) layer: Option<String>,
 }
 
 impl<OperatorChain> Clone for Block<OperatorChain>
@@ -57,6 +59,7 @@ where
             iteration_ctx: self.iteration_ctx.clone(),
             is_only_one_strategy: self.is_only_one_strategy,
             scheduling: self.scheduling.clone(),
+            layer: self.layer.clone(),
         }
     }
 }
@@ -78,6 +81,7 @@ where
             iteration_ctx: self.iteration_ctx,
             is_only_one_strategy: false,
             scheduling: self.scheduling,
+            layer: self.layer.clone(),
         }
     }
 }
@@ -165,7 +169,15 @@ where
             iteration_ctx,
             is_only_one_strategy: false,
             scheduling,
+            layer: None,
         }
+    }
+
+    /// Set the layer of this block.
+    /// 
+    /// The layer is used to determine on which host the block will be executed.
+    pub fn set_layer(&mut self, layer: impl Into<String>) {
+        self.layer = Some(layer.into());
     }
 
     /// Obtain a vector of opaque items representing the stack of iterations.

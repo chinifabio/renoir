@@ -431,6 +431,10 @@ impl NetworkTopology {
     /// If `fragile` is set to `true`, this connection won't be available with `get_senders` but
     /// only with `get_sender`.
     pub fn connect(&mut self, from: Coord, to: Coord, typ: TypeId, fragile: bool) {
+        if self.skip_connection(from, to) {
+            return;
+        }
+
         let host_id = self.config.host_id().unwrap();
         let from_remote = from.host_id != host_id;
         let to_remote = to.host_id != host_id;
@@ -472,6 +476,35 @@ impl NetworkTopology {
             let metadata = self.senders_metadata.get_mut(&receiver_endpoint).unwrap();
             metadata.to_remote = true;
         }
+    }
+
+    /// Check if the connection between two replicas should be skipped.
+    fn skip_connection(&self, from: Coord, to: Coord) -> bool {
+        let skip = match &*self.config {
+            RuntimeConfig::Local(_) => false,
+            RuntimeConfig::Remote(config) => {
+                let from_group = config
+                    .hosts
+                    .get(from.host_id as usize)
+                    .and_then(|h| h.group.as_deref());
+                let to_group = config
+                    .hosts
+                    .get(to.host_id as usize)
+                    .and_then(|h| h.group.as_deref());
+
+                match (from_group, to_group) {
+                    (Some(from_group), Some(to_group)) => {
+                        !(from_group == to_group
+                            || config.groups_connections.iter().any(|(g, c)| {
+                                g.as_str() == to_group && c.contains(&from_group.to_string())
+                            }))
+                    }
+                    _ => false,
+                }
+            }
+        };
+        log::trace!("skip connection from {} to {}: {}", from, to, skip);
+        skip
     }
 
     /// The list of previous replicas of a given replica.
