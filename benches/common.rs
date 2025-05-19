@@ -32,6 +32,7 @@ pub fn remote_loopback_deploy(
             perf_path: None,
             layer: None,
             group: None,
+            capabilities: Default::default(),
         });
     }
 

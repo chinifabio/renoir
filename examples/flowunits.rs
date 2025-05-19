@@ -41,6 +41,7 @@ fn main() {
         .sum()
         .drop_key()
         .update_layer("cloud")
+        .update_requirements(s("gpu").eq("yes").and(s("memory").ge(16)))
         .filter_map(|e: u64| {
             let n = collatz_seq(e);
             if n < 100 {
@@ -49,6 +50,7 @@ fn main() {
                 None
             }
         })
+        .update_requirements(none())
         .collect_all::<Vec<_>>();
 
     ctx.execute_blocking();

@@ -13,6 +13,7 @@ use std::str::FromStr;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 
+use crate::flowunits::capabilities::Literal;
 use crate::scheduler::HostId;
 use crate::CoordUInt;
 
@@ -125,6 +126,7 @@ pub struct RemoteConfig {
     #[serde(default)]
     pub cleanup_executable: bool,
     /// Holds the connections between groups
+    #[serde(default)]
     pub groups_connections: HashMap<String, Vec<String>>,
 }
 
@@ -154,6 +156,9 @@ pub struct HostConfig {
     pub layer: Option<String>,
     /// The group (inside a layer) this host belongs to.
     pub group: Option<String>,
+    /// The capabilities list of this host.
+    #[serde(default)]
+    pub capabilities: HashMap<String, Literal>,
 }
 
 /// The information used to connect to a remote host via SSH.
@@ -498,6 +503,7 @@ mod tests{
             perf_path: None,
             layer: Some("layer".to_string()),
             group: Some("group".to_string()),
+            capabilities: HashMap::new(),
         });
         builder.hosts.push(HostConfig {
             address: "localhost".to_string(),
@@ -507,6 +513,7 @@ mod tests{
             perf_path: None,
             layer: Some("layer".to_string()),
             group: Some("group2".to_string()),
+            capabilities: HashMap::new(),
         });
         builder.groups_connections.insert("group".to_string(), vec!["group2".to_string()]);
         assert!(builder.build().is_ok());
@@ -521,6 +528,7 @@ mod tests{
             perf_path: None,
             layer: None,
             group: None,
+            capabilities: HashMap::new(),
         });
         builder.hosts.push(HostConfig {
             address: "localhost".to_string(),
@@ -530,6 +538,7 @@ mod tests{
             perf_path: None,
             layer: None,
             group: None,
+            capabilities: HashMap::new(),
         });
         assert!(builder.build().is_ok());
 
@@ -543,6 +552,7 @@ mod tests{
             perf_path: None,
             layer: Some("layer".to_string()),
             group: Some("group2".to_string()),
+            capabilities: HashMap::new(),
         });
         assert!(builder.build().is_err());
 
@@ -557,6 +567,7 @@ mod tests{
             perf_path: None,
             layer: Some("layer".to_string()),
             group: None,
+            capabilities: HashMap::new(),
         });
         builder.hosts.push(HostConfig {
             address: "localhost".to_string(),
@@ -566,6 +577,7 @@ mod tests{
             perf_path: None,
             layer: Some("layer".to_string()),
             group: Some("group2".to_string()),
+            capabilities: HashMap::new(),
         });
         builder.groups_connections.insert("group".to_string(), vec!["group2".to_string()]);
         assert!(builder.build().is_err());
@@ -581,6 +593,7 @@ mod tests{
             perf_path: None,
             layer: Some("layer".to_string()),
             group: Some("group2".to_string()),
+            capabilities: HashMap::new(),
         });
         builder.groups_connections.insert("group".to_string(), vec!["group2".to_string()]);
         assert!(builder.build().is_err());

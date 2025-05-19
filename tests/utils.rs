@@ -163,6 +163,7 @@ impl TestHelper {
                 perf_path: None,
                 layer: None,
                 group: None,
+                capabilities: Default::default(),
             });
         }
 
