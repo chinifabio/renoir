@@ -41,7 +41,7 @@ pub struct ExecutionMetadata<'a> {
 
 /// Information about a block in the job graph.
 #[derive(Debug, Clone)]
-struct SchedulerBlockInfo {
+pub(crate) struct SchedulerBlockInfo {
     /// String representation of the block.
     repr: String,
     /// All the replicas, grouped by host.
@@ -148,7 +148,7 @@ impl Scheduler {
         self.prev_blocks.entry(to).or_default().push((from, typ));
     }
 
-    fn build_all(&mut self) -> (Vec<JoinHandle<()>>, Vec<(Coord, BlockStructure)>) {
+    pub(crate) fn build_all(&mut self) -> (Vec<JoinHandle<()>>, Vec<(Coord, BlockStructure)>) {
         self.build_execution_graph();
         self.network.build();
         self.network.log();
@@ -369,7 +369,7 @@ impl Scheduler {
     ///
     /// The block can be replicated at most `replication` times (if specified). Assign the
     /// replicas starting from the first host giving as much replicas as possible..
-    fn remote_block_info<OperatorChain>(
+    pub(crate) fn remote_block_info<OperatorChain>(
         &self,
         block: &Block<OperatorChain>,
         remote: &RemoteConfig,
@@ -443,11 +443,16 @@ impl Scheduler {
             is_only_one_strategy: block.is_only_one_strategy,
         }
     }
+    
+    #[cfg(test)]
+    pub fn execution_graph(&self) -> &HashMap<(Coord, TypeId), Vec<(Coord, bool)>, crate::block::CoordHasherBuilder> {
+        self.network.execution_graph()
+    }
 }
 
 impl SchedulerBlockInfo {
     /// The list of replicas of the block inside a given host.
-    fn replicas(&self, host_id: HostId) -> Vec<Coord> {
+    pub(crate) fn replicas(&self, host_id: HostId) -> Vec<Coord> {
         self.replicas.get(&host_id).cloned().unwrap_or_default()
     }
 }

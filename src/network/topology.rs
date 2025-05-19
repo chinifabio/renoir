@@ -593,6 +593,12 @@ impl NetworkTopology {
         }
         log::trace!("{}", topology);
     }
+
+    /// Returns the adjacency list of the execution graph.
+    #[cfg(test)]
+    pub fn execution_graph(&self) -> &HashMap<(Coord, TypeId), Vec<(Coord, bool)>, crate::block::CoordHasherBuilder> {
+        &self.next
+    }
 }
 
 #[cfg(test)]

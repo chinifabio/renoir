@@ -24,7 +24,7 @@ pub(crate) struct StreamContextInner {
     /// The scheduler that will start the computation. It's an option because it will be moved out
     /// of this struct when the computation starts.
     scheduler: Option<Scheduler>,
-    /// Current layer in the stream. This is used to determine on which host the block will be executed.
+    /// Current layer in the stream. This is used to determine on which host group the block will be executed.
     layer: Option<String>,
 }
 
@@ -114,7 +114,7 @@ impl StreamContext {
         }
     }
 
-    /// TODO: docs
+    /// Set the inizial layer for the stream. This is used to determine on which host group the block will be executed.
     pub fn update_layer(&self, layer: impl Into<String>) -> &Self {
         let mut ctx = self.inner.lock();
         ctx.layer = Some(layer.into());
@@ -193,7 +193,7 @@ impl StreamContextInner {
             .expect("The environment has already been started, cannot access the scheduler")
     }
 
-    /// TODO: docs
+    /// Update the current layer in the stream.
     pub fn update_layer(&mut self, layer: impl Into<String>) {
         self.layer = Some(layer.into());
     }
