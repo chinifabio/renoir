@@ -419,23 +419,27 @@ impl Scheduler {
             }};
         }
 
-        let mut filtered_hosts = remote.hosts.iter().filter(|h| self.check_mapping(h, block));
+        let mut filtered_hosts = remote
+            .hosts
+            .iter()
+            .enumerate()
+            .filter(|&(_, h)| self.check_mapping(h, block));
 
         match replication {
             Replication::Unlimited => {
-                for (host_id, host_info) in filtered_hosts.enumerate() {
+                for (host_id, host_info) in filtered_hosts {
                     add_replicas!(host_id.try_into().unwrap(), host_info, host_info.num_cores);
                 }
             }
             Replication::Limited(mut remaining) => {
-                for (host_id, host_info) in filtered_hosts.enumerate() {
+                for (host_id, host_info) in filtered_hosts {
                     let n = remaining.min(host_info.num_cores);
                     add_replicas!(host_id.try_into().unwrap(), host_info, n);
                     remaining -= n;
                 }
             }
             Replication::Host => {
-                for (host_id, host_info) in filtered_hosts.enumerate() {
+                for (host_id, host_info) in filtered_hosts {
                     add_replicas!(host_id.try_into().unwrap(), host_info, 1);
                 }
             }
@@ -444,7 +448,8 @@ impl Scheduler {
                     0,
                     filtered_hosts
                         .next()
-                        .expect("Failed to find available host"),
+                        .expect("Failed to find available host")
+                        .1,
                     1
                 );
             }
