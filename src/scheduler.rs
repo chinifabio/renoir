@@ -6,6 +6,7 @@ use std::thread::JoinHandle;
 
 use crate::block::{BatchMode, Block, BlockStructure, JobGraphGenerator, Replication};
 use crate::config::{LocalConfig, RemoteConfig, RuntimeConfig};
+use crate::flowunits::capabilities::SpecNode;
 use crate::network::{Coord, NetworkTopology};
 use crate::operator::Operator;
 use crate::profiler::{log_trace, wait_profiler};
@@ -40,7 +41,7 @@ pub struct ExecutionMetadata<'a> {
 }
 
 /// Information about a block in the job graph.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct SchedulerBlockInfo {
     /// String representation of the block.
     repr: String,
@@ -69,6 +70,8 @@ pub(crate) struct Scheduler {
     block_init: Vec<(Coord, BlockInitFn)>,
     /// The network topology that keeps track of all the connections inside the execution graph.
     network: NetworkTopology,
+    /// The mapping between blocks and eventual requirements.
+    requirements: HashMap<BlockId, SpecNode>,
 }
 
 impl Scheduler {
@@ -78,6 +81,7 @@ impl Scheduler {
             prev_blocks: Default::default(),
             block_info: Default::default(),
             block_init: Default::default(),
+            requirements: Default::default(),
             network: NetworkTopology::new(config.clone()),
             config,
         }
@@ -403,14 +407,45 @@ impl Scheduler {
             }};
         }
 
+        let block_requirements = self.requirements.get(&block.id).unwrap_or(&SpecNode::Empty);
+        log::debug!(
+            "matching hosts for block {} with layer {:?} and requirements {}",
+            block.id,
+            block.layer,
+            block_requirements
+        );
+        let filtered_hosts = remote
+            .hosts
+            .iter()
+            .enumerate()
+            .filter(|&(host_id, host_config)| {
+                let layer_match = match (host_config.layer.as_deref(), block.layer.as_deref()) {
+                    (Some(host_layer), Some(block_layer)) => host_layer == block_layer,
+                    (None, _) => true,
+                    (_, None) => true,
+                };
 
-        let mut filtered_hosts = remote.hosts.iter().enumerate().filter(|&(_, h)| {
-            match (h.layer.as_deref(), block.layer.as_deref()) {
-                (Some(host_layer), Some(block_layer)) => host_layer == block_layer,
-                (None, _) => true,
-                (_, None) => true,
-            }
-        });
+                log::debug!(
+                    "evaluating capabilites host {}: {:?}",
+                    host_id,
+                    host_config.capabilities
+                );
+                let requirements_match = block_requirements.eval(&host_config.capabilities).expect(
+                    format!(
+                        "Malformed requirements for block {}: {}",
+                        block.id, block_requirements
+                    )
+                    .as_str(),
+                );
+
+                return layer_match && requirements_match;
+            })
+            .collect::<Vec<_>>();
+
+        if filtered_hosts.is_empty() {
+            log::warn!("No host available for block with id {}!", block.id);
+            return Default::default();
+        }
 
         match replication {
             Replication::Unlimited => {
@@ -431,7 +466,7 @@ impl Scheduler {
                 }
             }
             Replication::One => {
-                add_replicas!(0, filtered_hosts.next().expect(format!("No host available for block with id {}", block.id).as_str()).1, 1);
+                add_replicas!(0, filtered_hosts.get(0).unwrap().1, 1);
             }
         }
 
@@ -443,9 +478,19 @@ impl Scheduler {
             is_only_one_strategy: block.is_only_one_strategy,
         }
     }
-    
+
+    pub(crate) fn update_requirements(
+        &mut self,
+        block_id: BlockId,
+        requirements: impl Into<SpecNode>,
+    ) {
+        self.requirements.insert(block_id, requirements.into());
+    }
+
     #[cfg(test)]
-    pub fn execution_graph(&self) -> &HashMap<(Coord, TypeId), Vec<(Coord, bool)>, crate::block::CoordHasherBuilder> {
+    pub fn execution_graph(
+        &self,
+    ) -> &HashMap<(Coord, TypeId), Vec<(Coord, bool)>, crate::block::CoordHasherBuilder> {
         self.network.execution_graph()
     }
 }

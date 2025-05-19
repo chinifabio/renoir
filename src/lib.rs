@@ -152,4 +152,5 @@ pub mod prelude {
     #[cfg(feature = "timestamp")]
     pub use crate::operator::window::{EventTimeWindow, TransactionWindow};
     pub use crate::StreamContext;
+    pub use super::flowunits::capabilities::{s, none, SpecNode};
 }

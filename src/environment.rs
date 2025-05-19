@@ -5,6 +5,7 @@ use std::sync::Arc;
 use crate::block::BatchMode;
 use crate::block::{Block, Scheduling};
 use crate::config::RuntimeConfig;
+use crate::flowunits::capabilities::SpecNode;
 use crate::operator::iteration::IterationStateLock;
 use crate::operator::source::Source;
 use crate::operator::{Data, Operator};
@@ -26,6 +27,9 @@ pub(crate) struct StreamContextInner {
     scheduler: Option<Scheduler>,
     /// Current layer in the stream. This is used to determine on which host group the block will be executed.
     layer: Option<String>,
+    /// Requirements of the next block in the stream. This is used to determine on which host
+    /// the block will be executed.
+    requirements: SpecNode,
 }
 
 /// Streaming environment from which it's possible to register new streams and start the
@@ -129,6 +133,7 @@ impl StreamContextInner {
             block_count: 0,
             scheduler: Some(Scheduler::new(config)),
             layer: None,
+            requirements: SpecNode::Empty,
         }
     }
 
@@ -145,6 +150,10 @@ impl StreamContextInner {
         let mut new_block = Block::new(new_id, source, batch_mode, iteration_ctx, scheduling);
         if let Some(layer) = self.layer.as_deref() {
             new_block.set_layer(layer);
+        }
+        let req_clone = self.requirements.clone();
+        if !matches!(req_clone, SpecNode::Empty) {
+            self.scheduler_mut().update_requirements(new_id, req_clone);
         }
         new_block
     }
@@ -196,5 +205,11 @@ impl StreamContextInner {
     /// Update the current layer in the stream.
     pub fn update_layer(&mut self, layer: impl Into<String>) {
         self.layer = Some(layer.into());
+    }
+
+    /// Update the requirements of the next block in the stream.
+    pub fn update_requirements(&mut self, block_id: BlockId, requirements: SpecNode) {
+        self.requirements = requirements.clone();
+        self.scheduler_mut().update_requirements(block_id, requirements);
     }
 }
