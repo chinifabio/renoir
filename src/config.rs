@@ -412,7 +412,7 @@ impl ConfigBuilder {
             && !self
                 .hosts
                 .iter()
-                .all(|h| h.layer.is_none() && h.group.is_none())
+                .all(|h| h.layer.is_none() || h.group.is_none())
         {
             return Err(ConfigError::Invalid(
                 "If groups_connections is empty, all hosts must have no layer or group".into(),
@@ -423,7 +423,7 @@ impl ConfigBuilder {
             if self
                 .hosts
                 .iter()
-                .any(|h| h.layer.is_none() && h.group.is_none())
+                .any(|h| h.layer.is_none() || h.group.is_none())
             {
                 return Err(ConfigError::Invalid(
                     "If groups_connections is not empty, all hosts must have a layer and group"
@@ -480,4 +480,109 @@ pub enum ConfigError {
 
     #[error("Missing environment variable {0}: {1}")]
     Environment(String, env::VarError),
+}
+
+#[cfg(test)]
+mod tests{
+    use super::*;
+
+    #[test]
+    pub fn test_validation_groups_connections() {
+        // Test that the validation of groups_connections works as expected
+        let mut builder = ConfigBuilder::new_remote();
+        builder.hosts.push(HostConfig {
+            address: "localhost".to_string(),
+            base_port: 0,
+            num_cores: 1,
+            ssh: SSHConfig::default(),
+            perf_path: None,
+            layer: Some("layer".to_string()),
+            group: Some("group".to_string()),
+        });
+        builder.hosts.push(HostConfig {
+            address: "localhost".to_string(),
+            base_port: 0,
+            num_cores: 1,
+            ssh: SSHConfig::default(),
+            perf_path: None,
+            layer: Some("layer".to_string()),
+            group: Some("group2".to_string()),
+        });
+        builder.groups_connections.insert("group".to_string(), vec!["group2".to_string()]);
+        assert!(builder.build().is_ok());
+
+        // Test that the validation of groups_connections works as expected, without groups
+        let mut builder = ConfigBuilder::new_remote();
+        builder.hosts.push(HostConfig {
+            address: "localhost".to_string(),
+            base_port: 0,
+            num_cores: 1,
+            ssh: SSHConfig::default(),
+            perf_path: None,
+            layer: None,
+            group: None,
+        });
+        builder.hosts.push(HostConfig {
+            address: "localhost".to_string(),
+            base_port: 0,
+            num_cores: 1,
+            ssh: SSHConfig::default(),
+            perf_path: None,
+            layer: None,
+            group: None,
+        });
+        assert!(builder.build().is_ok());
+
+        // Test that the validation fails when the groups_connections is empty
+        let mut builder = ConfigBuilder::new_remote();
+        builder.hosts.push(HostConfig {
+            address: "localhost".to_string(),
+            base_port: 0,
+            num_cores: 1,
+            ssh: SSHConfig::default(),
+            perf_path: None,
+            layer: Some("layer".to_string()),
+            group: Some("group2".to_string()),
+        });
+        assert!(builder.build().is_err());
+
+        // Test that the validation fails when the groups_connections is not empty and
+        // some hosts have no layer or group
+        let mut builder = ConfigBuilder::new_remote();
+        builder.hosts.push(HostConfig {
+            address: "localhost".to_string(),
+            base_port: 0,
+            num_cores: 1,
+            ssh: SSHConfig::default(),
+            perf_path: None,
+            layer: Some("layer".to_string()),
+            group: None,
+        });
+        builder.hosts.push(HostConfig {
+            address: "localhost".to_string(),
+            base_port: 0,
+            num_cores: 1,
+            ssh: SSHConfig::default(),
+            perf_path: None,
+            layer: Some("layer".to_string()),
+            group: Some("group2".to_string()),
+        });
+        builder.groups_connections.insert("group".to_string(), vec!["group2".to_string()]);
+        assert!(builder.build().is_err());
+
+        // Test that the validation fails when the groups_connections is not empty and
+        // contains a group that is not present in the hosts list
+        let mut builder = ConfigBuilder::new_remote();
+        builder.hosts.push(HostConfig {
+            address: "localhost".to_string(),
+            base_port: 0,
+            num_cores: 1,
+            ssh: SSHConfig::default(),
+            perf_path: None,
+            layer: Some("layer".to_string()),
+            group: Some("group2".to_string()),
+        });
+        builder.groups_connections.insert("group".to_string(), vec!["group2".to_string()]);
+        assert!(builder.build().is_err());
+    }
 }
