@@ -43,7 +43,7 @@ where
     pub(crate) is_only_one_strategy: bool,
     /// The set of requirements that the block imposes on the scheduler.
     pub(crate) scheduling: Scheduling,
-    /// The layer of a block is used to determine on which host the block will be executed.
+    /// The layer of a block is used to determine on which host group the block will be executed.
     pub(crate) layer: Option<String>,
 }
 
@@ -175,7 +175,7 @@ where
 
     /// Set the layer of this block.
     /// 
-    /// The layer is used to determine on which host the block will be executed.
+    /// The layer is used to determine on which host group the block will be executed.
     pub fn set_layer(&mut self, layer: impl Into<String>) {
         self.layer = Some(layer.into());
     }
