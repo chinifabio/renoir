@@ -2,7 +2,7 @@
 //!
 //! See the documentation of [`RuntimeConfig`] for more details.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fmt::{Display, Formatter};
 use std::path::Path;
@@ -407,6 +407,49 @@ impl ConfigBuilder {
                 )));
             }
         };
+
+        if self.groups_connections.is_empty()
+            && !self
+                .hosts
+                .iter()
+                .all(|h| h.layer.is_none() && h.group.is_none())
+        {
+            return Err(ConfigError::Invalid(
+                "If groups_connections is empty, all hosts must have no layer or group".into(),
+            ));
+        }
+
+        if !self.groups_connections.is_empty() {
+            if self
+                .hosts
+                .iter()
+                .any(|h| h.layer.is_none() && h.group.is_none())
+            {
+                return Err(ConfigError::Invalid(
+                    "If groups_connections is not empty, all hosts must have a layer and group"
+                        .into(),
+                ));
+            }
+
+            let mut groups = HashSet::new();
+            for (to, from) in self.groups_connections.clone() {
+                groups.insert(to);
+                groups.extend(from);
+            }
+
+            let mut host_groups = HashSet::new();
+            for host in &self.hosts {
+                host_groups.insert(host.group.clone().unwrap());
+            }
+
+            for group in groups {
+                if !host_groups.contains(&group) {
+                    return Err(ConfigError::Invalid(format!(
+                        "Group {group} from connections is not present in the hosts list"
+                    )));
+                }
+            }
+        }
 
         let conf = RuntimeConfig::Remote(RemoteConfig {
             host_id: self.host_id,
