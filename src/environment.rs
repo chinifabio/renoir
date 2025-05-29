@@ -210,6 +210,7 @@ impl StreamContextInner {
     /// Update the requirements of the next block in the stream.
     pub fn update_requirements(&mut self, block_id: BlockId, requirements: SpecNode) {
         self.requirements = requirements.clone();
-        self.scheduler_mut().update_requirements(block_id, requirements);
+        self.scheduler_mut()
+            .update_requirements(block_id, requirements);
     }
 }

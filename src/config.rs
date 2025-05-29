@@ -488,7 +488,7 @@ pub enum ConfigError {
 }
 
 #[cfg(test)]
-mod tests{
+mod tests {
     use super::*;
 
     #[test]
@@ -515,7 +515,9 @@ mod tests{
             group: Some("group2".to_string()),
             capabilities: HashMap::new(),
         });
-        builder.groups_connections.insert("group".to_string(), vec!["group2".to_string()]);
+        builder
+            .groups_connections
+            .insert("group".to_string(), vec!["group2".to_string()]);
         assert!(builder.build().is_ok());
 
         // Test that the validation of groups_connections works as expected, without groups
@@ -579,7 +581,9 @@ mod tests{
             group: Some("group2".to_string()),
             capabilities: HashMap::new(),
         });
-        builder.groups_connections.insert("group".to_string(), vec!["group2".to_string()]);
+        builder
+            .groups_connections
+            .insert("group".to_string(), vec!["group2".to_string()]);
         assert!(builder.build().is_err());
 
         // Test that the validation fails when the groups_connections is not empty and
@@ -595,7 +599,9 @@ mod tests{
             group: Some("group2".to_string()),
             capabilities: HashMap::new(),
         });
-        builder.groups_connections.insert("group".to_string(), vec!["group2".to_string()]);
+        builder
+            .groups_connections
+            .insert("group".to_string(), vec!["group2".to_string()]);
         assert!(builder.build().is_err());
     }
 }

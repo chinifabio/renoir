@@ -144,6 +144,7 @@ pub type CoordUInt = u64;
 
 /// Re-export of commonly used structs and traits
 pub mod prelude {
+    pub use super::flowunits::capabilities::{none, s, SpecNode};
     pub use crate::block::{BatchMode, Replication};
     pub use crate::config::RuntimeConfig;
     pub use crate::operator::sink::StreamOutput;
@@ -152,5 +153,4 @@ pub mod prelude {
     #[cfg(feature = "timestamp")]
     pub use crate::operator::window::{EventTimeWindow, TransactionWindow};
     pub use crate::StreamContext;
-    pub use super::flowunits::capabilities::{s, none, SpecNode};
 }
