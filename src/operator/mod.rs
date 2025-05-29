@@ -3,6 +3,7 @@
 //! The actual operator list can be found from the implemented methods of [`Stream`],
 //! [`KeyedStream`], [`crate::WindowedStream`]
 
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::hash::Hash;
@@ -12,6 +13,7 @@ use cache::{CacheRegistry, CacheSink, CachedStream, Cacher, VecCacher};
 use flume::{unbounded, Receiver};
 #[cfg(feature = "tokio")]
 use futures::Future;
+use limit_sorted::LimitSorted;
 use serde::{Deserialize, Serialize};
 
 pub(crate) use start::*;
@@ -21,8 +23,9 @@ pub use rich_map_custom::ElementGenerator;
 use crate::block::{group_by_hash, BlockStructure, GroupHasherBuilder, NextStrategy, Replication};
 use crate::scheduler::ExecutionMetadata;
 
+use crate::block::BatchMode;
 use crate::stream::KeyedItem;
-use crate::{BatchMode, KeyedStream, Stream};
+use crate::{KeyedStream, Stream};
 
 #[cfg(feature = "tokio")]
 use self::map_async::MapAsync;
@@ -75,6 +78,7 @@ pub mod iteration;
 pub mod join;
 mod key_by;
 mod keyed_fold;
+mod limit_sorted;
 mod map;
 #[cfg(feature = "tokio")]
 mod map_async;
@@ -207,7 +211,7 @@ impl<Out> StreamElement<Out> {
     #[cfg(feature = "tokio")]
     pub async fn map_async<NewOut, F, Fut>(self, f: F) -> StreamElement<NewOut>
     where
-        F: FnOnce(Out) -> Fut,
+        F: Fn(Out) -> Fut,
         Fut: Future<Output = NewOut>,
     {
         match self {
@@ -683,31 +687,6 @@ where
         self.add_operator(|prev| MapMemo::new(prev, f, fk, capacity))
     }
 
-    pub fn limit(self, count: usize) -> Stream<impl Operator<Out = Op::Out>>
-    where
-        Op: crate::operator::source::Source,
-    {
-        let mut count = count;
-        let mut flushed = false;
-        self.rich_map_custom(move |mut gen| {
-            if count == 0 {
-                return if !flushed {
-                    flushed = true;
-                    StreamElement::FlushAndRestart
-                } else {
-                    StreamElement::Terminate
-                };
-            }
-            match gen.next() {
-                el @ StreamElement::Item(_) | el @ StreamElement::Timestamped(_, _) => {
-                    count = count.saturating_sub(1);
-                    el
-                }
-                el => el,
-            }
-        })
-    }
-
     /// Fold the stream into a stream that emits a single value.
     ///
     /// The folding operator consists in adding to the current accumulation value (initially the
@@ -999,6 +978,44 @@ where
         })
     }
 
+    /// Deduplicate elements. The resulting stream will contain exactly one occurrence
+    /// for each unique key computed from the item in the input stream
+    ///
+    /// The current implementation requires `Hash` and `Eq` and it will repartition the stream
+    /// setting replication to Unlimited
+    pub fn unique_assoc_by_key<F, K>(self, f: F) -> Stream<impl Operator<Out = Op::Out>>
+    where
+        Op::Out: Hash + Eq + Clone + ExchangeData + Sync,
+        F: Fn(&Op::Out) -> K + Clone + Send + 'static,
+        K: Hash + Eq + Clone + Send + Sync + 'static,
+    {
+        use dashmap::DashSet;
+        use std::collections::HashSet;
+        use std::sync::Arc;
+        let f2 = f.clone();
+
+        let local_set = Arc::new(DashSet::<_, GroupHasherBuilder>::default());
+        let mut final_set = HashSet::<_, GroupHasherBuilder>::default();
+
+        self.rich_flat_map(move |el| {
+            let k = (f)(&el);
+            if !local_set.insert(k) {
+                Some(el)
+            } else {
+                None
+            }
+        })
+        .repartition_by(Replication::Unlimited, group_by_hash)
+        .rich_flat_map(move |el| {
+            let k = (f2)(&el);
+            if !final_set.insert(k) {
+                Some(el)
+            } else {
+                None
+            }
+        })
+    }
+
     /// Construct a [`KeyedStream`] from a [`Stream`] without shuffling the data.
     ///
     /// **Note**: this violates the semantics of [`KeyedStream`], without sending all the values
@@ -1103,7 +1120,7 @@ where
     /// + `Watermark` messages must be sent when no more items with lower timestamp will ever be produced
     /// + `FlushBatch` messages must be forwarded if received
     /// + For each `FlushAndRestart` and `Terminate` message received, the operator must generate
-    ///     one and only one message of the same kind. No other messages of this kind should be created
+    ///   one and only one message of the same kind. No other messages of this kind should be created
     ///
     /// The mapping function is _cloned_ inside each replica, and they will not share state between
     /// each other. If you want that only a single replica handles all the items you may want to
@@ -1197,6 +1214,116 @@ where
         <Op::Out as IntoIterator>::Item: Send,
     {
         self.add_operator(|prev| Flatten::new(prev))
+    }
+
+    /// Sort the items in the stream using the provided comparison function.
+    ///
+    /// **Note**: This is a blocking operator an will retain items until the end
+    /// of the stream or a restart.
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// # use renoir::{StreamContext, RuntimeConfig};
+    /// # use renoir::operator::source::IteratorSource;
+    /// # use rand::{rng, Rng};
+    /// # use rand::seq::SliceRandom;
+    /// # let mut env = StreamContext::new_local();
+    ///
+    /// let mut vec: Vec<_> = (0..20).collect::<Vec<_>>();
+    /// vec.shuffle(&mut rng());
+    ///
+    /// let s = env.stream_iter(vec.into_iter());
+    /// let res = s.sorted_by(|a,b| a.cmp(b)).collect_vec();
+    ///
+    /// env.execute_blocking();
+    ///
+    /// assert_eq!(res.get().unwrap(), (0..20).collect::<Vec<_>>());
+    /// ```
+    pub fn sorted_by<F>(self, compare: F) -> Stream<LimitSorted<F, Op>>
+    where
+        F: Fn(&Op::Out, &Op::Out) -> std::cmp::Ordering + Clone + Send,
+    {
+        self.add_operator(|prev| LimitSorted::new(prev, compare, None, None, true))
+    }
+
+    /// Keep only the first `limit` items. If an `offset` is specified, keep only
+    /// the first `limit` items after skipping `offset` elements. The order of the
+    /// items across partitions is unspecified.
+    ///
+    /// **Note**: This is a blocking operator an will retain items until the end
+    /// of the stream or a restart.
+    /// **Note**: This operator will run all the previous computations to completion
+    /// even if requires processing more elements than limit in order to preserve
+    /// correctness
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// # use renoir::{StreamContext, RuntimeConfig};
+    /// # use renoir::operator::source::IteratorSource;
+    /// # let mut env = StreamContext::new_local();
+    ///
+    /// let mut vec: Vec<_> = (0..80).collect::<Vec<_>>();
+    ///
+    /// let s = env.stream_iter(vec.into_iter());
+    /// let res = s.limit(20, Some(40)).collect_vec();
+    ///
+    /// env.execute_blocking();
+    ///
+    /// assert_eq!(res.get().unwrap(), (40..60).collect::<Vec<_>>());
+    /// ```
+    pub fn limit(
+        self,
+        limit: usize,
+        offset: Option<usize>,
+    ) -> Stream<LimitSorted<impl Fn(&Op::Out, &Op::Out) -> Ordering + Clone + Send, Op>> {
+        use std::cmp::Ordering;
+
+        self.add_operator(|prev| {
+            LimitSorted::new(prev, |_, _| Ordering::Equal, Some(limit), offset, false)
+        })
+    }
+
+    /// Sort the items in the stream using the provided comparison function.
+    /// Keep only the first `limit` items. If an `offset` is specified, keep only
+    /// the first `limit` items after skipping `offset` elements.
+    ///
+    /// **Note**: This is a blocking operator an will retain items until the end
+    /// of the stream or a restart.
+    /// **Note**: This operator will run all the previous computations to completion
+    /// even if requires processing more elements than limit in order to preserve
+    /// correctness
+    ///
+    /// ## Example
+    ///
+    /// ```
+    /// # use renoir::{StreamContext, RuntimeConfig};
+    /// # use renoir::operator::source::IteratorSource;
+    /// # use rand::{rng, Rng};
+    /// # use rand::seq::SliceRandom;
+    /// # let mut env = StreamContext::new_local();
+    ///
+    /// let mut vec: Vec<_> = (0..80).collect::<Vec<_>>();
+    /// vec.shuffle(&mut rng());
+    ///
+    /// let s = env.stream_iter(vec.into_iter());
+    /// let res = s.sorted_limit_by(|a,b| a.cmp(b), 20, Some(40)).collect_vec();
+    ///
+    /// env.execute_blocking();
+    ///
+    /// assert_eq!(res.get().unwrap(), (40..60).collect::<Vec<_>>());
+    /// ```
+    pub fn sorted_limit_by<F>(
+        self,
+        compare: F,
+        limit: usize,
+        offset: Option<usize>,
+    ) -> Stream<LimitSorted<F, Op>>
+    where
+        F: Fn(&Op::Out, &Op::Out) -> std::cmp::Ordering + Clone + Send,
+    {
+        self.add_operator(|prev| LimitSorted::new(prev, compare, Some(limit), offset, true))
     }
 }
 

@@ -2,8 +2,8 @@ use serde::Serialize;
 use std::{ffi::OsString, fmt::Display, path::PathBuf};
 
 use crate::{
+    block::structure::{OperatorKind, OperatorStructure},
     operator::{Operator, StreamElement},
-    structure::{OperatorKind, OperatorStructure},
     ExecutionMetadata,
 };
 
@@ -99,7 +99,7 @@ where
         result
     }
 
-    fn structure(&self) -> crate::structure::BlockStructure {
+    fn structure(&self) -> crate::block::structure::BlockStructure {
         let mut operator = OperatorStructure::new::<Op::Out, _>(format!(
             "WriterSink<{}>",
             std::any::type_name::<W>()
