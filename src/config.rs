@@ -126,8 +126,34 @@ pub struct RemoteConfig {
     #[serde(default)]
     pub cleanup_executable: bool,
     /// Holds the connections between groups
-    #[serde(default)]
-    pub groups_connections: HashMap<String, Vec<String>>,
+    #[serde(default, rename = "groups_connection")]
+    pub(crate) groups_connections: Vec<GroupConnection>,
+}
+
+impl RemoteConfig {
+    pub(crate) fn get_connection(
+        &self,
+        from: crate::network::Coord,
+        to: crate::network::Coord,
+    ) -> &GroupConnectionConfig {
+        let from_group = self
+            .hosts
+            .get(from.host_id as usize)
+            .and_then(|h| h.group.as_deref());
+        let to_group = self
+            .hosts
+            .get(to.host_id as usize)
+            .and_then(|h| h.group.as_deref());
+        match (from_group, to_group) {
+            (Some(from), Some(to)) => self
+                .groups_connections
+                .iter()
+                .find(|gc| gc.to.as_str() == to && gc.from.contains(&from.to_string()))
+                .map(|gc| &gc.config)
+                .unwrap_or(&GroupConnectionConfig::None),
+            _ => &GroupConnectionConfig::None,
+        }
+    }
 }
 
 /// The configuration of a single remote host.
@@ -316,7 +342,7 @@ pub struct ConfigBuilder {
     hosts: Vec<HostConfig>,
     tracing_dir: Option<PathBuf>,
     cleanup_executable: bool,
-    groups_connections: HashMap<String, Vec<String>>,
+    groups_connections: Vec<GroupConnection>,
 }
 
 impl ConfigBuilder {
@@ -336,7 +362,7 @@ impl ConfigBuilder {
             hosts: Vec::new(),
             tracing_dir: None,
             cleanup_executable: false,
-            groups_connections: HashMap::new(),
+            groups_connections: Vec::new(),
         }
     }
     /// Parse toml and integrate it in the builder.
@@ -350,6 +376,7 @@ impl ConfigBuilder {
             cleanup_executable,
             groups_connections,
         } = toml::from_str(config_str)?;
+        log::debug!("{groups_connections:?}");
 
         // validate the configuration
         for host in hosts.into_iter() {
@@ -437,7 +464,12 @@ impl ConfigBuilder {
             }
 
             let mut groups = HashSet::new();
-            for (to, from) in self.groups_connections.clone() {
+            for (to, from) in self
+                .groups_connections
+                .iter()
+                .map(|gc| (gc.to.clone(), gc.from.clone()))
+                .clone()
+            {
                 groups.insert(to);
                 groups.extend(from);
             }
@@ -461,7 +493,7 @@ impl ConfigBuilder {
             hosts: self.hosts.clone(),
             tracing_dir: self.tracing_dir.clone(),
             cleanup_executable: self.cleanup_executable,
-            groups_connections: self.groups_connections.drain().collect(),
+            groups_connections: self.groups_connections.drain(..).collect(),
         });
         Ok(conf)
     }
@@ -470,6 +502,29 @@ impl ConfigBuilder {
 /// Default port for ssh, used by the serde default value.
 fn ssh_default_port() -> u16 {
     22
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub(crate) struct GroupConnection {
+    pub to: String,
+    pub from: Vec<String>,
+    #[serde(default)]
+    pub config: GroupConnectionConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
+#[serde(tag = "type")]
+pub(crate) enum GroupConnectionConfig {
+    #[default]
+    None,
+    #[cfg(feature = "rdkafka")]
+    Kafka(KafkaConfig),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct KafkaConfig {
+    brokers: Vec<String>,
+    topic: String,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -490,6 +545,16 @@ pub enum ConfigError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl From<(String, Vec<String>)> for GroupConnection {
+        fn from(value: (String, Vec<String>)) -> Self {
+            GroupConnection {
+                to: value.0,
+                from: value.1,
+                config: GroupConnectionConfig::None,
+            }
+        }
+    }
 
     #[test]
     pub fn test_validation_groups_connections() {
@@ -517,7 +582,7 @@ mod tests {
         });
         builder
             .groups_connections
-            .insert("group".to_string(), vec!["group2".to_string()]);
+            .push(("group".to_string(), vec!["group2".to_string()]).into());
         assert!(builder.build().is_ok());
 
         // Test that the validation of groups_connections works as expected, without groups
@@ -583,7 +648,7 @@ mod tests {
         });
         builder
             .groups_connections
-            .insert("group".to_string(), vec!["group2".to_string()]);
+            .push(("group".to_string(), vec!["group2".to_string()]).into());
         assert!(builder.build().is_err());
 
         // Test that the validation fails when the groups_connections is not empty and
@@ -601,7 +666,7 @@ mod tests {
         });
         builder
             .groups_connections
-            .insert("group".to_string(), vec!["group2".to_string()]);
+            .push(("group".to_string(), vec!["group2".to_string()]).into());
         assert!(builder.build().is_err());
     }
 }

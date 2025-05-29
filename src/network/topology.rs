@@ -56,6 +56,8 @@ impl<In: ExchangeData> TypeMapKey for MultiplexingSenderKey<In> {
 struct SenderMetadata {
     /// This sender should connect to the remote recipient.
     to_remote: bool,
+    from: Coord,
+    to: Coord,
 }
 
 /// This struct keeps track of the network topology, all the registered replicas and their
@@ -371,36 +373,44 @@ impl NetworkTopology {
             .unwrap_or_else(|| panic!("Channel for endpoint {receiver_endpoint} not registered",));
 
         match self.config.as_ref() {
-            RuntimeConfig::Remote(_) => {
-                if sender_metadata.to_remote {
-                    let sender = self.register_mux(receiver_endpoint);
+            RuntimeConfig::Remote(config) => {
+                match config.get_connection(sender_metadata.from, sender_metadata.to) {
+                    crate::config::GroupConnectionConfig::None => {
+                        if sender_metadata.to_remote {
+                            let sender = self.register_mux(receiver_endpoint);
 
-                    self.senders
-                        .as_mut()
-                        .unwrap()
-                        .entry::<SenderKey<T>>()
-                        .or_default()
-                        .insert(receiver_endpoint, sender);
-                } else {
-                    let (sender, receiver) = local_channel(receiver_endpoint);
+                            self.senders
+                                .as_mut()
+                                .unwrap()
+                                .entry::<SenderKey<T>>()
+                                .or_default()
+                                .insert(receiver_endpoint, sender);
+                        } else {
+                            let (sender, receiver) = local_channel(receiver_endpoint);
 
-                    if receiver_endpoint.coord.host_id == self.config.host_id().unwrap() {
-                        self.register_demux(receiver_endpoint, sender.clone_inner());
+                            if receiver_endpoint.coord.host_id == self.config.host_id().unwrap() {
+                                self.register_demux(receiver_endpoint, sender.clone_inner());
+                            }
+
+                            self.receivers
+                                .as_mut()
+                                .unwrap()
+                                .entry::<ReceiverKey<T>>()
+                                .or_default()
+                                .insert(receiver_endpoint, receiver);
+                            self.senders
+                                .as_mut()
+                                .unwrap()
+                                .entry::<SenderKey<T>>()
+                                .or_default()
+                                .insert(receiver_endpoint, sender);
+                        };
                     }
-
-                    self.receivers
-                        .as_mut()
-                        .unwrap()
-                        .entry::<ReceiverKey<T>>()
-                        .or_default()
-                        .insert(receiver_endpoint, receiver);
-                    self.senders
-                        .as_mut()
-                        .unwrap()
-                        .entry::<SenderKey<T>>()
-                        .or_default()
-                        .insert(receiver_endpoint, sender);
-                };
+                    #[cfg(feature = "rdkafka")]
+                    crate::config::GroupConnectionConfig::Kafka(kafka_config) => {
+                        todo!()
+                    }
+                }
             }
             RuntimeConfig::Local(_) => {
                 let (sender, receiver) = local_channel(receiver_endpoint);
@@ -469,13 +479,14 @@ impl NetworkTopology {
         }
 
         let receiver_endpoint = ReceiverEndpoint::new(to, from.block_id);
-        self.senders_metadata.entry(receiver_endpoint).or_default();
-
-        // we want to connect to a remote: this sender should be remote
-        if to_remote {
-            let metadata = self.senders_metadata.get_mut(&receiver_endpoint).unwrap();
-            metadata.to_remote = true;
-        }
+        self.senders_metadata.insert(
+            receiver_endpoint,
+            SenderMetadata {
+                to_remote,
+                from,
+                to,
+            },
+        );
     }
 
     /// Check if the connection between two replicas should be skipped.
@@ -495,8 +506,9 @@ impl NetworkTopology {
                 match (from_group, to_group) {
                     (Some(from_group), Some(to_group)) => {
                         !(from_group == to_group
-                            || config.groups_connections.iter().any(|(g, c)| {
-                                g.as_str() == to_group && c.contains(&from_group.to_string())
+                            || config.groups_connections.iter().any(|gc| {
+                                gc.to.as_str() == to_group
+                                    && gc.from.contains(&from_group.to_string())
                             }))
                     }
                     _ => false,

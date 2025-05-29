@@ -6,6 +6,7 @@ use crate::{
 };
 
 pub mod capabilities;
+pub(crate) mod channels;
 
 impl<Op> Stream<Op>
 where
