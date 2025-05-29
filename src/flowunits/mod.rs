@@ -26,7 +26,10 @@ where
     ) -> Stream<impl Operator<Out = Op::Out>> {
         // requirements need the new block id to be saved
         let stream = self.shuffle();
-        stream.ctx.lock().update_requirements(stream.block.id, requirements);
+        stream
+            .ctx
+            .lock()
+            .update_requirements(stream.block.id, requirements);
         stream
     }
 }
@@ -35,7 +38,9 @@ where
 mod tests {
     use std::{any::TypeId, collections::HashMap, sync::Arc};
 
-    use crate::{block::Block, network::Coord, prelude::s, scheduler::Scheduler, test::FakeOperator};
+    use crate::{
+        block::Block, network::Coord, prelude::s, scheduler::Scheduler, test::FakeOperator,
+    };
 
     #[test]
     fn test_layers() {

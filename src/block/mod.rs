@@ -174,7 +174,7 @@ where
     }
 
     /// Set the layer of this block.
-    /// 
+    ///
     /// The layer is used to determine on which host group the block will be executed.
     pub fn set_layer(&mut self, layer: impl Into<String>) {
         self.layer = Some(layer.into());

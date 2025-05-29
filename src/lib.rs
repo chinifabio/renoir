@@ -147,6 +147,7 @@ pub type CoordUInt = u64;
 
 /// Re-export of commonly used structs and traits
 pub mod prelude {
+    pub use super::flowunits::capabilities::{none, s, SpecNode};
     pub use super::operator::sink::StreamOutput;
     pub use super::operator::source::*;
     pub use super::operator::window::{CountWindow, ProcessingTimeWindow, SessionWindow};
@@ -154,5 +155,4 @@ pub mod prelude {
     pub use super::operator::window::{EventTimeWindow, TransactionWindow};
     pub use super::Replication;
     pub use super::{BatchMode, RuntimeConfig, StreamContext};
-    pub use super::flowunits::capabilities::{s, none, SpecNode};
 }

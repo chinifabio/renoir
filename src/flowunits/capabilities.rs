@@ -1,4 +1,4 @@
-use std::{collections::HashMap};
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -167,7 +167,7 @@ impl SpecNode {
             right: Box::new(other.into()),
         }
     }
-    
+
     pub(crate) fn eval(&self, capabilites: &HashMap<String, Literal>) -> Result<bool, String> {
         match self {
             SpecNode::Literal(l) => Err(format!("Literal {l} should not be here")),
@@ -175,11 +175,20 @@ impl SpecNode {
             SpecNode::Op { left, op, right } => {
                 let left_value = match **left {
                     SpecNode::Name(key) => key.to_string(),
-                    _ => return Err("Requirement needs to have a name on the left side, use s(\"...\")".to_string()),
+                    _ => {
+                        return Err(
+                            "Requirement needs to have a name on the left side, use s(\"...\")"
+                                .to_string(),
+                        )
+                    }
                 };
                 let right_value = match &**right {
                     SpecNode::Literal(value) => value.clone(),
-                    _ => return Err("Requirement needs to have a literal on the right side".to_string()),
+                    _ => {
+                        return Err(
+                            "Requirement needs to have a literal on the right side".to_string()
+                        )
+                    }
                 };
                 let left_value = match capabilites.get(&left_value) {
                     Some(Literal::Float(value)) => Literal::Float(*value),
@@ -187,7 +196,7 @@ impl SpecNode {
                     None => {
                         log::warn!("Capability {left_value} not found");
                         return Ok(false);
-                    },
+                    }
                 };
                 match op {
                     BinaryOp::Eq => Ok(left_value.eq(&right_value)),
@@ -210,7 +219,9 @@ impl SpecNode {
                     },
                 }
             }
-            SpecNode::And { left, right } => Ok(left.eval(capabilites)? && right.eval(capabilites)?),
+            SpecNode::And { left, right } => {
+                Ok(left.eval(capabilites)? && right.eval(capabilites)?)
+            }
             SpecNode::Or { left, right } => Ok(left.eval(capabilites)? || right.eval(capabilites)?),
             SpecNode::Empty => Ok(true),
         }
