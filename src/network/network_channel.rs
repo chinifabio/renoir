@@ -50,73 +50,18 @@ pub(crate) fn mux_sender<T: ExchangeData>(
 /// socket and send to the same in-memory channel the received messages.
 #[derive(Derivative)]
 #[derivative(Debug)]
-pub(crate) struct NetworkReceiver<In: Send + 'static, R: NetworkReceiverInner<In> = ()> {
+pub(crate) struct NetworkReceiver<In: Send + 'static> {
     /// The ReceiverEndpoint of the current receiver.
     pub receiver_endpoint: ReceiverEndpoint,
     /// The actual receiver where the users of this struct will wait upon.
     #[derivative(Debug = "ignore")]
-    receiver: ReceiverInner<In, R>,
+    pub receiver: ReceiverInner<In>,
 }
 
-enum ReceiverInner<In: Send + 'static, R: NetworkReceiverInner<In>> {
+pub(crate) enum ReceiverInner<In: Send + 'static> {
     Legacy(Receiver<NetworkMessage<In>>),
-    Custom(R),
-}
-
-pub(crate) trait NetworkReceiverInner<In: Send + 'static> {
-    fn recv(&self) -> Result<NetworkMessage<In>, RecvError>;
-
-    /// Receive a message from any sender without blocking.
-    fn try_recv(&self) -> Result<NetworkMessage<In>, TryRecvError>;
-
-    /// Receive a message from any sender with a timeout.
-    fn recv_timeout(&self, timeout: Duration) -> Result<NetworkMessage<In>, RecvTimeoutError>;
-
-    /// Receive a message from any sender of this receiver of the other provided receiver.
-    ///
-    /// The first message of the two is returned. If both receivers are ready one of them is chosen
-    /// randomly (with an unspecified probability). It's guaranteed this function has the eventual
-    /// fairness property.
-    fn select<In2: ExchangeData>(
-        &self,
-        other: &NetworkReceiver<In2>,
-    ) -> SelectResult<NetworkMessage<In>, NetworkMessage<In2>>;
-
-    /// Same as `select`, with a timeout.
-    fn select_timeout<In2: ExchangeData>(
-        &self,
-        other: &NetworkReceiver<In2>,
-        timeout: Duration,
-    ) -> Result<SelectResult<NetworkMessage<In>, NetworkMessage<In2>>, RecvTimeoutError>;
-}
-
-impl<In: Send + 'static> NetworkReceiverInner<In> for () {
-    fn recv(&self) -> Result<NetworkMessage<In>, RecvError> {
-        unreachable!()
-    }
-
-    fn try_recv(&self) -> Result<NetworkMessage<In>, TryRecvError> {
-        unreachable!()
-    }
-
-    fn recv_timeout(&self, _: Duration) -> Result<NetworkMessage<In>, RecvTimeoutError> {
-        unreachable!()
-    }
-
-    fn select<In2: ExchangeData>(
-        &self,
-        _: &NetworkReceiver<In2>,
-    ) -> SelectResult<NetworkMessage<In>, NetworkMessage<In2>> {
-        unreachable!()
-    }
-
-    fn select_timeout<In2: ExchangeData>(
-        &self,
-        _: &NetworkReceiver<In2>,
-        _: Duration,
-    ) -> Result<SelectResult<NetworkMessage<In>, NetworkMessage<In2>>, RecvTimeoutError> {
-        unreachable!()
-    }
+    #[cfg(feature = "rdkafka")]
+    Kafka(crate::flowunits::channels::kafka::KafkaReceiver<NetworkMessage<In>>),
 }
 
 impl<In: Send + 'static> NetworkReceiver<In> {
@@ -138,7 +83,8 @@ impl<In: Send + 'static> NetworkReceiver<In> {
     pub fn recv(&self) -> Result<NetworkMessage<In>, RecvError> {
         let data = match &self.receiver {
             ReceiverInner::Legacy(rx) => rx.recv(),
-            ReceiverInner::Custom(rx) => rx.recv(),
+            #[cfg(feature = "rdkafka")]
+            ReceiverInner::Kafka(rx) => rx.lock().recv(),
         };
         self.profile_message(data)
     }
@@ -147,7 +93,8 @@ impl<In: Send + 'static> NetworkReceiver<In> {
     pub fn try_recv(&self) -> Result<NetworkMessage<In>, TryRecvError> {
         let data = match &self.receiver {
             ReceiverInner::Legacy(rx) => rx.try_recv(),
-            ReceiverInner::Custom(rx) => rx.try_recv(),
+            #[cfg(feature = "rdkafka")]
+            ReceiverInner::Kafka(rx) => rx.lock().try_recv(),
         };
         self.profile_message(data)
     }
@@ -156,7 +103,8 @@ impl<In: Send + 'static> NetworkReceiver<In> {
     pub fn recv_timeout(&self, timeout: Duration) -> Result<NetworkMessage<In>, RecvTimeoutError> {
         let data = match &self.receiver {
             ReceiverInner::Legacy(rx) => rx.recv_timeout(timeout),
-            ReceiverInner::Custom(rx) => rx.recv_timeout(timeout),
+            #[cfg(feature = "rdkafka")]
+            ReceiverInner::Kafka(rx) => rx.lock().recv_timeout(timeout),
         };
         self.profile_message(data)
     }
@@ -166,9 +114,9 @@ impl<In: Send + 'static> NetworkReceiver<In> {
     /// The first message of the two is returned. If both receivers are ready one of them is chosen
     /// randomly (with an unspecified probability). It's guaranteed this function has the eventual
     /// fairness property.
-    pub fn select<In2: ExchangeData, R2: NetworkReceiverInner<In2>>(
+    pub fn select<In2: ExchangeData>(
         &self,
-        other: &NetworkReceiver<In2, R2>,
+        other: &NetworkReceiver<In2>,
     ) -> SelectResult<NetworkMessage<In>, NetworkMessage<In2>> {
         match (&self.receiver, &other.receiver) {
             (ReceiverInner::Legacy(rx), ReceiverInner::Legacy(other)) => rx.select(other),
@@ -198,46 +146,33 @@ impl<In: Send + 'static> NetworkReceiver<In> {
 /// connection internally this points to the multiplexer that handles the remote channel.
 #[derive(Clone, Derivative)]
 #[derivative(Debug)]
-pub(crate) struct NetworkSender<Out: Send + 'static, S: NetworkSenderInner<Out> = ()> {
+pub(crate) struct NetworkSender<Out: Send + 'static> {
     /// The ReceiverEndpoint of the recipient.
     pub receiver_endpoint: ReceiverEndpoint,
     /// The generic sender that will send the message either locally or remotely.
     #[derivative(Debug = "ignore")]
-    sender: SenderInner<Out, S>,
+    pub sender: SenderInner<Out>,
 }
 
-pub(crate) trait NetworkSenderInner<Out>: Clone {
-    fn send(&self, message: NetworkMessage<Out>) -> Result<(), NetworkSendError>;
-    fn try_send(&self, message: NetworkMessage<Out>) -> Result<(), NetworkSendError>;
-}
-
-impl<Out> NetworkSenderInner<Out> for () {
-    fn send(&self, _: NetworkMessage<Out>) -> Result<(), NetworkSendError> {
-        unreachable!()
-    }
-
-    fn try_send(&self, _: NetworkMessage<Out>) -> Result<(), NetworkSendError> {
-        unreachable!()
-    }
-}
-
-enum SenderInner<Out: Send + 'static, S: NetworkSenderInner<Out>> {
+pub(crate) enum SenderInner<Out: Send + 'static> {
     Mux(Sender<(ReceiverEndpoint, NetworkMessage<Out>)>),
     Local(Sender<NetworkMessage<Out>>),
-    Custom(S),
+    #[cfg(feature = "rdkafka")]
+    Kafka(crate::flowunits::channels::kafka::KafkaSender<NetworkMessage<Out>>),
 }
 
-impl<Out: Send + 'static, S: NetworkSenderInner<Out>> Clone for SenderInner<Out, S> {
+impl<Out: Clone + Send + 'static> Clone for SenderInner<Out> {
     fn clone(&self) -> Self {
         match self {
             Self::Mux(arg0) => Self::Mux(arg0.clone()),
             Self::Local(arg0) => Self::Local(arg0.clone()),
-            Self::Custom(arg0) => Self::Custom(arg0.clone()),
+            #[cfg(feature = "rdkafka")]
+            Self::Kafka(arg0) => Self::Kafka(arg0.clone()),
         }
     }
 }
 
-impl<Out: Send + 'static, S: NetworkSenderInner<Out>> NetworkSender<Out, S> {
+impl<Out: Send + 'static> NetworkSender<Out> {
     pub fn send(&self, message: NetworkMessage<Out>) -> Result<(), NetworkSendError> {
         get_profiler().items_out(
             message.sender,
@@ -252,7 +187,9 @@ impl<Out: Send + 'static, S: NetworkSenderInner<Out>> NetworkSender<Out, S> {
             SenderInner::Local(tx) => tx
                 .send(message)
                 .map_err(|_| NetworkSendError::Disconnected(self.receiver_endpoint)),
-            SenderInner::Custom(tx) => tx
+            #[cfg(feature = "rdkafka")]
+            SenderInner::Kafka(tx) => tx
+                .lock()
                 .send(message)
                 .map_err(|_| NetworkSendError::Disconnected(self.receiver_endpoint)),
         }
@@ -277,7 +214,8 @@ impl<Out: Send + 'static, S: NetworkSenderInner<Out>> NetworkSender<Out, S> {
                     NetworkTrySendError::Disconnected(self.receiver_endpoint)
                 }
             }),
-            SenderInner::Custom(tx) => tx.try_send(message).map_err(|e| match e {
+            #[cfg(feature = "rdkafka")]
+            SenderInner::Kafka(tx) => tx.lock().try_send(message).map_err(|e| match e {
                 NetworkSendError::Disconnected(_) => {
                     NetworkTrySendError::Disconnected(self.receiver_endpoint)
                 }
@@ -293,7 +231,8 @@ impl<Out: Send + 'static, S: NetworkSenderInner<Out>> NetworkSender<Out, S> {
         match &self.sender {
             SenderInner::Mux(_) => panic!("Trying to clone mux channel. Not supported"),
             SenderInner::Local(tx) => tx.clone(),
-            SenderInner::Custom(_) => todo!(),
+            #[cfg(feature = "rdkafka")]
+            SenderInner::Kafka(_) => todo!(),
         }
     }
 }

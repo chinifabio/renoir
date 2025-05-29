@@ -433,7 +433,7 @@ impl Scheduler {
                     .as_str(),
                 );
 
-                return layer_match && requirements_match;
+                layer_match && requirements_match
             })
             .collect::<Vec<_>>();
 
@@ -461,7 +461,7 @@ impl Scheduler {
                 }
             }
             Replication::One => {
-                add_replicas!(0, filtered_hosts.get(0).unwrap().1, 1);
+                add_replicas!(0, filtered_hosts.first().unwrap().1, 1);
             }
         }
 
