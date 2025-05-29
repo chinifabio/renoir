@@ -408,7 +408,23 @@ impl NetworkTopology {
                     }
                     #[cfg(feature = "rdkafka")]
                     crate::config::GroupConnectionConfig::Kafka(kafka_config) => {
-                        todo!()
+                        let (sender, receiver) = crate::flowunits::channels::kafka::kafka_channel(
+                            kafka_config,
+                            receiver_endpoint,
+                        );
+
+                        self.receivers
+                            .as_mut()
+                            .unwrap()
+                            .entry::<ReceiverKey<T>>()
+                            .or_default()
+                            .insert(receiver_endpoint, receiver);
+                        self.senders
+                            .as_mut()
+                            .unwrap()
+                            .entry::<SenderKey<T>>()
+                            .or_default()
+                            .insert(receiver_endpoint, sender);
                     }
                 }
             }

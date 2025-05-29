@@ -146,7 +146,7 @@ group_c = ["group_a", "group_b"]
                 ],
             );
 
-            assert!(graph.len() > 0);
+            assert!(!graph.is_empty());
             assert_eq!(graph.len(), expected_graph.len());
             let mut graph = graph.clone();
             for (key, value) in graph.drain() {
