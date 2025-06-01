@@ -1,29 +1,149 @@
-use std::{marker::PhantomData, sync::Arc};
-
-use parking_lot::Mutex;
-
-use crate::{
-    config::KafkaConfig,
-    network::{NetworkMessage, NetworkReceiver, NetworkSender, ReceiverEndpoint},
+use std::{
+    marker::PhantomData,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
-impl<T: Send + 'static> From<&KafkaConfig> for KafkaSenderInner<NetworkMessage<T>> {
-    fn from(value: &KafkaConfig) -> Self {
-        todo!()
+use flume::{Receiver, Sender};
+use futures::StreamExt;
+use parking_lot::Mutex;
+use rdkafka::{
+    config::RDKafkaLogLevel,
+    consumer::{CommitMode, Consumer, StreamConsumer},
+    producer::{FutureProducer, FutureRecord},
+    util::Timeout,
+    ClientConfig, Message,
+};
+
+use crate::{
+    channel::{RecvError, RecvTimeoutError, TryRecvError},
+    config::KafkaConfig,
+    network::{NetworkReceiver, NetworkSendError, NetworkSender, ReceiverEndpoint},
+    operator::ExchangeData,
+};
+
+impl<T: ExchangeData> From<(&KafkaConfig, ReceiverEndpoint)> for KafkaSenderInner<T> {
+    fn from(value: (&KafkaConfig, ReceiverEndpoint)) -> Self {
+        let (kafka_config, endpoint) = value;
+        let mut producer_config = ClientConfig::new();
+        let brokers = kafka_config.brokers.join(",");
+        producer_config
+            .set("bootstrap.servers", brokers)
+            .set("message.timeout.ms", "5000");
+
+        let producer = producer_config
+            .create::<FutureProducer>()
+            .expect("failed to create kafka producer");
+        let topic = kafka_config.topic.clone();
+
+        let (tx, rx): (Sender<T>, Receiver<T>) = flume::bounded(8);
+        let cancel_token = Arc::new(AtomicBool::new(false));
+        let cancel = cancel_token.clone();
+
+        tokio::spawn(async move {
+            loop {
+                if cancel.load(Ordering::SeqCst) {
+                    break;
+                }
+                match rx.recv() {
+                    Ok(msg) => {
+                        let payload = bincode::serialize(&msg)
+                            .expect("Failed to serialize item to send using kafka");
+                        let message: FutureRecord<'_, [u8], [u8]> =
+                            FutureRecord::to(topic.as_str()).payload(payload.as_slice());
+                        match producer.send(message, Timeout::Never).await {
+                            Ok(_) => {}
+                            Err(e) => {
+                                log::error!("Failed to send message using kafka: {e:?}");
+                                todo!("failed to send message using kafka, implement a fail logic")
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        log::error!("Failed to send message using kafka: {e:?}");
+                        todo!()
+                    }
+                }
+            }
+        });
+
+        Self {
+            tx,
+            cancel_token,
+            endpoint,
+            _t: Default::default(),
+        }
     }
 }
 
-impl<T: Send + 'static> From<&KafkaConfig> for KafkaReceiverInner<NetworkMessage<T>> {
-    fn from(value: &KafkaConfig) -> Self {
-        todo!()
+impl<T: ExchangeData> From<&KafkaConfig> for KafkaReceiverInner<T> {
+    fn from(kafka_config: &KafkaConfig) -> Self {
+        let mut config = ClientConfig::new();
+        let brokers = kafka_config.brokers.join(",");
+        config
+            .set("group.id", "asd")
+            .set("bootstrap.servers", brokers)
+            .set("enable.partition.eof", "false")
+            .set("session.timeout.ms", "6000")
+            .set("enable.auto.commit", "true")
+            .set_log_level(RDKafkaLogLevel::Info);
+
+        let consumer = config
+            .create::<StreamConsumer>()
+            .expect("failed to create kafka consumer");
+        let topics = vec![kafka_config.topic.clone()];
+        let t = topics.iter().map(|s| s.as_str()).collect::<Vec<&str>>();
+        consumer
+            .subscribe(t.as_slice())
+            .expect("failed to subscribe to kafka topics");
+        tracing::debug!("RenoirKafkaConsumer subscribed to {topics:?}");
+
+        let (tx, rx) = flume::bounded(8);
+        let cancel_token = Arc::new(AtomicBool::new(false));
+        let cancel = cancel_token.clone();
+
+        tokio::spawn(async move {
+            let mut stream = consumer.stream();
+            while let Some(msg) = stream.next().await {
+                let msg = msg.expect("failed receiving from kafka");
+                if cancel.load(Ordering::SeqCst) {
+                    break;
+                }
+                let owned = msg.detach();
+                let payload = owned
+                    .payload()
+                    .expect("Failed to retrive payload from kafka message");
+                let data = bincode::deserialize(payload)
+                    .expect("Failed to deserialize message payload from kafka");
+                if let Err(e) = tx.send(data) {
+                    if cancel.load(Ordering::SeqCst) {
+                        break;
+                    } else {
+                        panic!("channel send failed for kafka consumer {e}");
+                    }
+                }
+                consumer
+                    .commit_message(&msg, CommitMode::Async)
+                    .expect("kafka failed to commit");
+            }
+            tracing::debug!("RenoirKafkaConsumer background task terminated.");
+        });
+
+        Self {
+            cancel_token,
+            rx,
+            _t: Default::default(),
+        }
     }
 }
 
-pub(crate) fn kafka_channel<Out: Send + 'static>(
+pub(crate) fn kafka_channel<Out: ExchangeData>(
     config: &KafkaConfig,
     receiver_endpoint: ReceiverEndpoint,
 ) -> (NetworkSender<Out>, NetworkReceiver<Out>) {
-    let sender = Arc::new(Mutex::new(config.into()));
+    let sender = Arc::new(Mutex::new((config, receiver_endpoint).into()));
     let receiver = Arc::new(Mutex::new(config.into()));
     (
         NetworkSender {
@@ -42,36 +162,69 @@ pub(crate) type KafkaReceiver<T> = Arc<Mutex<KafkaReceiverInner<T>>>;
 
 #[derive(Clone, Debug)]
 pub(crate) struct KafkaSenderInner<T: Send + 'static> {
+    tx: Sender<T>,
+    cancel_token: Arc<AtomicBool>,
+    endpoint: ReceiverEndpoint,
     _t: PhantomData<T>,
 }
 
 impl<T: Send + 'static> KafkaSenderInner<T> {
+    /// Signals the background task to stop consuming messages.
+    pub fn stop(&self) {
+        self.cancel_token.store(true, Ordering::SeqCst);
+    }
+
     /// Send a message in the channel, blocking if it's full.
     #[inline]
     pub fn send(&self, message: T) -> Result<(), crate::network::NetworkSendError> {
-        todo!()
+        self.tx.send(message).map_err(|e| {
+            log::error!("Failed to send message using kafka: {e:?}");
+            NetworkSendError::Disconnected(self.endpoint)
+        })
     }
 
     #[inline]
     pub fn try_send(&self, message: T) -> Result<(), crate::network::NetworkSendError> {
-        todo!()
+        self.tx.try_send(message).map_err(|e| {
+            log::error!("Failed to send message using kafka: {e:?}");
+            NetworkSendError::Disconnected(self.endpoint)
+        })
+    }
+}
+
+impl<T: Send + 'static> Drop for KafkaSenderInner<T> {
+    fn drop(&mut self) {
+        self.stop();
     }
 }
 
 #[derive(Clone, Debug)]
 pub(crate) struct KafkaReceiverInner<T: Send + 'static> {
+    cancel_token: Arc<AtomicBool>,
+    rx: Receiver<T>,
     _t: PhantomData<T>,
 }
 
 impl<T: Send + 'static> KafkaReceiverInner<T> {
+    /// Signals the background task to stop consuming messages.
+    pub fn stop(&self) {
+        self.cancel_token.store(true, Ordering::SeqCst);
+    }
+
     #[inline]
     pub fn recv(&self) -> Result<T, crate::channel::RecvError> {
-        todo!()
+        self.rx.recv().map_err(|e| {
+            log::error!("Kafka recv error: {e:?}");
+            RecvError::Disconnected
+        })
     }
 
     #[inline]
     pub fn try_recv(&self) -> Result<T, crate::channel::TryRecvError> {
-        todo!()
+        self.rx.try_recv().map_err(|e| {
+            log::error!("Kafka try_recv error: {e:?}");
+            TryRecvError::Disconnected
+        })
     }
 
     #[inline]
@@ -79,13 +232,16 @@ impl<T: Send + 'static> KafkaReceiverInner<T> {
         &self,
         timeout: std::time::Duration,
     ) -> Result<T, crate::channel::RecvTimeoutError> {
-        todo!()
+        self.rx.recv_timeout(timeout).map_err(|e| {
+            log::error!("Kafka recv error: {e:?}");
+            RecvTimeoutError::Disconnected
+        })
     }
 
     #[inline]
     pub fn select<In2: crate::operator::ExchangeData>(
         &self,
-        other: &In2,
+        _other: &In2,
     ) -> crate::channel::SelectResult<T, In2> {
         todo!()
     }
@@ -93,9 +249,15 @@ impl<T: Send + 'static> KafkaReceiverInner<T> {
     #[inline]
     pub fn select_timeout<In2: crate::operator::ExchangeData>(
         &self,
-        other: &In2,
-        timeout: std::time::Duration,
+        _other: &In2,
+        _timeout: std::time::Duration,
     ) -> Result<crate::channel::SelectResult<T, In2>, crate::channel::RecvTimeoutError> {
         todo!()
+    }
+}
+
+impl<T: Send + 'static> Drop for KafkaReceiverInner<T> {
+    fn drop(&mut self) {
+        self.stop();
     }
 }

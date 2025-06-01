@@ -120,7 +120,13 @@ impl<In: Send + 'static> NetworkReceiver<In> {
     ) -> SelectResult<NetworkMessage<In>, NetworkMessage<In2>> {
         match (&self.receiver, &other.receiver) {
             (ReceiverInner::Legacy(rx), ReceiverInner::Legacy(other)) => rx.select(other),
-            _ => todo!(),
+            (ReceiverInner::Kafka(rx), ReceiverInner::Kafka(other)) => {
+                let _rx_lock = rx.lock();
+                let _other_lock = other.lock();
+                // rx_lock.select::<In2>(&*other_lock)
+                todo!("Per ora ho type mismatch")
+            }
+            _ => panic!("Mismatch pair of network receiver"), // TODO: implemet var_string per stampare i tipo dei due receiver
         }
     }
 
