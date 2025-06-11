@@ -120,6 +120,7 @@ impl<In: Send + 'static> NetworkReceiver<In> {
     ) -> SelectResult<NetworkMessage<In>, NetworkMessage<In2>> {
         match (&self.receiver, &other.receiver) {
             (ReceiverInner::Legacy(rx), ReceiverInner::Legacy(other)) => rx.select(other),
+            #[cfg(feature = "rdkafka")]
             (ReceiverInner::Kafka(rx), ReceiverInner::Kafka(other)) => {
                 let _rx_lock = rx.lock();
                 let _other_lock = other.lock();
