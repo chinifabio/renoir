@@ -380,12 +380,14 @@ fn build_remote_command(
     } else {
         "".to_string()
     };
+    let variables = generate_variable_string(config.hosts.get(host_id as usize).unwrap());
     format!(
         "export {host_id_env}={host_id};
 export {config_env}={config};
 export RUST_LOG={rust_log};
 export RUST_BACKTRACE={rust_backtrace};
 export RUST_LOG_STYLE=always;
+{variables}
 {perf_cmd}{binary_path} {args}",
         host_id_env = HOST_ID_ENV_VAR,
         host_id = host_id,
@@ -397,4 +399,12 @@ export RUST_LOG_STYLE=always;
         rust_log = std::env::var("RUST_LOG").unwrap_or_default(),
         rust_backtrace = std::env::var("RUST_BACKTRACE").unwrap_or_default(),
     )
+}
+
+fn generate_variable_string(host: &HostConfig) -> String {
+    host.variables
+        .iter()
+        .map(|(k, v)| format!("export {k}={v}"))
+        .collect::<Vec<String>>()
+        .join("\n")
 }

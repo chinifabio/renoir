@@ -185,6 +185,9 @@ pub struct HostConfig {
     /// The capabilities list of this host.
     #[serde(default)]
     pub capabilities: HashMap<String, Literal>,
+    /// Holds all the environment variable to set for the single host.
+    #[serde(default)]
+    pub(crate) variables: HashMap<String, String>,
 }
 
 /// The information used to connect to a remote host via SSH.
@@ -569,6 +572,7 @@ mod tests {
             layer: Some("layer".to_string()),
             group: Some("group".to_string()),
             capabilities: HashMap::new(),
+            variables: HashMap::new(),
         });
         builder.hosts.push(HostConfig {
             address: "localhost".to_string(),
@@ -579,6 +583,7 @@ mod tests {
             layer: Some("layer".to_string()),
             group: Some("group2".to_string()),
             capabilities: HashMap::new(),
+            variables: HashMap::new(),
         });
         builder
             .groups_connections
@@ -596,6 +601,7 @@ mod tests {
             layer: None,
             group: None,
             capabilities: HashMap::new(),
+            variables: HashMap::new(),
         });
         builder.hosts.push(HostConfig {
             address: "localhost".to_string(),
@@ -606,6 +612,7 @@ mod tests {
             layer: None,
             group: None,
             capabilities: HashMap::new(),
+            variables: HashMap::new(),
         });
         assert!(builder.build().is_ok());
 
@@ -620,6 +627,7 @@ mod tests {
             layer: Some("layer".to_string()),
             group: Some("group2".to_string()),
             capabilities: HashMap::new(),
+            variables: HashMap::new(),
         });
         assert!(builder.build().is_err());
 
@@ -635,6 +643,7 @@ mod tests {
             layer: Some("layer".to_string()),
             group: None,
             capabilities: HashMap::new(),
+            variables: HashMap::new(),
         });
         builder.hosts.push(HostConfig {
             address: "localhost".to_string(),
@@ -645,6 +654,7 @@ mod tests {
             layer: Some("layer".to_string()),
             group: Some("group2".to_string()),
             capabilities: HashMap::new(),
+            variables: HashMap::new(),
         });
         builder
             .groups_connections
@@ -663,6 +673,7 @@ mod tests {
             layer: Some("layer".to_string()),
             group: Some("group2".to_string()),
             capabilities: HashMap::new(),
+            variables: HashMap::new(),
         });
         builder
             .groups_connections

@@ -49,7 +49,7 @@ impl<T: ExchangeData> From<(&KafkaConfig, ReceiverEndpoint)> for KafkaSenderInne
                 }
                 match rx.recv() {
                     Ok(msg) => {
-                        let payload = bincode::serialize(&msg)
+                        let payload = bincode::serde::encode_to_vec(&msg, bincode::config::standard())
                             .expect("Failed to serialize item to send using kafka");
                         let message: FutureRecord<'_, [u8], [u8]> =
                             FutureRecord::to(topic.as_str()).payload(payload.as_slice());
@@ -115,7 +115,7 @@ impl<T: ExchangeData> From<&KafkaConfig> for KafkaReceiverInner<T> {
                 let payload = owned
                     .payload()
                     .expect("Failed to retrive payload from kafka message");
-                let data = bincode::deserialize(payload)
+                let (data, _) = bincode::serde::decode_from_slice(payload, bincode::config::standard())
                     .expect("Failed to deserialize message payload from kafka");
                 if let Err(e) = tx.send(data) {
                     if cancel.load(Ordering::SeqCst) {
@@ -239,6 +239,7 @@ impl<T: Send + 'static> KafkaReceiverInner<T> {
     }
 
     #[inline]
+    #[allow(dead_code)]
     pub fn select<In2: crate::operator::ExchangeData>(
         &self,
         _other: &In2,
@@ -247,6 +248,7 @@ impl<T: Send + 'static> KafkaReceiverInner<T> {
     }
 
     #[inline]
+    #[allow(dead_code)]
     pub fn select_timeout<In2: crate::operator::ExchangeData>(
         &self,
         _other: &In2,
