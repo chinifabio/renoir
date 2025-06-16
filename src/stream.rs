@@ -277,7 +277,7 @@ where
 
     /// Like `add_block` but without creating a new block. Therefore this closes the current stream
     /// and just add the last block to the scheduler.
-    pub(crate) fn finalize_block(self)
+    pub fn finalize_block(self)
     where
         Op: 'static,
         Op::Out: Send,

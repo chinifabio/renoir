@@ -522,7 +522,7 @@ pub(crate) enum GroupConnectionConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
-pub struct KafkaConfig {
+pub(crate) struct KafkaConfig {
     pub brokers: Vec<String>,
     pub topic: String,
 }
