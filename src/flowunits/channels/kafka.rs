@@ -1,9 +1,6 @@
-use std::{
-    marker::PhantomData,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
 };
 
 use flume::{Receiver, Sender};
@@ -74,7 +71,6 @@ impl<T: ExchangeData> From<(&KafkaConfig, ReceiverEndpoint)> for KafkaSenderInne
             tx,
             cancel_token,
             endpoint,
-            _t: Default::default(),
         }
     }
 }
@@ -133,11 +129,7 @@ impl<T: ExchangeData> From<&KafkaConfig> for KafkaReceiverInner<T> {
             tracing::debug!("RenoirKafkaConsumer background task terminated.");
         });
 
-        Self {
-            cancel_token,
-            rx,
-            _t: Default::default(),
-        }
+        Self { cancel_token, rx }
     }
 }
 
@@ -167,7 +159,6 @@ pub(crate) struct KafkaSenderInner<T: Send + 'static> {
     tx: Sender<T>,
     cancel_token: Arc<AtomicBool>,
     endpoint: ReceiverEndpoint,
-    _t: PhantomData<T>,
 }
 
 impl<T: Send + 'static> KafkaSenderInner<T> {
@@ -204,7 +195,6 @@ impl<T: Send + 'static> Drop for KafkaSenderInner<T> {
 pub(crate) struct KafkaReceiverInner<T: Send + 'static> {
     cancel_token: Arc<AtomicBool>,
     rx: Receiver<T>,
-    _t: PhantomData<T>,
 }
 
 impl<T: Send + 'static> KafkaReceiverInner<T> {
@@ -241,19 +231,17 @@ impl<T: Send + 'static> KafkaReceiverInner<T> {
     }
 
     #[inline]
-    #[allow(dead_code)]
     pub fn select<In2: crate::operator::ExchangeData>(
         &self,
-        _other: &In2,
+        _other: &KafkaReceiverInner<In2>,
     ) -> crate::channel::SelectResult<T, In2> {
         todo!()
     }
 
     #[inline]
-    #[allow(dead_code)]
     pub fn select_timeout<In2: crate::operator::ExchangeData>(
         &self,
-        _other: &In2,
+        _other: &KafkaReceiverInner<In2>,
         _timeout: std::time::Duration,
     ) -> Result<crate::channel::SelectResult<T, In2>, crate::channel::RecvTimeoutError> {
         todo!()

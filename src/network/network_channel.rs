@@ -64,6 +64,16 @@ pub(crate) enum ReceiverInner<In: Send + 'static> {
     Kafka(crate::flowunits::channels::kafka::KafkaReceiver<NetworkMessage<In>>),
 }
 
+impl<T: Send + 'static> ReceiverInner<T> {
+    pub fn var_string(&self) -> String {
+        match self {
+            ReceiverInner::Legacy(_) => "Legacy".to_string(),
+            #[cfg(feature = "rdkafka")]
+            ReceiverInner::Kafka(_) => "Kafka".to_string(),
+        }
+    }
+}
+
 impl<In: Send + 'static> NetworkReceiver<In> {
     #[inline]
     fn profile_message<E>(
@@ -122,12 +132,15 @@ impl<In: Send + 'static> NetworkReceiver<In> {
             (ReceiverInner::Legacy(rx), ReceiverInner::Legacy(other)) => rx.select(other),
             #[cfg(feature = "rdkafka")]
             (ReceiverInner::Kafka(rx), ReceiverInner::Kafka(other)) => {
-                let _rx_lock = rx.lock();
-                let _other_lock = other.lock();
-                // rx_lock.select::<In2>(&*other_lock)
-                todo!("Per ora ho type mismatch")
+                let rx_lock = rx.lock();
+                let other_lock = other.lock();
+                rx_lock.select(&*other_lock)
             }
-            _ => panic!("Mismatch pair of network receiver"), // TODO: implemet var_string per stampare i tipo dei due receiver
+            _ => panic!(
+                "Mismatch in receiver types for select. Receivers are {} and {}",
+                self.receiver.var_string(),
+                other.receiver.var_string()
+            ),
         }
     }
 
@@ -141,7 +154,17 @@ impl<In: Send + 'static> NetworkReceiver<In> {
             (ReceiverInner::Legacy(rx), ReceiverInner::Legacy(other)) => {
                 rx.select_timeout(other, timeout)
             }
-            _ => todo!(),
+            #[cfg(feature = "rdkafka")]
+            (ReceiverInner::Kafka(rx), ReceiverInner::Kafka(other)) => {
+                let rx_lock = rx.lock();
+                let other_lock = other.lock();
+                rx_lock.select_timeout(&*other_lock, timeout)
+            }
+            _ => panic!(
+                "Mismatch in receiver types for select_timeout. Receivers are {} and {}",
+                self.receiver.var_string(),
+                other.receiver.var_string()
+            ),
         }
     }
 }
