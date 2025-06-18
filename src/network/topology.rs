@@ -522,7 +522,7 @@ impl NetworkTopology {
                 match (from_group, to_group) {
                     (Some(from_group), Some(to_group)) => {
                         !(from_group == to_group
-                            || config.groups_connections.iter().any(|gc| {
+                            || config.group_connections.iter().any(|gc| {
                                 gc.to.as_str() == to_group
                                     && gc.from.contains(&from_group.to_string())
                             }))

@@ -33,6 +33,7 @@ pub fn remote_loopback_deploy(
             layer: None,
             group: None,
             capabilities: Default::default(),
+            variables: Default::default(),
         });
     }
 

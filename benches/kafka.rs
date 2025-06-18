@@ -36,7 +36,7 @@ fn kafka_consume(ctx: &StreamContext, size: u64, topic: &str) {
         .set("auto.offset.reset", "earliest");
 
     ctx.stream_kafka(consumer_config, &[topic], Replication::One)
-        .limit(size as usize)
+        .limit(size as usize, None)
         .batch_mode(BatchMode::timed(1024, Duration::from_millis(100)))
         // .inspect(|x| eprintln!("dbg: {x:?}"))
         .map(|msg| {

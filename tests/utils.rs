@@ -164,6 +164,7 @@ impl TestHelper {
                 layer: None,
                 group: None,
                 capabilities: Default::default(),
+                variables: Default::default(),
             });
         }
 

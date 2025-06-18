@@ -466,7 +466,8 @@ impl Scheduler {
                 }
             }
             Replication::One => {
-                add_replicas!(0, filtered_hosts.first().unwrap().1, 1);
+                let (host_id, host_info) = filtered_hosts.into_iter().next().unwrap();
+                add_replicas!(host_id.try_into().unwrap(), host_info, 1);
             }
         }
 

@@ -126,8 +126,8 @@ pub struct RemoteConfig {
     #[serde(default)]
     pub cleanup_executable: bool,
     /// Holds the connections between groups
-    #[serde(default, rename = "groups_connection")]
-    pub(crate) groups_connections: Vec<GroupConnection>,
+    #[serde(default)]
+    pub(crate) group_connections: Vec<GroupConnection>,
 }
 
 impl RemoteConfig {
@@ -146,7 +146,7 @@ impl RemoteConfig {
             .and_then(|h| h.group.as_deref());
         match (from_group, to_group) {
             (Some(from), Some(to)) => self
-                .groups_connections
+                .group_connections
                 .iter()
                 .find(|gc| gc.to.as_str() == to && gc.from.contains(&from.to_string()))
                 .map(|gc| &gc.config)
@@ -187,7 +187,7 @@ pub struct HostConfig {
     pub capabilities: HashMap<String, Literal>,
     /// Holds all the environment variable to set for the single host.
     #[serde(default)]
-    pub(crate) variables: HashMap<String, String>,
+    pub variables: HashMap<String, String>,
 }
 
 /// The information used to connect to a remote host via SSH.
@@ -322,6 +322,13 @@ impl RuntimeConfig {
             RuntimeConfig::Remote(remote) => remote.host_id,
         }
     }
+
+    pub fn hosts(&self) -> &[HostConfig] {
+        match self {
+            RuntimeConfig::Local(_) => &[],
+            RuntimeConfig::Remote(remote) => &remote.hosts,
+        }
+    }
 }
 
 impl Display for HostConfig {
@@ -345,7 +352,7 @@ pub struct ConfigBuilder {
     hosts: Vec<HostConfig>,
     tracing_dir: Option<PathBuf>,
     cleanup_executable: bool,
-    groups_connections: Vec<GroupConnection>,
+    group_connections: Vec<GroupConnection>,
 }
 
 impl ConfigBuilder {
@@ -365,7 +372,7 @@ impl ConfigBuilder {
             hosts: Vec::new(),
             tracing_dir: None,
             cleanup_executable: false,
-            groups_connections: Vec::new(),
+            group_connections: Vec::new(),
         }
     }
     /// Parse toml and integrate it in the builder.
@@ -377,9 +384,9 @@ impl ConfigBuilder {
             hosts,
             tracing_dir,
             cleanup_executable,
-            groups_connections,
+            group_connections,
         } = toml::from_str(config_str)?;
-        log::debug!("{groups_connections:?}");
+        log::debug!("{group_connections:?}");
 
         // validate the configuration
         for host in hosts.into_iter() {
@@ -393,7 +400,7 @@ impl ConfigBuilder {
         }
         self.tracing_dir = self.tracing_dir.take().or(tracing_dir);
         self.cleanup_executable |= cleanup_executable;
-        self.groups_connections.extend(groups_connections);
+        self.group_connections.extend(group_connections);
 
         Ok(self)
     }
@@ -443,32 +450,32 @@ impl ConfigBuilder {
             }
         };
 
-        if self.groups_connections.is_empty()
+        if self.group_connections.is_empty()
             && !self
                 .hosts
                 .iter()
                 .all(|h| h.layer.is_none() || h.group.is_none())
         {
             return Err(ConfigError::Invalid(
-                "If groups_connections is empty, all hosts must have no layer or group".into(),
+                "If group_connections is empty, all hosts must have no layer or group".into(),
             ));
         }
 
-        if !self.groups_connections.is_empty() {
+        if !self.group_connections.is_empty() {
             if self
                 .hosts
                 .iter()
                 .any(|h| h.layer.is_none() || h.group.is_none())
             {
                 return Err(ConfigError::Invalid(
-                    "If groups_connections is not empty, all hosts must have a layer and group"
+                    "If group_connections is not empty, all hosts must have a layer and group"
                         .into(),
                 ));
             }
 
             let mut groups = HashSet::new();
             for (to, from) in self
-                .groups_connections
+                .group_connections
                 .iter()
                 .map(|gc| (gc.to.clone(), gc.from.clone()))
                 .clone()
@@ -496,7 +503,7 @@ impl ConfigBuilder {
             hosts: self.hosts.clone(),
             tracing_dir: self.tracing_dir.clone(),
             cleanup_executable: self.cleanup_executable,
-            groups_connections: self.groups_connections.drain(..).collect(),
+            group_connections: self.group_connections.drain(..).collect(),
         });
         Ok(conf)
     }
@@ -560,8 +567,8 @@ mod tests {
     }
 
     #[test]
-    pub fn test_validation_groups_connections() {
-        // Test that the validation of groups_connections works as expected
+    pub fn test_validation_group_connections() {
+        // Test that the validation of group_connections works as expected
         let mut builder = ConfigBuilder::new_remote();
         builder.hosts.push(HostConfig {
             address: "localhost".to_string(),
@@ -586,11 +593,11 @@ mod tests {
             variables: HashMap::new(),
         });
         builder
-            .groups_connections
+            .group_connections
             .push(("group".to_string(), vec!["group2".to_string()]).into());
         assert!(builder.build().is_ok());
 
-        // Test that the validation of groups_connections works as expected, without groups
+        // Test that the validation of group_connections works as expected, without groups
         let mut builder = ConfigBuilder::new_remote();
         builder.hosts.push(HostConfig {
             address: "localhost".to_string(),
@@ -616,7 +623,7 @@ mod tests {
         });
         assert!(builder.build().is_ok());
 
-        // Test that the validation fails when the groups_connections is empty
+        // Test that the validation fails when the group_connections is empty
         let mut builder = ConfigBuilder::new_remote();
         builder.hosts.push(HostConfig {
             address: "localhost".to_string(),
@@ -631,7 +638,7 @@ mod tests {
         });
         assert!(builder.build().is_err());
 
-        // Test that the validation fails when the groups_connections is not empty and
+        // Test that the validation fails when the group_connections is not empty and
         // some hosts have no layer or group
         let mut builder = ConfigBuilder::new_remote();
         builder.hosts.push(HostConfig {
@@ -657,11 +664,11 @@ mod tests {
             variables: HashMap::new(),
         });
         builder
-            .groups_connections
+            .group_connections
             .push(("group".to_string(), vec!["group2".to_string()]).into());
         assert!(builder.build().is_err());
 
-        // Test that the validation fails when the groups_connections is not empty and
+        // Test that the validation fails when the group_connections is not empty and
         // contains a group that is not present in the hosts list
         let mut builder = ConfigBuilder::new_remote();
         builder.hosts.push(HostConfig {
@@ -676,7 +683,7 @@ mod tests {
             variables: HashMap::new(),
         });
         builder
-            .groups_connections
+            .group_connections
             .push(("group".to_string(), vec!["group2".to_string()]).into());
         assert!(builder.build().is_err());
     }
