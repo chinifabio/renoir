@@ -29,6 +29,14 @@ enum Cli {
             help = "Path to the executable to run on remote hosts"
         )]
         executable: Option<String>,
+        #[clap(
+            short,
+            long,
+            value_name = "GROUP",
+            default_value = "all",
+            help = "Group to deploy the executable to (optional, default value is 'all')"
+        )]
+        group: String,
     },
     Stop {
         group: String,
@@ -45,7 +53,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cmd = Cli::parse();
     match cmd {
-        Cli::Deploy { config, executable } => {
+        Cli::Deploy { config, executable, group } => {
             // 1 - read config and generate the ansible inventory file
             // 2 - generate the ansible playbook file
             // 3 - run the ansible playbook to deploy the executable on remote hosts
@@ -77,7 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 std::fs::write(&playbook_path, deploy_playbook)?;
             }
 
-            let renoir_executable = match executable {
+            let mut renoir_executable = match executable {
                 Some(executable) => PathBuf::from(executable),
                 None => {
                     let cwd = std::env::current_dir()?;
@@ -89,12 +97,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     exe
                 }
             };
+            if !renoir_executable.exists() {
+                return Err(format!(
+                    "Renoir executable not found at {}",
+                    renoir_executable.display()
+                )
+                .into());
+            }
+            if !renoir_executable.is_absolute() {
+                renoir_executable = std::env::current_dir()?.join(renoir_executable);
+            }
             std::env::set_current_dir(working_dir)?;
             let deploy_command = format!(
-                "ansible-playbook -i {} {} --extra-vars \"renoir_executable={}\"",
+                "ansible-playbook -i {} {} --extra-vars \"renoir_executable={}\" --extra-vars \"renoir_target_group={}\"",
                 inventory_path.display(),
                 playbook_path.display(),
-                renoir_executable.display()
+                renoir_executable.display(),
+                group
             );
             println!("Running deploy command: {}", deploy_command);
             Command::new("sh")
