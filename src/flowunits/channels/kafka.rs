@@ -133,6 +133,7 @@ impl<T: ExchangeData> From<&KafkaConfig> for KafkaReceiverInner<T> {
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn kafka_channel<Out: ExchangeData>(
     config: &KafkaConfig,
     receiver_endpoint: ReceiverEndpoint,
@@ -149,6 +150,30 @@ pub(crate) fn kafka_channel<Out: ExchangeData>(
             receiver: crate::network::ReceiverInner::Kafka(receiver),
         },
     )
+}
+
+/// Creates a Kafka sender channel.
+pub(crate) fn kafka_sender<Out: ExchangeData>(
+    config: &KafkaConfig,
+    receiver_endpoint: ReceiverEndpoint,
+) -> NetworkSender<Out> {
+    let sender = Arc::new(Mutex::new((config, receiver_endpoint).into()));
+    NetworkSender {
+        receiver_endpoint,
+        sender: crate::network::SenderInner::Kafka(sender),
+    }
+}
+
+/// Creates a Kafka receiver channel.
+pub(crate) fn kafka_receiver<Out: ExchangeData>(
+    config: &KafkaConfig,
+    receiver_endpoint: ReceiverEndpoint,
+) -> NetworkReceiver<Out> {
+    let receiver = Arc::new(Mutex::new(config.into()));
+    NetworkReceiver {
+        receiver_endpoint,
+        receiver: crate::network::ReceiverInner::Kafka(receiver),
+    }
 }
 
 pub(crate) type KafkaSender<T> = Arc<Mutex<KafkaSenderInner<T>>>;

@@ -90,6 +90,7 @@ parquet = { version = "54.3.1", optional = true }
 arrow = { version = "54.3.1", optional = true }
 rdkafka = { version = "0.37.0", optional = true }
 serde_bytes = "0.11.17"
+askama = "0.14.0"
 
 [dev-dependencies]
 # for the tests
@@ -170,6 +171,9 @@ name = "kafka"
 harness = false
 required-features = ["rdkafka"]
 
+[[bin]]
+name = "rnctl"
+required-features = ["rdkafka"]
 
 [profile.release]
 lto = true

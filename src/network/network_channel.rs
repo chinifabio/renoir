@@ -136,6 +136,7 @@ impl<In: Send + 'static> NetworkReceiver<In> {
                 let other_lock = other.lock();
                 rx_lock.select(&*other_lock)
             }
+            #[allow(unreachable_patterns)]
             _ => panic!(
                 "Mismatch in receiver types for select. Receivers are {} and {}",
                 self.receiver.var_string(),
@@ -160,6 +161,7 @@ impl<In: Send + 'static> NetworkReceiver<In> {
                 let other_lock = other.lock();
                 rx_lock.select_timeout(&*other_lock, timeout)
             }
+            #[allow(unreachable_patterns)]
             _ => panic!(
                 "Mismatch in receiver types for select_timeout. Receivers are {} and {}",
                 self.receiver.var_string(),

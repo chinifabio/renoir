@@ -59,7 +59,7 @@ fn executable_hash() -> String {
 /// the process,
 ///
 /// If this was already a spawned process to nothing.
-pub(crate) fn spawn_remote_workers(config: RemoteConfig) {
+pub fn spawn_remote_workers(config: RemoteConfig) {
     // if this process already comes from a the spawner do not spawn again!
     if is_spawned_process() {
         return;

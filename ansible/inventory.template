@@ -1,0 +1,17 @@
+{% for (layer, groups) in host_map -%}
+{% for (group, names) in groups -%}
+[{{group}}]
+{% for name in names -%}
+{% let ssh = ssh_map.get(name.as_str())  -%}
+{{name}} {{render_ssh(ssh)}}
+{% endfor -%}
+{% endfor -%}
+{% endfor -%}
+
+
+{% for (to, from) in group_map -%}
+[{{to}}:children]
+{% for g in from -%}
+{{g}}
+{% endfor -%}
+{% endfor -%}

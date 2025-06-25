@@ -408,23 +408,30 @@ impl NetworkTopology {
                     }
                     #[cfg(feature = "rdkafka")]
                     crate::config::GroupConnectionConfig::Kafka(kafka_config) => {
-                        let (sender, receiver) = crate::flowunits::channels::kafka::kafka_channel(
-                            kafka_config,
-                            receiver_endpoint,
-                        );
-
-                        self.receivers
-                            .as_mut()
-                            .unwrap()
-                            .entry::<ReceiverKey<T>>()
-                            .or_default()
-                            .insert(receiver_endpoint, receiver);
-                        self.senders
-                            .as_mut()
-                            .unwrap()
-                            .entry::<SenderKey<T>>()
-                            .or_default()
-                            .insert(receiver_endpoint, sender);
+                        if self.config.host_id().unwrap() == sender_metadata.to.host_id {
+                            let receiver = crate::flowunits::channels::kafka::kafka_receiver(
+                                kafka_config,
+                                receiver_endpoint,
+                            );
+                            self.receivers
+                                .as_mut()
+                                .unwrap()
+                                .entry::<ReceiverKey<T>>()
+                                .or_default()
+                                .insert(receiver_endpoint, receiver);
+                        }
+                        if self.config.host_id().unwrap() == sender_metadata.from.host_id {
+                            let sender = crate::flowunits::channels::kafka::kafka_sender(
+                                kafka_config,
+                                receiver_endpoint,
+                            );
+                            self.senders
+                                .as_mut()
+                                .unwrap()
+                                .entry::<SenderKey<T>>()
+                                .or_default()
+                                .insert(receiver_endpoint, sender);
+                        }
                     }
                 }
             }

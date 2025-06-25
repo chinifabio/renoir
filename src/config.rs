@@ -127,7 +127,7 @@ pub struct RemoteConfig {
     pub cleanup_executable: bool,
     /// Holds the connections between groups
     #[serde(default)]
-    pub(crate) group_connections: Vec<GroupConnection>,
+    pub group_connections: Vec<GroupConnection>,
 }
 
 impl RemoteConfig {
@@ -157,7 +157,7 @@ impl RemoteConfig {
 }
 
 /// The configuration of a single remote host.
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
 pub struct HostConfig {
     /// The IP address or domain name to use for connecting to this remote host.
     ///
@@ -474,13 +474,12 @@ impl ConfigBuilder {
             }
 
             let mut groups = HashSet::new();
-            for (to, from) in self
+            for (_, from) in self
                 .group_connections
                 .iter()
                 .map(|gc| (gc.to.clone(), gc.from.clone()))
                 .clone()
             {
-                groups.insert(to);
                 groups.extend(from);
             }
 
@@ -515,7 +514,7 @@ fn ssh_default_port() -> u16 {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
-pub(crate) struct GroupConnection {
+pub struct GroupConnection {
     pub to: String,
     pub from: Vec<String>,
     #[serde(default)]
@@ -524,7 +523,7 @@ pub(crate) struct GroupConnection {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
 #[serde(tag = "type")]
-pub(crate) enum GroupConnectionConfig {
+pub enum GroupConnectionConfig {
     #[default]
     None,
     #[cfg(feature = "rdkafka")]
@@ -532,7 +531,7 @@ pub(crate) enum GroupConnectionConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
-pub(crate) struct KafkaConfig {
+pub struct KafkaConfig {
     pub brokers: Vec<String>,
     pub topic: String,
 }
@@ -571,26 +570,14 @@ mod tests {
         // Test that the validation of group_connections works as expected
         let mut builder = ConfigBuilder::new_remote();
         builder.hosts.push(HostConfig {
-            address: "localhost".to_string(),
-            base_port: 0,
-            num_cores: 1,
-            ssh: SSHConfig::default(),
-            perf_path: None,
             layer: Some("layer".to_string()),
             group: Some("group".to_string()),
-            capabilities: HashMap::new(),
-            variables: HashMap::new(),
+            ..Default::default()
         });
         builder.hosts.push(HostConfig {
-            address: "localhost".to_string(),
-            base_port: 0,
-            num_cores: 1,
-            ssh: SSHConfig::default(),
-            perf_path: None,
             layer: Some("layer".to_string()),
             group: Some("group2".to_string()),
-            capabilities: HashMap::new(),
-            variables: HashMap::new(),
+            ..Default::default()
         });
         builder
             .group_connections
@@ -599,42 +586,16 @@ mod tests {
 
         // Test that the validation of group_connections works as expected, without groups
         let mut builder = ConfigBuilder::new_remote();
-        builder.hosts.push(HostConfig {
-            address: "localhost".to_string(),
-            base_port: 0,
-            num_cores: 1,
-            ssh: SSHConfig::default(),
-            perf_path: None,
-            layer: None,
-            group: None,
-            capabilities: HashMap::new(),
-            variables: HashMap::new(),
-        });
-        builder.hosts.push(HostConfig {
-            address: "localhost".to_string(),
-            base_port: 0,
-            num_cores: 1,
-            ssh: SSHConfig::default(),
-            perf_path: None,
-            layer: None,
-            group: None,
-            capabilities: HashMap::new(),
-            variables: HashMap::new(),
-        });
+        builder.hosts.push(Default::default());
+        builder.hosts.push(Default::default());
         assert!(builder.build().is_ok());
 
         // Test that the validation fails when the group_connections is empty
         let mut builder = ConfigBuilder::new_remote();
         builder.hosts.push(HostConfig {
-            address: "localhost".to_string(),
-            base_port: 0,
-            num_cores: 1,
-            ssh: SSHConfig::default(),
-            perf_path: None,
             layer: Some("layer".to_string()),
             group: Some("group2".to_string()),
-            capabilities: HashMap::new(),
-            variables: HashMap::new(),
+            ..Default::default()
         });
         assert!(builder.build().is_err());
 
@@ -642,26 +603,14 @@ mod tests {
         // some hosts have no layer or group
         let mut builder = ConfigBuilder::new_remote();
         builder.hosts.push(HostConfig {
-            address: "localhost".to_string(),
-            base_port: 0,
-            num_cores: 1,
-            ssh: SSHConfig::default(),
-            perf_path: None,
             layer: Some("layer".to_string()),
             group: None,
-            capabilities: HashMap::new(),
-            variables: HashMap::new(),
+            ..Default::default()
         });
         builder.hosts.push(HostConfig {
-            address: "localhost".to_string(),
-            base_port: 0,
-            num_cores: 1,
-            ssh: SSHConfig::default(),
-            perf_path: None,
             layer: Some("layer".to_string()),
             group: Some("group2".to_string()),
-            capabilities: HashMap::new(),
-            variables: HashMap::new(),
+            ..Default::default()
         });
         builder
             .group_connections
@@ -672,19 +621,33 @@ mod tests {
         // contains a group that is not present in the hosts list
         let mut builder = ConfigBuilder::new_remote();
         builder.hosts.push(HostConfig {
-            address: "localhost".to_string(),
-            base_port: 0,
-            num_cores: 1,
-            ssh: SSHConfig::default(),
-            perf_path: None,
             layer: Some("layer".to_string()),
             group: Some("group2".to_string()),
-            capabilities: HashMap::new(),
-            variables: HashMap::new(),
+            ..Default::default()
+        });
+        builder
+            .group_connections
+            .push(("group".to_string(), vec!["group3".to_string()]).into());
+        assert!(builder.build().is_err());
+
+        // Test that the validation passes when the group_connections is not empty and
+        // all hosts have a layer and group
+        let mut builder = ConfigBuilder::new_remote();
+        builder.hosts.push(HostConfig {
+            layer: Some("layer".to_string()),
+            group: Some("group2".to_string()),
+            ..Default::default()
         });
         builder
             .group_connections
             .push(("group".to_string(), vec!["group2".to_string()]).into());
-        assert!(builder.build().is_err());
+        assert!(builder.build().is_ok());
+
+        todo!("add multiple group connections with the same to-from pair");
+    }
+
+    #[test]
+    pub fn test_validation_gossip() {
+        todo!()
     }
 }

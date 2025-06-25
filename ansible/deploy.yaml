@@ -1,0 +1,41 @@
+- name: Deploy executable
+  hosts: "{{ renoir_target_group | default('all') }}"
+  tasks:
+    - name: Prepare execution
+      set_fact:
+        renoir_executable_directory: "/tmp/renoir"
+        renoir_log_directory: "/tmp/renoir/log"
+    - name: Create executable directory
+      file:
+        path: "{{ renoir_executable_directory }}"
+        state: directory
+    - name: Create log directory
+      file:
+        path: "{{ renoir_log_directory }}"
+        state: directory
+    - name: Prepare execution
+      set_fact:
+        renoir_executable_destination: "{{ renoir_executable_directory }}/renoir_{{ inventory_hostname }}"
+        log_destination: "{{ renoir_log_directory }}/renoir_{{ inventory_hostname }}.log"
+    - name: Find PID of a process by name
+      ansible.builtin.shell: "pidof renoir_{{ inventory_hostname }}"
+      register: process_pid
+      failed_when: false
+    - name: Kill the process
+      ansible.builtin.shell: "kill -9 {{ process_pid.stdout | default('') }}"
+      when: process_pid.stdout != ""
+      failed_when: false
+    - name: Send the renoir executable
+      copy:
+        src: "{{ renoir_executable }}"
+        dest: "{{ renoir_executable_destination }}"
+        mode: 0755
+    - name: Execute renoir
+      shell: "/bin/bash -c '{{ renoir_executable_destination }} {{ renoir_arguments }} 2>&1 | tee -a {{ log_destination }}'"
+      environment:
+        RENOIR_HOST_ID: "{{ host_id }}"
+        RENOIR_CONFIG: "{{ remote_config }}"
+        RENOIR_DISTRIBUTED_CONFIG: "{{ distributed_config }}"
+        RUST_LOG: "debug"
+      async: 3600
+      poll: 0
