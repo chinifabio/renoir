@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    path::{Path, PathBuf},
-    process::Stdio,
-};
+use std::{collections::HashMap, path::PathBuf, process::Stdio};
 
 use askama::Template;
 use clap::Parser;
@@ -13,15 +9,29 @@ use renoir::{
 use std::process::Command;
 
 #[derive(Debug, clap::Parser)]
-enum Cli {
+struct Cli {
+    #[clap(
+        short,
+        long,
+        value_name = "CONFIG",
+        help = "Path to the configuration file"
+    )]
+    config: String,
+    #[clap(
+        short,
+        long,
+        value_name = "GROUP",
+        default_value = "all",
+        help = "Group to deploy the executable to (optional, default value is 'all')"
+    )]
+    group: String,
+    #[command(subcommand)]
+    command: CliCommand,
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum CliCommand {
     Deploy {
-        #[clap(
-            short,
-            long,
-            value_name = "CONFIG",
-            help = "Path to the configuration file"
-        )]
-        config: String,
         #[clap(
             short,
             long,
@@ -32,67 +42,63 @@ enum Cli {
         #[clap(
             short,
             long,
-            value_name = "GROUP",
-            default_value = "all",
-            help = "Group to deploy the executable to (optional, default value is 'all')"
-        )]
-        group: String,
-        #[clap(
-            short,
-            long,
             value_name = "ARGUMENTS",
             help = "Arguments to pass to the executable on remote hosts"
         )]
         arguments: Option<String>,
     },
-    Stop {
-        group: String,
-    },
+    Log,
+    Stop,
+}
+
+impl Cli {
+    fn generate_inventory(
+        &self,
+        ansible_dir: &PathBuf,
+    ) -> Result<PathBuf, Box<dyn std::error::Error>> {
+        let config_path = PathBuf::from(self.config.as_str());
+        if !config_path.exists() {
+            return Err(
+                format!("Configuration file not found at {}", config_path.display()).into(),
+            );
+        }
+        let config = RuntimeConfig::remote(&config_path)
+            .map_err(|e| format!("Failed to read configuration file: {}", e))?;
+        let config = match config {
+            RuntimeConfig::Remote(config) => config,
+            _ => unreachable!("Expected remote configuration"),
+        };
+        let inventory =
+            into_inventory(config).map_err(|e| format!("Failed to generate inventory: {}", e))?;
+
+        let inventory_path = ansible_dir.join("inventory.ini");
+        if inventory_path.exists() {
+            std::fs::remove_file(&inventory_path)?;
+        }
+        std::fs::write(&inventory_path, inventory)?;
+
+        Ok(inventory_path)
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     check_ansible_installed()?;
 
-    let working_dir = Path::new("/tmp/renoir/ansible");
-    if !working_dir.exists() {
-        std::fs::create_dir_all(working_dir)?;
+    let ansible_dir = PathBuf::from("/tmp/renoir/ansible");
+    if !ansible_dir.exists() {
+        std::fs::create_dir_all(&ansible_dir)?;
     }
 
-    let cmd = Cli::parse();
-    match cmd {
-        Cli::Deploy {
-            config,
+    let cli = Cli::parse();
+    let inventory_path = cli.generate_inventory(&ansible_dir)?;
+
+    match cli.command {
+        CliCommand::Deploy {
             executable,
-            group,
             arguments,
         } => {
-            // 1 - read config and generate the ansible inventory file
-            // 2 - generate the ansible playbook file
-            // 3 - run the ansible playbook to deploy the executable on remote hosts
-
-            let config_path = PathBuf::from(config);
-            if !config_path.exists() {
-                return Err(
-                    format!("Configuration file not found at {}", config_path.display()).into(),
-                );
-            }
-            let config = RuntimeConfig::remote(&config_path)
-                .map_err(|e| format!("Failed to read configuration file: {}", e))?;
-            let config = match config {
-                RuntimeConfig::Remote(config) => config,
-                _ => unreachable!("Expected remote configuration"),
-            };
-            let inventory = into_inventory(config)
-                .map_err(|e| format!("Failed to generate inventory: {}", e))?;
-
-            let inventory_path = working_dir.join("inventory.ini");
-            if inventory_path.exists() {
-                std::fs::remove_file(&inventory_path)?;
-            }
-            std::fs::write(&inventory_path, inventory)?;
-
             let deploy_playbook = include_str!("../../ansible/deploy.yaml");
-            let playbook_path = working_dir.join("deploy.yaml");
+            let playbook_path = ansible_dir.join("deploy.yaml");
             if playbook_path.exists() {
                 std::fs::remove_file(&playbook_path)?;
             }
@@ -102,7 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some(executable) => PathBuf::from(executable),
                 None => {
                     let cwd = std::env::current_dir()?;
-                    let cwd = cwd.file_name().ok_or("Where are we?")?;
+                    let cwd = cwd.file_name().ok_or("Failed to read the current directory name")?;
                     let exe = PathBuf::from(format!("target/release/{}", cwd.to_string_lossy()));
                     if !exe.exists() {
                         return Err(format!("Executable not found at {}", exe.display()).into());
@@ -120,16 +126,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if !renoir_executable.is_absolute() {
                 renoir_executable = std::env::current_dir()?.join(renoir_executable);
             }
-            let raw_config = std::fs::read_to_string(&config_path)?;
-            std::env::set_current_dir(working_dir)?;
+            let raw_config = std::fs::read_to_string(cli.config)?;
             let deploy_command = format!(
                 "{}={} ansible-playbook -i \"{}\" \"{}\" --extra-vars renoir_executable=\"{}\" --extra-vars renoir_target_group=\"{}\" --extra-vars renoir_arguments=\"{}\"",
                 CONFIG_ENV_VAR,
-                shell_escape::escape(raw_config.clone().into()),
+                shell_escape::escape(raw_config.into()),
                 inventory_path.display(),
                 playbook_path.display(),
                 renoir_executable.display(),
-                group,
+                cli.group,
                 arguments.unwrap_or_default(),
             );
             Command::new("sh")
@@ -140,7 +145,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .output()
                 .map_err(|e| format!("Failed to run ansible-playbook: {}", e))?;
         }
-        Cli::Stop { .. } => todo!(":("),
+        CliCommand::Log => {
+            let deploy_playbook = include_str!("../../ansible/log.yaml");
+            let playbook_path = ansible_dir.join("log.yaml");
+            if playbook_path.exists() {
+                std::fs::remove_file(&playbook_path)?;
+            }
+            std::fs::write(&playbook_path, deploy_playbook)?;
+
+            let deploy_command = format!(
+                "ansible-playbook -i \"{}\" \"{}\" --extra-vars renoir_target_group=\"{}\"",
+                inventory_path.display(),
+                playbook_path.display(),
+                cli.group,
+            );
+            Command::new("sh")
+                .arg("-c")
+                .arg(deploy_command)
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .output()
+                .map_err(|e| format!("Failed to run ansible-playbook: {}", e))?;
+        }
+        CliCommand::Stop => {
+            todo!("Implement stop for group: {}", cli.group);
+        }
     }
 
     Ok(())

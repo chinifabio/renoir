@@ -1,0 +1,37 @@
+- name: Fetch and display logs
+  hosts: "{{ renoir_target_group | default('all') }}"
+  tasks:
+    - name: Set log file path
+      set_fact:
+        log_file_path: "/tmp/renoir/log/renoir_{{ inventory_hostname }}.log"
+    
+    - name: Check if log file exists
+      stat:
+        path: "{{ log_file_path }}"
+      register: log_file_stat
+    
+    - name: Read log file content
+      slurp:
+        src: "{{ log_file_path }}"
+      register: log_content
+      when: log_file_stat.stat.exists
+    
+    - name: Display log content
+      vars:
+        msg: |
+          ==================== {{ inventory_hostname }} ====================
+          {{ log_content.content | b64decode }}
+          ========================================================
+      debug:
+        msg: "{{ msg.split('\n') }}"
+      when: log_file_stat.stat.exists
+    
+    - name: Display message when log file doesn't exist
+      debug:
+        var: no_log_message
+      vars:
+        no_log_message: |
+          ==================== {{ inventory_hostname }} ==================== 
+          No log file found at {{ log_file_path }}
+          ========================================================
+      when: not log_file_stat.stat.exists
