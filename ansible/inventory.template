@@ -8,7 +8,6 @@
 {% endfor -%}
 {% endfor -%}
 
-
 {% for (to, from) in group_map -%}
 [{{to}}:children]
 {% for g in from -%}

@@ -19,10 +19,10 @@ use crate::CoordUInt;
 
 /// Environment variable set by the runner with the host id of the process. If it's missing the
 /// process will have to spawn the processes by itself.
-pub const HOST_ID_ENV_VAR: &str = "NOIR_HOST_ID";
+pub const HOST_ID_ENV_VAR: &str = "RENOIR_HOST_ID";
 /// Environment variable set by the runner with the content of the config file so that it's not
 /// required to have it on all the hosts.
-pub const CONFIG_ENV_VAR: &str = "NOIR_CONFIG";
+pub const CONFIG_ENV_VAR: &str = "RENOIR_CONFIG";
 
 /// The runtime configuration of the environment,
 ///

@@ -31,11 +31,11 @@
         dest: "{{ renoir_executable_destination }}"
         mode: 0755
     - name: Execute renoir
-      shell: "/bin/bash -c '{{ renoir_executable_destination }} {{ renoir_arguments }} 2>&1 | tee -a {{ log_destination }}'"
+      shell: "{{ renoir_executable_destination }} -r config.toml -- {{ renoir_arguments }} 2>&1 | tee {{ log_destination }}"
       environment:
-        RENOIR_HOST_ID: "{{ host_id }}"
-        RENOIR_CONFIG: "{{ remote_config }}"
-        RENOIR_DISTRIBUTED_CONFIG: "{{ distributed_config }}"
-        RUST_LOG: "debug"
+        RENOIR_HOST_ID: "{{ inventory_hostname.split('-')[1] | default(-1) | int }}"
+        RENOIR_CONFIG: "{{ lookup('env', 'RENOIR_CONFIG') }}"
+        RUST_LOG: "{{ lookup('env', 'RUST_LOG') }}"
+        RUST_BACKTRACE: "{{ lookup('env', 'RUST_BACKTRACE') }}"
       async: 3600
       poll: 0

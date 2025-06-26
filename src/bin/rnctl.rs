@@ -7,7 +7,7 @@ use std::{
 use askama::Template;
 use clap::Parser;
 use renoir::{
-    config::{HostConfig, RemoteConfig, SSHConfig},
+    config::{HostConfig, RemoteConfig, SSHConfig, CONFIG_ENV_VAR},
     RuntimeConfig,
 };
 use std::process::Command;
@@ -37,6 +37,13 @@ enum Cli {
             help = "Group to deploy the executable to (optional, default value is 'all')"
         )]
         group: String,
+        #[clap(
+            short,
+            long,
+            value_name = "ARGUMENTS",
+            help = "Arguments to pass to the executable on remote hosts"
+        )]
+        arguments: Option<String>,
     },
     Stop {
         group: String,
@@ -53,7 +60,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let cmd = Cli::parse();
     match cmd {
-        Cli::Deploy { config, executable, group } => {
+        Cli::Deploy {
+            config,
+            executable,
+            group,
+            arguments,
+        } => {
             // 1 - read config and generate the ansible inventory file
             // 2 - generate the ansible playbook file
             // 3 - run the ansible playbook to deploy the executable on remote hosts
@@ -64,7 +76,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     format!("Configuration file not found at {}", config_path.display()).into(),
                 );
             }
-            let config = RuntimeConfig::remote(config_path)
+            let config = RuntimeConfig::remote(&config_path)
                 .map_err(|e| format!("Failed to read configuration file: {}", e))?;
             let config = match config {
                 RuntimeConfig::Remote(config) => config,
@@ -81,9 +93,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let deploy_playbook = include_str!("../../ansible/deploy.yaml");
             let playbook_path = working_dir.join("deploy.yaml");
-            if !playbook_path.exists() {
-                std::fs::write(&playbook_path, deploy_playbook)?;
+            if playbook_path.exists() {
+                std::fs::remove_file(&playbook_path)?;
             }
+            std::fs::write(&playbook_path, deploy_playbook)?;
 
             let mut renoir_executable = match executable {
                 Some(executable) => PathBuf::from(executable),
@@ -107,15 +120,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if !renoir_executable.is_absolute() {
                 renoir_executable = std::env::current_dir()?.join(renoir_executable);
             }
+            let raw_config = std::fs::read_to_string(&config_path)?;
             std::env::set_current_dir(working_dir)?;
             let deploy_command = format!(
-                "ansible-playbook -i {} {} --extra-vars \"renoir_executable={}\" --extra-vars \"renoir_target_group={}\"",
+                "{}={} ansible-playbook -i \"{}\" \"{}\" --extra-vars renoir_executable=\"{}\" --extra-vars renoir_target_group=\"{}\" --extra-vars renoir_arguments=\"{}\"",
+                CONFIG_ENV_VAR,
+                shell_escape::escape(raw_config.clone().into()),
                 inventory_path.display(),
                 playbook_path.display(),
                 renoir_executable.display(),
-                group
+                group,
+                arguments.unwrap_or_default(),
             );
-            println!("Running deploy command: {}", deploy_command);
             Command::new("sh")
                 .arg("-c")
                 .arg(deploy_command)
@@ -134,9 +150,7 @@ fn check_ansible_installed() -> Result<(), String> {
     let output = Command::new("ansible").arg("--version").output();
     match output {
         Ok(output) => {
-            if output.status.success() {
-                // println!("Ansible is installed.");
-            } else {
+            if !output.status.success() {
                 return Err("Ansible is not installed or not in PATH.".to_string());
             }
         }
@@ -148,9 +162,7 @@ fn check_ansible_installed() -> Result<(), String> {
     let output = Command::new("ansible-playbook").arg("--version").output();
     match output {
         Ok(output) => {
-            if output.status.success() {
-                // println!("Ansible Playbook is installed.");
-            } else {
+            if !output.status.success() {
                 return Err("Ansible Playbook is not installed or not in PATH.".to_string());
             }
         }
