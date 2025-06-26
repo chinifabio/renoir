@@ -168,7 +168,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map_err(|e| format!("Failed to run ansible-playbook: {}", e))?;
         }
         CliCommand::Stop => {
-            todo!("Implement stop for group: {}", cli.group);
+            let deploy_playbook = include_str!("../../ansible/stop.yaml");
+            let playbook_path = ansible_dir.join("stop.yaml");
+            if playbook_path.exists() {
+                std::fs::remove_file(&playbook_path)?;
+            }
+            std::fs::write(&playbook_path, deploy_playbook)?;
+
+            let deploy_command = format!(
+                "ansible-playbook -i \"{}\" \"{}\" --extra-vars renoir_target_group=\"{}\"",
+                inventory_path.display(),
+                playbook_path.display(),
+                cli.group,
+            );
+            Command::new("sh")
+                .arg("-c")
+                .arg(deploy_command)
+                .stdout(Stdio::inherit())
+                .stderr(Stdio::inherit())
+                .output()
+                .map_err(|e| format!("Failed to run ansible-playbook: {}", e))?;
         }
     }
 

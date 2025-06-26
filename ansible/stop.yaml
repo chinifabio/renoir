@@ -1,0 +1,11 @@
+- name: Stop renoir process
+  hosts: "{{ renoir_target_group | default('all') }}"
+  tasks:
+    - name: Find PID of a process by name
+      ansible.builtin.shell: "pidof renoir_{{ inventory_hostname }}"
+      register: process_pid
+      failed_when: false
+    - name: Kill the process
+      ansible.builtin.shell: "kill -9 {{ process_pid.stdout | default('') }}"
+      when: process_pid.stdout != ""
+      failed_when: false
