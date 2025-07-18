@@ -55,7 +55,7 @@ for file_path in res_dir.glob("*.json"):
             rows.append(data)
 df = pd.DataFrame(rows)
 
-keys_delays = ["0ms", "1ms", "10ms", "100ms"] # todo change to 10 ms
+keys_delays = ["0ms", "10ms", "100ms"] # todo change to 10 ms
 keys_bandwidths = ["10mbit", "100mbit", "1gbit", "unlimited"] # unlimited
 
 app = Dash()
@@ -99,21 +99,21 @@ def update_heatmap(formula):
     # Pivot the table to have 'config' as columns and 'size' as index
     pivot_df = df[df['size'] == "10000000"].pivot_table(index=['delay', 'bandwidth'], columns='config', values='execution time')
 
-    # if formula == "renoir / flowunits":
-    #     pivot_df['ratio'] = pivot_df['renoir'] / pivot_df['flowunits']
-    #     # tickvals = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
-    # elif formula == "log(renoir / flowunits)":
-    #     pivot_df['ratio'] = np.log(pivot_df['renoir'] / pivot_df['flowunits'])
-    #     # tickvals = [0, 1, 2, 3, 4, 5]
-    # elif formula == "flowunits / renoir * 100":
-    #     pivot_df['ratio'] = pivot_df['flowunits'] / pivot_df['renoir'] * 100
-    #     # tickvals = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
-    # elif formula == "(1 - flowunits / renoir) * 100":
-    #     pivot_df['ratio'] = (1 - pivot_df['flowunits'] / pivot_df['renoir']) * 100
-    #     # tickvals = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
-    # else:
-    #     raise ValueError(f"Unknown formula: {formula}")
-    pivot_df['ratio'] = pivot_df['renoir'] / pivot_df['flowunits']
+    if formula == "renoir / flowunits":
+        pivot_df['ratio'] = pivot_df['renoir'] / pivot_df['flowunits']
+        # tickvals = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    elif formula == "log(renoir / flowunits)":
+        pivot_df['ratio'] = np.log(pivot_df['renoir'] / pivot_df['flowunits'])
+        # tickvals = [0, 1, 2, 3, 4, 5]
+    elif formula == "flowunits / renoir * 100":
+        pivot_df['ratio'] = pivot_df['flowunits'] / pivot_df['renoir'] * 100
+        # tickvals = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    elif formula == "(1 - flowunits / renoir) * 100":
+        pivot_df['ratio'] = (1 - pivot_df['flowunits'] / pivot_df['renoir']) * 100
+        # tickvals = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+    else:
+        raise ValueError(f"Unknown formula: {formula}")
+    # pivot_df['ratio'] = pivot_df['renoir'] / pivot_df['flowunits']
 
     # Reset index to make 'size' a regular column for plotting
     pivot_df = pivot_df.reset_index()
@@ -124,7 +124,7 @@ def update_heatmap(formula):
 
     # Create the heatmap
     heatmap_fig = go.Figure(data=go.Heatmap(
-        z=np.log2(pivot_df['ratio']),
+        z=pivot_df['ratio'],
         x=pivot_df['bandwidth'],
         y=pivot_df['delay'],
         colorscale='Viridis',
