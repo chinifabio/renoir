@@ -1,6 +1,8 @@
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::marker::PhantomData;
+use std::ops::ControlFlow;
 
 use crate::block::{BlockStructure, OperatorStructure};
 use crate::operator::{DataKey, Operator, StreamElement};
@@ -105,5 +107,116 @@ where
         self.prev
             .structure()
             .add_operator(OperatorStructure::new::<O, _>("RichMap"))
+    }
+}
+
+#[derive(Debug)]
+pub struct RichMapTransient<K, I, O, F, OperatorChain>
+where
+    F: FnMut((&K, I)) -> ControlFlow<O, O> + Clone + Send,
+    OperatorChain: Operator<Out = (K, I)>,
+{
+    prev: OperatorChain,
+    maps_fn: HashMap<K, F, crate::block::GroupHasherBuilder>,
+    init_map: F,
+    _i: PhantomData<I>,
+    _o: PhantomData<O>,
+}
+
+impl<K: DataKey, I, O, F: Clone, OperatorChain: Clone> Clone
+    for RichMapTransient<K, I, O, F, OperatorChain>
+where
+    F: FnMut((&K, I)) -> ControlFlow<O, O> + Clone + Send,
+    OperatorChain: Operator<Out = (K, I)>,
+{
+    fn clone(&self) -> Self {
+        Self {
+            prev: self.prev.clone(),
+            maps_fn: self.maps_fn.clone(),
+            init_map: self.init_map.clone(),
+            _i: self._i,
+            _o: self._o,
+        }
+    }
+}
+
+impl<K: DataKey, I: Send, O: Send, F, OperatorChain> Display
+    for RichMapTransient<K, I, O, F, OperatorChain>
+where
+    F: FnMut((&K, I)) -> ControlFlow<O, O> + Clone + Send,
+    OperatorChain: Operator<Out = (K, I)>,
+{
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{} -> RichMapTransient<{} -> {}>",
+            self.prev,
+            std::any::type_name::<I>(),
+            std::any::type_name::<O>()
+        )
+    }
+}
+
+impl<K: DataKey, I: Send, O: Send, F, OperatorChain> RichMapTransient<K, I, O, F, OperatorChain>
+where
+    F: FnMut((&K, I)) -> ControlFlow<O, O> + Clone + Send,
+    OperatorChain: Operator<Out = (K, I)>,
+{
+    pub(super) fn new(prev: OperatorChain, f: F) -> Self {
+        Self {
+            prev,
+            maps_fn: Default::default(),
+            init_map: f,
+            _i: Default::default(),
+            _o: Default::default(),
+        }
+    }
+}
+
+impl<K: DataKey, I: Send, O: Send, F, OperatorChain> Operator
+    for RichMapTransient<K, I, O, F, OperatorChain>
+where
+    K: DataKey,
+    I: Send,
+    O: Send,
+    F: FnMut((&K, I)) -> ControlFlow<O, O> + Clone + Send,
+    OperatorChain: Operator<Out = (K, I)>,
+{
+    type Out = (K, O);
+
+    fn setup(&mut self, metadata: &mut ExecutionMetadata) {
+        self.prev.setup(metadata);
+    }
+
+    #[inline]
+    fn next(&mut self) -> StreamElement<(K, O)> {
+        let element = self.prev.next();
+        if matches!(element, StreamElement::FlushAndRestart) {
+            // self.maps_fn.clear();
+        }
+        element.map(|(key, value)| {
+            let e = self.maps_fn.entry(key.clone());
+            let mut e = match e {
+                Entry::Occupied(occupied_entry) => occupied_entry,
+                Entry::Vacant(vacant_entry) => vacant_entry.insert_entry(self.init_map.clone()),
+            };
+
+            let control = (e.get_mut())((&key, value));
+            let new_value = match control {
+                ControlFlow::Continue(r) => r,
+                ControlFlow::Break(r) => {
+                    e.remove();
+                    r
+                }
+            };
+
+            (key, new_value)
+        })
+    }
+
+    fn structure(&self) -> BlockStructure {
+        self.prev
+            .structure()
+            .add_operator(OperatorStructure::new::<O, _>("RichMapTransient"))
     }
 }

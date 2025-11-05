@@ -21,6 +21,7 @@ pub(crate) use start::*;
 pub use rich_map_custom::ElementGenerator;
 
 use crate::block::{group_by_hash, BlockStructure, GroupHasherBuilder, NextStrategy, Replication};
+use crate::operator::rich_map::RichMapTransient;
 use crate::scheduler::ExecutionMetadata;
 
 use crate::block::BatchMode;
@@ -2745,6 +2746,13 @@ where
         self.add_operator(|prev| RichMap::new(prev, f))
     }
 
+    pub fn rich_map_transient<O, F>(self, f: F) -> KeyedStream<impl Operator<Out = (K, O)>>
+    where
+        F: FnMut((&K, I)) -> std::ops::ControlFlow<O, O> + Send + Clone + 'static,
+        O: Send + 'static,
+    {
+        self.add_operator(|prev| RichMapTransient::new(prev, f))
+    }
     /// Apply a mapping operation to each element of the stream, the resulting stream will be the
     /// flattened values of the result of the mapping. The mapping function can be stateful.
     ///
