@@ -7,9 +7,9 @@ use arrow::{
 use parquet::arrow::arrow_reader::{ArrowReaderBuilder, ParquetRecordBatchReader};
 
 use crate::{
+    block::structure::{BlockStructure, OperatorKind, OperatorStructure},
     operator::{Operator, StreamElement},
     prelude::*,
-    structure::{BlockStructure, OperatorKind, OperatorStructure},
     Stream,
 };
 
@@ -57,7 +57,7 @@ impl Operator for ParquetSource {
         }
     }
 
-    fn structure(&self) -> crate::structure::BlockStructure {
+    fn structure(&self) -> crate::block::structure::BlockStructure {
         let mut operator = OperatorStructure::new::<Self::Out, _>("ParquetSource");
         operator.kind = OperatorKind::Source;
         BlockStructure::default().add_operator(operator)

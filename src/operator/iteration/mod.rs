@@ -172,7 +172,7 @@ impl IterationStateLock {
     /// This operation is idempotent until `unlock` is called.
     pub fn lock(&self) {
         let mut lock = self.generation.lock().unwrap();
-        if *lock % 2 == 0 {
+        if (*lock).is_multiple_of(2) {
             *lock += 1;
         }
     }

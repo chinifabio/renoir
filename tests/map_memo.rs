@@ -43,7 +43,7 @@ fn map_memo_by_stream() {
         if let Some(mut res) = res.get() {
             let mut expected = (0..1000i64)
                 .map(|v| v.rem_euclid(30))
-                .map(|n| (n * n))
+                .map(|n| n * n)
                 .collect_vec();
             res.sort();
             expected.sort();

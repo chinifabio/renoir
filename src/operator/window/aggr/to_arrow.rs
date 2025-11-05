@@ -28,8 +28,8 @@ impl<T: Clone + Serialize + Send + 'static> WindowAccumulator for ToArrow<T> {
     type Out = RecordBatch;
 
     #[inline]
-    fn process(&mut self, el: Self::In) {
-        self.vec.push(el);
+    fn process(&mut self, el: &Self::In) {
+        self.vec.push(el.clone());
     }
 
     #[inline]

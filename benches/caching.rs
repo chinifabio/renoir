@@ -127,7 +127,7 @@ fn nexmark_caching(c: &mut Criterion) {
     let dir = tempdir().unwrap();
     let cached = events(&ctx).collect_cache::<BincodeCacher<_>>(BincodeCacheConfig {
         batch_size: 1024,
-        path: dir.into_path().to_owned(),
+        path: dir.keep().to_owned(),
     });
     ctx.execute_blocking();
 
