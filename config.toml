@@ -1,10 +1,21 @@
+actor_advertising_address = "120.0.0.1:9000"
 
 [[host]]
-address = "host1"
+name = "worker1"
+address = "127.0.0.1"
+num_cores = 1
 base_port = 9500
-num_cores = 16
+actor_port = 9001
+[host.ssh]
+user = "fabio"
+key_file = "/home/fabio/.ssh/id_ed25519"
 
 [[host]]
-address = "host2"
-base_port = 9500
-num_cores = 24
+name = "worker2"
+address = "127.0.0.1"
+num_cores = 1
+base_port = 9600
+actor_port = 9002
+[host.ssh]
+user = "fabio"
+key_file = "/home/fabio/.ssh/id_ed25519"

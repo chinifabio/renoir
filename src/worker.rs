@@ -1,6 +1,11 @@
 use std::cell::RefCell;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::thread::JoinHandle;
 
+use kameo::Actor;
+
+use crate::actors::WorkerActor;
 use crate::block::{Block, BlockStructure};
 use crate::network::Coord;
 use crate::operator::{Operator, StreamElement};
@@ -90,4 +95,47 @@ fn do_work<Op: Operator>(mut block: Block<Op>, coord: Coord) {
     }
     catch_panic.defuse();
     info!("worker {} completed", coord);
+}
+
+pub(crate) fn spawn_worker_with_actors<OperatorChain>(
+    mut block: Block<OperatorChain>,
+    metadata: &mut ExecutionMetadata,
+) -> (JoinHandle<()>, BlockStructure)
+where
+    OperatorChain: Operator + 'static,
+    OperatorChain::Out: Send,
+{
+    let end_flag = Arc::new(AtomicBool::new(false));
+
+    let worker_actor = WorkerActor {
+        end_flag: end_flag.clone(),
+    };
+    let worker_addr = WorkerActor::spawn(worker_actor);
+    tokio::spawn(async move {
+        worker_addr
+            // .register(&format!("worker-{}", block.id))
+            .register("worker")
+            .await
+            .expect("Failed to register worker actor");
+    });
+
+    let coord = metadata.coord;
+
+    debug!("starting worker {}: {}", coord, block.to_string(),);
+
+    block.operators.setup(metadata);
+    let structure = block.operators.structure();
+
+    let end_flag_clone = end_flag.clone();
+    let join_handle = std::thread::Builder::new()
+        .name(format!("block-{}", block.id))
+        .spawn(move || {
+            // remember in the thread-local the coordinate of this block
+            COORD.with(|x| *x.borrow_mut() = Some(coord));
+            do_work(block, coord);
+            end_flag_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+        })
+        .unwrap();
+
+    (join_handle, structure)
 }

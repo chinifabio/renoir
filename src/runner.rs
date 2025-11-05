@@ -58,7 +58,22 @@ fn executable_hash() -> String {
 pub(crate) fn spawn_remote_workers(config: RemoteConfig) {
     // if this process already comes from a the spawner do not spawn again!
     if is_spawned_process() {
+        #[cfg(feature = "actors")]
+        {
+            use crate::actors::setup_actor_monitoring;
+
+            info!("setting up actor monitoring");
+            setup_actor_monitoring(false);
+        }
         return;
+    }
+
+    #[cfg(feature = "actors")]
+    {
+        use crate::actors::setup_actor_monitoring;
+
+        info!("setting up actor monitoring");
+        setup_actor_monitoring(true);
     }
 
     // from now we are sure this is the process that should spawn the remote workers

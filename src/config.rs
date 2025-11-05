@@ -123,6 +123,8 @@ pub struct RemoteConfig {
     /// Remove remote binaries after execution
     #[serde(default)]
     pub cleanup_executable: bool,
+    /// Adverting socket address for actors to bind to.
+    pub actor_advertising_address: Option<String>,
 }
 
 /// The configuration of a single remote host.
@@ -147,6 +149,8 @@ pub struct HostConfig {
     /// If specified the remote worker will be spawned under `perf`, and its output will be stored
     /// at this location.
     pub perf_path: Option<PathBuf>,
+    /// The port used by the actor system on this host.
+    pub actor_port: Option<u16>,
 }
 
 /// The information used to connect to a remote host via SSH.
@@ -281,6 +285,13 @@ impl RuntimeConfig {
             RuntimeConfig::Remote(remote) => remote.host_id,
         }
     }
+
+    pub fn use_actor_system(&self) -> bool {
+        match self {
+            RuntimeConfig::Local(_) => false,
+            RuntimeConfig::Remote(remote_config) => remote_config.actor_advertising_address.is_some(),
+        }
+    }
 }
 
 impl Display for HostConfig {
@@ -304,6 +315,7 @@ pub struct ConfigBuilder {
     hosts: Vec<HostConfig>,
     tracing_dir: Option<PathBuf>,
     cleanup_executable: bool,
+    actor_advertising_address: Option<String>,
 }
 
 impl ConfigBuilder {
@@ -323,6 +335,7 @@ impl ConfigBuilder {
             hosts: Vec::new(),
             tracing_dir: None,
             cleanup_executable: false,
+            actor_advertising_address: None,
         }
     }
     /// Parse toml and integrate it in the builder.
@@ -334,6 +347,7 @@ impl ConfigBuilder {
             hosts,
             tracing_dir,
             cleanup_executable,
+            actor_advertising_address,
         } = toml::from_str(config_str)?;
 
         // validate the configuration
@@ -348,6 +362,7 @@ impl ConfigBuilder {
         }
         self.tracing_dir = self.tracing_dir.take().or(tracing_dir);
         self.cleanup_executable |= cleanup_executable;
+        self.actor_advertising_address = actor_advertising_address;
 
         Ok(self)
     }
@@ -402,6 +417,7 @@ impl ConfigBuilder {
             hosts: self.hosts.clone(),
             tracing_dir: self.tracing_dir.clone(),
             cleanup_executable: self.cleanup_executable,
+            actor_advertising_address: self.actor_advertising_address.clone(),
         });
         Ok(conf)
     }

@@ -4,6 +4,13 @@ use std::fmt::Write;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
+#[cfg(feature = "actors")]
+use kameo::Actor;
+#[cfg(feature = "actors")]
+use kameo::actor::ActorRef;
+
+#[cfg(feature = "actors")]
+use crate::actors::{MonitorActor, WorkerActor};
 use crate::block::{BatchMode, Block, BlockStructure, JobGraphGenerator, Replication};
 use crate::config::{LocalConfig, RemoteConfig, RuntimeConfig};
 use crate::network::{Coord, NetworkTopology};
@@ -121,10 +128,26 @@ impl Scheduler {
 
         for (coord, block) in blocks {
             // spawn the actual worker
-            self.block_init.push((
+            #[cfg(feature = "actors")]
+            {
+                let actor_system = self.config.use_actor_system();
+                self.block_init.push((
+                    coord,
+                    Box::new(move |metadata| {
+                        if actor_system {
+                            use crate::worker::spawn_worker_with_actors;
+                            spawn_worker_with_actors(block, metadata)
+                        } else {
+                            spawn_worker(block, metadata)
+                        }
+                    }),
+                ));
+            }
+            #[cfg(not(feature = "actors"))]
+            {self.block_init.push((
                 coord,
                 Box::new(move |metadata| spawn_worker(block, metadata)),
-            ));
+            ));}
         }
     }
 

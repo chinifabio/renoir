@@ -124,6 +124,7 @@ pub use operator::iteration::IterationStateHandle;
 pub use scheduler::ExecutionMetadata;
 pub use stream::{KeyedStream, Stream, WindowedStream};
 
+mod actors;
 pub mod block;
 pub(crate) mod channel;
 pub mod config;
