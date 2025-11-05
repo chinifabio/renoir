@@ -7,9 +7,9 @@ use arrow::{
 use parquet::arrow::arrow_reader::{ArrowReaderBuilder, ParquetRecordBatchReader};
 
 use crate::{
+    block::structure::{BlockStructure, OperatorKind, OperatorStructure},
     operator::{Operator, StreamElement},
     prelude::*,
-    block::structure::{BlockStructure, OperatorKind, OperatorStructure},
     Stream,
 };
 
