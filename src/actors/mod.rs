@@ -1,9 +1,9 @@
-use std::sync::{Arc, atomic::AtomicBool};
+use std::{fmt::Display, sync::{Arc, atomic::AtomicBool}};
 
 use futures::TryStreamExt;
-use kameo::{Actor, RemoteActor, Reply, actor::RemoteActorRef, prelude::Message, remote_message};
+use kameo::{Actor, RemoteActor, Reply, actor::{ActorRef, RemoteActorRef}, prelude::Message, remote_message};
 
-use crate::operator::end;
+use crate::{operator::Operator, prelude::Source};
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct Ping{
@@ -84,23 +84,93 @@ impl Message<Ping> for WorkerActor {
 pub(crate) fn setup_actor_monitoring(monitor: bool) {
     let peer_id = kameo::remote::bootstrap().expect("Failed to bootstrap actor system");
     log::debug!("Actor cluster initialized: peer ID {}", peer_id);
+    
 
     if !monitor {
         return;
     }
 
     let monitor_addr = MonitorActor::spawn(MonitorActor { time: 0 });
+
     tokio::spawn(async move {
         monitor_addr.register("monitor").await.expect("Failed to register monitor actor");
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
             log::debug!("Sending ping to MonitorActor");
             let ended = monitor_addr.ask(Tick).await.unwrap();
             if ended {
                 log::info!("MonitorActor has ended. Exiting monitoring loop.");
                 break;
             }
+            tokio::time::sleep(std::time::Duration::from_secs(10)).await;
         }
     });
     log::debug!("Monitor actor started");
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct OperatorActor<Op: Operator + 'static> {
+    operator: Op,
+    actor_ref: Option<ActorRef<Self>>,
+}
+
+impl<Op: Operator> Actor for OperatorActor<Op> {
+    type Args = Self;
+
+    type Error = OperatorActorError;
+
+    async fn on_start(
+        args: Self::Args,
+        actor_ref: ActorRef<Self>,
+    ) -> Result<Self, Self::Error> {
+        Ok(Self {
+            operator: args.operator,
+            actor_ref: Some(actor_ref),
+        })
+    }
+}
+
+#[derive(thiserror::Error, Debug)]
+pub(crate) enum OperatorActorError {
+    #[error("Setup error: {0}")]
+    SetupError(String),
+    #[error("Next error: {0}")]
+    NextError(String),
+}
+
+impl<Op: Operator> kameo::remote::RemoteActor for OperatorActor<Op> {
+    const REMOTE_ID: &'static str = "operator_actor";
+}
+
+impl<Op: Operator + 'static> OperatorActor<Op> {
+    pub fn new(operator: Op) -> Self {
+        Self { operator, actor_ref: None }
+    }
+}
+
+impl<Op: Operator + Source + 'static> Source for OperatorActor<Op> {
+    fn replication(&self) -> crate::Replication {
+        self.operator.replication()
+    }
+}
+
+impl<Op: Operator + 'static> Display for OperatorActor<Op> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "OperatorActor<{}>", std::any::type_name::<Op>())
+    }
+}
+
+impl<Op: Operator + 'static> Operator for OperatorActor<Op> {
+    type Out = Op::Out;
+
+    fn setup(&mut self, metadata: &mut crate::ExecutionMetadata) {
+        self.operator.setup(metadata);
+    }
+
+    fn next(&mut self) -> crate::operator::StreamElement<Self::Out> {
+        self.operator.next()
+    }
+
+    fn structure(&self) -> crate::block::BlockStructure {
+        self.operator.structure()
+    }
 }
