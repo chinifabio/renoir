@@ -30,27 +30,30 @@ fn main() {
 
     let args = Args::parse_from(args);
 
-    let ctx = StreamContext::new(config);
+    let ctx = StreamContext::new(config).enable_flowunits();
+
     let result = ctx
-        .update_layer("edge")
-        .stream_par_iter(0..args.n)
-        .filter(|i| i % 3 == 0)
-        .update_layer("site")
-        .group_by(|e| e % 10)
-        .window(CountWindow::tumbling(10))
-        .sum()
-        .drop_key()
-        .update_layer("cloud")
-        .update_requirements(s("gpu").eq("yes").and(s("memory").ge(16)))
-        .filter_map(|e: u64| {
-            let n = collatz_seq(e);
-            if n < 100 {
-                Some((e, n))
-            } else {
-                None
-            }
+        .with_layer("edge", move |ctx| {
+            ctx.stream_par_iter(0..args.n).filter(|i| i % 3 == 0)
         })
-        .update_requirements(none())
+        .with_layer("site", |ctx| {
+            ctx.group_by(|e| e % 10)
+                .window(CountWindow::tumbling(10))
+                .sum()
+                .drop_key()
+        })
+        .with_layer("cloud", |ctx| {
+            // ctx.update_requirements(s("gpu").eq("yes").and(s("memory").ge(16)))
+            ctx.filter_map(|e: u64| {
+                let n = collatz_seq(e);
+                if n < 100 {
+                    Some((e, n))
+                } else {
+                    None
+                }
+            })
+            // .update_requirements(none())
+        })
         .collect_all::<Vec<_>>();
 
     ctx.execute_blocking();

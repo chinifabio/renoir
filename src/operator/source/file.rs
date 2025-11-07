@@ -169,9 +169,9 @@ impl Clone for FileSource {
     }
 }
 
-impl crate::StreamContext {
+impl<Ft> crate::StreamContext<Ft> {
     /// Convenience method, creates a `FileSource` and makes a stream using `StreamContext::stream`
-    pub fn stream_file<P: Into<PathBuf>>(&self, path: P) -> Stream<FileSource, ()> {
+    pub fn stream_file<P: Into<PathBuf>>(&self, path: P) -> Stream<FileSource, Ft> {
         let source = FileSource::new(path);
         self.stream(source)
     }

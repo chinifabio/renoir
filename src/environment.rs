@@ -45,11 +45,11 @@ pub(crate) struct StreamContextInner {
 /// environment and start the computation. This function will return when the computation ends.
 ///
 /// TODO: example usage
-pub struct StreamContext<Ft = ()> {
+pub struct StreamContext<Ft> {
     /// Reference to the actual content of the environment.
-    inner: Arc<Mutex<StreamContextInner>>,
+    pub(crate) inner: Arc<Mutex<StreamContextInner>>,
     /// Feature marker.
-    _feature: std::marker::PhantomData<Ft>,
+    pub(crate) _feature: std::marker::PhantomData<Ft>,
 }
 
 impl StreamContext<()> {

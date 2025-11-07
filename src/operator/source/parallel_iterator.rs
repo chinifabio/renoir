@@ -201,7 +201,7 @@ where
     }
 }
 
-impl crate::StreamContext {
+impl<Ft> crate::StreamContext<Ft> {
     /// Convenience method, creates a `ParallelIteratorSource` and makes a stream using `StreamContext::stream`
     /// # Example:
     /// ```
@@ -230,7 +230,7 @@ impl crate::StreamContext {
     pub fn stream_par_iter<Source>(
         &self,
         generator: Source,
-    ) -> Stream<ParallelIteratorSource<Source>, ()>
+    ) -> Stream<ParallelIteratorSource<Source>, Ft>
     where
         Source: IntoParallelSource + 'static,
         Source::Iter: Send,

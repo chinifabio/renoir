@@ -1,33 +1,45 @@
 use capabilities::SpecNode;
 
 use crate::{
-    operator::{ExchangeData, Operator},
-    Stream,
+    Stream, StreamContext, operator::{ExchangeData, Operator}
 };
+
+pub struct FlowUnits;
 
 pub mod capabilities;
 pub(crate) mod channels;
 
-impl<Op, Ft: 'static> Stream<Op, Ft>
+impl<Op> Stream<Op, FlowUnits>
 where
     Op: Operator + 'static,
     Op::Out: ExchangeData,
 {
     /// TODO: docs
-    pub fn update_layer(
-        self,
-        layer: impl Into<String>,
-    ) -> Stream<impl Operator<Out = Op::Out>, Ft> {
+    pub fn with_layer<Op2, B, Out>(self, name: impl Into<String>, builder: B) -> Stream<impl Operator<Out = Out>, FlowUnits>
+    where
+        Op2: Operator<Out = Out> + 'static,
+        B: FnOnce(Stream<Op, ()>) -> Stream<Op2, ()>,
+        Out: ExchangeData + 'static,
+    {
         // the layer should be updated before the new block is created
-        self.ctx.lock().update_layer(layer);
-        self.shuffle()
+        self.ctx.lock().update_layer(name);
+        // NOTE: qui ho tolto uno shuffle
+        builder(self.disable_flowunits()).enable_flowunits()
+    }
+
+    fn disable_flowunits(self) -> Stream<Op, ()> {
+        Stream {
+            ctx: self.ctx,
+            block: self.block,
+            _features: std::marker::PhantomData,
+        }
     }
 
     /// TODO: docs
     pub fn update_requirements(
         self,
         requirements: SpecNode,
-    ) -> Stream<impl Operator<Out = Op::Out>, Ft> {
+    ) -> Stream<impl Operator<Out = Op::Out>, FlowUnits> {
         // requirements need the new block id to be saved
         let stream = self.shuffle();
         stream
@@ -35,6 +47,43 @@ where
             .lock()
             .update_requirements(stream.block.id, requirements);
         stream
+    }
+}
+
+impl<Op> Stream<Op, ()>
+where
+    Op: Operator + 'static,
+    Op::Out: ExchangeData,
+{
+    fn enable_flowunits(self) -> Stream<Op, FlowUnits> {
+        Stream {
+            ctx: self.ctx,
+            block: self.block,
+            _features: std::marker::PhantomData,
+        }
+    }
+}
+
+impl<Ft> StreamContext<Ft> {
+    /// Enable flowunits functionality.
+    pub fn enable_flowunits(self) -> StreamContext<FlowUnits> {
+        StreamContext {
+            inner: self.inner,
+            _feature: std::marker::PhantomData,
+        }
+    }
+}
+
+impl StreamContext<FlowUnits> {
+    /// Set the inizial layer for the stream. This is used to determine on which host group the block will be executed.
+    pub fn with_layer<Op, B, Out>(&self, name: impl Into<String>, builder: B) -> Stream<impl Operator<Out = Out>, FlowUnits>
+    where
+        Op: Operator<Out = Out> + 'static,
+        B: FnOnce(&Self) -> Stream<Op, FlowUnits>,
+        Out: ExchangeData + 'static,
+    {
+        self.update_layer(name);
+        builder(self)
     }
 }
 

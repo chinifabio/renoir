@@ -111,9 +111,9 @@ where
     }
 }
 
-impl crate::StreamContext {
+impl<Ft> crate::StreamContext<Ft> {
     /// Convenience method, creates a `IteratorSource` and makes a stream using `StreamContext::stream`
-    pub fn stream_iter<It>(&self, iterator: It) -> Stream<IteratorSource<It>, ()>
+    pub fn stream_iter<It>(&self, iterator: It) -> Stream<IteratorSource<It>, Ft>
     where
         It: Iterator + Send + 'static,
         It::Item: Send,
