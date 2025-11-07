@@ -26,7 +26,7 @@ pub(crate) struct StreamContextInner {
     /// of this struct when the computation starts.
     scheduler: Option<Scheduler>,
     /// Current layer in the stream. This is used to determine on which host group the block will be executed.
-    layer: Option<String>,
+    pub(crate) layer: Option<String>,
     /// Requirements of the next block in the stream. This is used to determine on which host
     /// the block will be executed.
     requirements: SpecNode,
@@ -45,7 +45,7 @@ pub(crate) struct StreamContextInner {
 /// environment and start the computation. This function will return when the computation ends.
 ///
 /// TODO: example usage
-pub struct StreamContext<Ft> {
+pub struct StreamContext<Ft = ()> {
     /// Reference to the actual content of the environment.
     pub(crate) inner: Arc<Mutex<StreamContextInner>>,
     /// Feature marker.
@@ -130,13 +130,6 @@ impl<Ft> StreamContext<Ft> {
             RuntimeConfig::Local(local) => local.parallelism,
             RuntimeConfig::Remote(remote) => remote.hosts.iter().map(|h| h.num_cores).sum(),
         }
-    }
-
-    /// Set the inizial layer for the stream. This is used to determine on which host group the block will be executed.
-    pub fn update_layer(&self, layer: impl Into<String>) -> &Self {
-        let mut ctx = self.inner.lock();
-        ctx.layer = Some(layer.into());
-        self
     }
 }
 

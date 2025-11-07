@@ -1,7 +1,7 @@
 use capabilities::SpecNode;
 
 use crate::{
-    Stream, StreamContext, operator::{ExchangeData, Operator}
+    Stream, StreamContext, operator::{ExchangeData, Operator}, prelude::StreamOutput
 };
 
 pub struct FlowUnits;
@@ -25,6 +25,17 @@ where
         self.ctx.lock().update_layer(name);
         // NOTE: qui ho tolto uno shuffle
         builder(self.disable_flowunits()).enable_flowunits()
+    }
+
+    pub fn collect_layer<B, Out>(self, name: impl Into<String>, builder: B) -> StreamOutput<Out>
+    where
+        B: FnOnce(Stream<Op, ()>) -> StreamOutput<Out>,
+        Out: ExchangeData + 'static,
+    {
+        // the layer should be updated before the new block is created
+        self.ctx.lock().update_layer(name);
+        // NOTE: qui ho tolto uno shuffle
+        builder(self.disable_flowunits())
     }
 
     fn disable_flowunits(self) -> Stream<Op, ()> {
@@ -84,6 +95,13 @@ impl StreamContext<FlowUnits> {
     {
         self.update_layer(name);
         builder(self)
+    }
+
+    /// Set the inizial layer for the stream. This is used to determine on which host group the block will be executed.
+    pub fn update_layer(&self, layer: impl Into<String>) -> &Self {
+        let mut ctx = self.inner.lock();
+        ctx.layer = Some(layer.into());
+        self
     }
 }
 

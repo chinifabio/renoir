@@ -1,5 +1,3 @@
-// use std::time::Duration;
-
 use clap::Parser;
 use renoir::prelude::*;
 
@@ -42,7 +40,7 @@ fn main() {
                 .sum()
                 .drop_key()
         })
-        .with_layer("cloud", |ctx| {
+        .collect_layer("cloud", |ctx| {
             // ctx.update_requirements(s("gpu").eq("yes").and(s("memory").ge(16)))
             ctx.filter_map(|e: u64| {
                 let n = collatz_seq(e);
@@ -53,8 +51,8 @@ fn main() {
                 }
             })
             // .update_requirements(none())
-        })
-        .collect_all::<Vec<_>>();
+            .collect_all::<Vec<_>>()
+        });
 
     ctx.execute_blocking();
 
