@@ -30,15 +30,15 @@ impl<Out> Debug for FilterFn<Out> {
     }
 }
 
-pub struct RouterBuilder<T: ExchangeData, O: Operator<Out = T>> {
-    stream: Stream<O>,
+pub struct RouterBuilder<T: ExchangeData, O: Operator<Out = T>, Ft> {
+    stream: Stream<O, Ft>,
     routes: Vec<FilterFn<T>>,
 }
 
-impl<Out: ExchangeData, OperatorChain: Operator<Out = Out> + 'static>
-    RouterBuilder<Out, OperatorChain>
+impl<Out: ExchangeData, OperatorChain: Operator<Out = Out> + 'static, Ft>
+    RouterBuilder<Out, OperatorChain, Ft>
 {
-    pub(super) fn new(stream: Stream<OperatorChain>) -> Self {
+    pub(super) fn new(stream: Stream<OperatorChain, Ft>) -> Self {
         Self {
             stream,
             routes: Vec::new(),
@@ -50,11 +50,11 @@ impl<Out: ExchangeData, OperatorChain: Operator<Out = Out> + 'static>
         self
     }
 
-    pub fn build(self) -> Vec<Stream<impl Operator<Out = Out>>> {
+    pub fn build(self) -> Vec<Stream<impl Operator<Out = Out>, Ft>> {
         self.build_inner()
     }
 
-    pub(crate) fn build_inner(self) -> Vec<Stream<Start<SimpleStartReceiver<Out>>>> {
+    pub(crate) fn build_inner(self) -> Vec<Stream<Start<SimpleStartReceiver<Out>>, Ft>> {
         // This is needed to maintain the same parallelism of the split block
         let ctx = self.stream.ctx.clone();
         let mut ctx_lock = ctx.lock();

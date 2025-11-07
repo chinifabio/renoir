@@ -8,13 +8,16 @@ use crate::{
 pub mod capabilities;
 pub(crate) mod channels;
 
-impl<Op> Stream<Op>
+impl<Op, Ft: 'static> Stream<Op, Ft>
 where
     Op: Operator + 'static,
     Op::Out: ExchangeData,
 {
     /// TODO: docs
-    pub fn update_layer(self, layer: impl Into<String>) -> Stream<impl Operator<Out = Op::Out>> {
+    pub fn update_layer(
+        self,
+        layer: impl Into<String>,
+    ) -> Stream<impl Operator<Out = Op::Out>, Ft> {
         // the layer should be updated before the new block is created
         self.ctx.lock().update_layer(layer);
         self.shuffle()
@@ -24,7 +27,7 @@ where
     pub fn update_requirements(
         self,
         requirements: SpecNode,
-    ) -> Stream<impl Operator<Out = Op::Out>> {
+    ) -> Stream<impl Operator<Out = Op::Out>, Ft> {
         // requirements need the new block id to be saved
         let stream = self.shuffle();
         stream

@@ -298,8 +298,9 @@ pub struct JoinStreamLocalHash<
     Keyer1: KeyerFn<Key, Out1>,
     Keyer2: KeyerFn<Key, Out2>,
     ShipStrat: ShipStrategy,
+    Ft,
 > {
-    stream: Stream<BinaryStartOperator<Out1, Out2>>,
+    stream: Stream<BinaryStartOperator<Out1, Out2>, Ft>,
     keyer1: Keyer1,
     keyer2: Keyer2,
     _key: PhantomData<Key>,
@@ -313,13 +314,14 @@ impl<
         Keyer1,
         Keyer2,
         ShipStrat: ShipStrategy,
-    > JoinStreamLocalHash<Key, Out1, Out2, Keyer1, Keyer2, ShipStrat>
+        Ft,
+    > JoinStreamLocalHash<Key, Out1, Out2, Keyer1, Keyer2, ShipStrat, Ft>
 where
     Keyer1: KeyerFn<Key, Out1>,
     Keyer2: KeyerFn<Key, Out2>,
 {
     pub(crate) fn new(
-        stream: Stream<BinaryStartOperator<Out1, Out2>>,
+        stream: Stream<BinaryStartOperator<Out1, Out2>, Ft>,
         keyer1: Keyer1,
         keyer2: Keyer2,
     ) -> Self {
@@ -333,8 +335,8 @@ where
     }
 }
 
-impl<Key: DataKey, Out1: ExchangeData, Out2: ExchangeData, Keyer1, Keyer2>
-    JoinStreamLocalHash<Key, Out1, Out2, Keyer1, Keyer2, ShipHash>
+impl<Key: DataKey, Out1: ExchangeData, Out2: ExchangeData, Keyer1, Keyer2, Ft: 'static>
+    JoinStreamLocalHash<Key, Out1, Out2, Keyer1, Keyer2, ShipHash, Ft>
 where
     Keyer1: KeyerFn<Key, Out1>,
     Keyer2: KeyerFn<Key, Out2>,
@@ -348,7 +350,7 @@ where
     /// This is an inner join, very similarly to `SELECT a, b FROM a JOIN b ON keyer1(a) = keyer2(b)`.
     ///
     /// **Note**: this operator will split the current block.
-    pub fn inner(self) -> KeyedStream<impl Operator<Out = (Key, InnerJoinTuple<Out1, Out2>)>> {
+    pub fn inner(self) -> KeyedStream<impl Operator<Out = (Key, InnerJoinTuple<Out1, Out2>)>, Ft> {
         let keyer1 = self.keyer1;
         let keyer2 = self.keyer2;
         let inner = self
@@ -370,7 +372,7 @@ where
     /// This is very similar to `SELECT a, b FROM a LEFT JOIN b ON keyer1(a) = keyer2(b)`.    
     ///
     /// **Note**: this operator will split the current block.
-    pub fn left(self) -> KeyedStream<impl Operator<Out = (Key, LeftJoinTuple<Out1, Out2>)>> {
+    pub fn left(self) -> KeyedStream<impl Operator<Out = (Key, LeftJoinTuple<Out1, Out2>)>, Ft> {
         let keyer1 = self.keyer1;
         let keyer2 = self.keyer2;
         let inner = self
@@ -393,7 +395,7 @@ where
     /// This is very similar to `SELECT a, b FROM a FULL OUTER JOIN b ON keyer1(a) = keyer2(b)`.
     ///
     /// **Note**: this operator will split the current block.
-    pub fn outer(self) -> KeyedStream<impl Operator<Out = (Key, OuterJoinTuple<Out1, Out2>)>> {
+    pub fn outer(self) -> KeyedStream<impl Operator<Out = (Key, OuterJoinTuple<Out1, Out2>)>, Ft> {
         let keyer1 = self.keyer1;
         let keyer2 = self.keyer2;
         let inner = self
@@ -403,8 +405,8 @@ where
     }
 }
 
-impl<Key: DataKey, Out1: ExchangeData, Out2: ExchangeData, Keyer1, Keyer2>
-    JoinStreamLocalHash<Key, Out1, Out2, Keyer1, Keyer2, ShipBroadcastRight>
+impl<Key: DataKey, Out1: ExchangeData, Out2: ExchangeData, Keyer1, Keyer2, Ft: 'static>
+    JoinStreamLocalHash<Key, Out1, Out2, Keyer1, Keyer2, ShipBroadcastRight, Ft>
 where
     Keyer1: KeyerFn<Key, Out1>,
     Keyer2: KeyerFn<Key, Out2>,
@@ -418,7 +420,7 @@ where
     /// This is an inner join, very similarly to `SELECT a, b FROM a JOIN b ON keyer1(a) = keyer2(b)`.
     ///
     /// **Note**: this operator will split the current block.
-    pub fn inner(self) -> Stream<impl Operator<Out = (Key, InnerJoinTuple<Out1, Out2>)>> {
+    pub fn inner(self) -> Stream<impl Operator<Out = (Key, InnerJoinTuple<Out1, Out2>)>, Ft> {
         let keyer1 = self.keyer1;
         let keyer2 = self.keyer2;
         self.stream
@@ -439,7 +441,7 @@ where
     /// This is very similar to `SELECT a, b FROM a LEFT JOIN b ON keyer1(a) = keyer2(b)`.    
     ///
     /// **Note**: this operator will split the current block.
-    pub fn left(self) -> Stream<impl Operator<Out = (Key, LeftJoinTuple<Out1, Out2>)>> {
+    pub fn left(self) -> Stream<impl Operator<Out = (Key, LeftJoinTuple<Out1, Out2>)>, Ft> {
         let keyer1 = self.keyer1;
         let keyer2 = self.keyer2;
         self.stream

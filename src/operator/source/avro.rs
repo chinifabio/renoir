@@ -170,13 +170,13 @@ impl crate::StreamContext {
     }
 }
 
-impl<Op> Stream<Op>
+impl<Op, Ft> Stream<Op, Ft>
 where
     Op: Operator<Out = Value> + 'static,
 {
     pub fn from_avro_value<T: for<'de> Deserialize<'de> + Send>(
         self,
-    ) -> Stream<impl Operator<Out = T>> {
+    ) -> Stream<impl Operator<Out = T>, Ft> {
         self.map(|v| {
             let de = from_value(&v);
             de.expect("failed to deserialize")

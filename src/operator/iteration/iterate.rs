@@ -303,7 +303,7 @@ impl<Out: ExchangeData, State: ExchangeData> Display for Iterate<Out, State> {
     }
 }
 
-impl<Out: ExchangeData, OperatorChain> Stream<OperatorChain>
+impl<Out: ExchangeData, OperatorChain, Ft: 'static> Stream<OperatorChain, Ft>
 where
     OperatorChain: Operator<Out = Out> + 'static,
 {
@@ -369,14 +369,14 @@ where
         global_fold: G,
         loop_condition: C,
     ) -> (
-        Stream<impl Operator<Out = State>>,
-        Stream<impl Operator<Out = Out>>,
+        Stream<impl Operator<Out = State>, Ft>,
+        Stream<impl Operator<Out = Out>, Ft>,
     )
     where
         Body: FnOnce(
-            Stream<Iterate<Out, State>>,
+            Stream<Iterate<Out, State>, Ft>,
             IterationStateHandle<State>,
-        ) -> Stream<OperatorChain2>,
+        ) -> Stream<OperatorChain2, Ft>,
         OperatorChain2: Operator<Out = Out> + 'static,
         L: Fn(&mut StateUpdate, Out) + Send + Clone + 'static,
         G: Fn(&mut State, StateUpdate) + Send + Clone + 'static,
@@ -479,7 +479,7 @@ where
             batch_mode,
             Default::default(),
         );
-        let state_stream = Stream::new(ctx.clone(), state_block);
+        let state_stream = Stream::<_, Ft>::new(ctx.clone(), state_block);
         let state_stream = state_stream
             .key_by(|_| ())
             .fold(StateUpdate::default(), local_fold)

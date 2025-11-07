@@ -41,7 +41,7 @@ where
     }
 }
 
-impl<Key, Out, WindowDescr, OperatorChain> WindowedStream<OperatorChain, Out, WindowDescr>
+impl<Key, Out, WindowDescr, OperatorChain, Ft> WindowedStream<OperatorChain, Out, WindowDescr, Ft>
 where
     WindowDescr: WindowDescription<Out>,
     OperatorChain: Operator<Out = (Key, Out)> + 'static,
@@ -50,7 +50,7 @@ where
 {
     pub fn to_arrow<C: Extend<Out> + Default + Clone + Send + 'static>(
         self,
-    ) -> KeyedStream<impl Operator<Out = (Key, C)>> {
+    ) -> KeyedStream<impl Operator<Out = (Key, C)>, Ft> {
         let acc = Columnar::<Out, C> {
             collection: Default::default(),
             _i: PhantomData,

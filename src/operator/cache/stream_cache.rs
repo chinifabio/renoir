@@ -10,13 +10,14 @@ use crate::{CoordUInt, RuntimeConfig, StreamContext};
 
 use super::{CacheRegistryRef, CacheSource, Cacher};
 
-pub struct CachedStream<T, C: Cacher<T>> {
+pub struct CachedStream<T, C: Cacher<T>, Ft> {
     replication: Replication,
     config: Arc<RuntimeConfig>,
     data: CacheRegistryRef<T, C::Handle>,
+    _feature: std::marker::PhantomData<Ft>,
 }
 
-impl<T: Data, C: Cacher<T>> CachedStream<T, C> {
+impl<T: Data, C: Cacher<T>, Ft> CachedStream<T, C, Ft> {
     pub(crate) fn new(
         config: Arc<RuntimeConfig>,
         replication: Replication,
@@ -26,6 +27,7 @@ impl<T: Data, C: Cacher<T>> CachedStream<T, C> {
             replication,
             config,
             data: cache,
+            _feature: std::marker::PhantomData,
         }
     }
 
@@ -62,7 +64,7 @@ impl<T: Data, C: Cacher<T>> CachedStream<T, C> {
     ///   one in which the cache was created.
     /// + **ATTENTION** ⚠️: The cache can be resumed **only after** the execution of its origin
     ///   `StreamContext` has terminated.
-    pub fn stream_in(self, ctx: &StreamContext) -> Stream<CacheSource<T, C::Replayer>> {
+    pub fn stream_in(self, ctx: &StreamContext<Ft>) -> Stream<CacheSource<T, C::Replayer>, Ft> {
         assert_eq!(
             self.config,
             ctx.config(),
@@ -82,14 +84,14 @@ impl<T: Data, C: Cacher<T>> CachedStream<T, C> {
     ///
     /// + **ATTENTION** ⚠️: The cache can be resumed **only after** the execution of its origin
     ///   `StreamContext` has terminated.
-    pub fn stream(self) -> (StreamContext, Stream<CacheSource<T, C::Replayer>>) {
-        let ctx = StreamContext::new(self.config.clone());
+    pub fn stream(self) -> (StreamContext<Ft>, Stream<CacheSource<T, C::Replayer>, Ft>) {
+        let ctx = StreamContext::new_with_feature(self.config.clone());
         let stream = self.stream_in(&ctx);
         (ctx, stream)
     }
 }
 
-impl<T, C> Clone for CachedStream<T, C>
+impl<T, C, Ft> Clone for CachedStream<T, C, Ft>
 where
     T: Clone,
     C: Cacher<T>,
@@ -101,6 +103,7 @@ where
             replication: self.replication,
             config: self.config.clone(),
             data: Arc::new(Mutex::new(self.data.lock().clone())),
+            _feature: std::marker::PhantomData,
         }
     }
 }

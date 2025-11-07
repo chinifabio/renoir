@@ -113,7 +113,7 @@ where
 
 impl crate::StreamContext {
     /// Convenience method, creates a `IteratorSource` and makes a stream using `StreamContext::stream`
-    pub fn stream_iter<It>(&self, iterator: It) -> Stream<IteratorSource<It>>
+    pub fn stream_iter<It>(&self, iterator: It) -> Stream<IteratorSource<It>, ()>
     where
         It: Iterator + Send + 'static,
         It::Item: Send,

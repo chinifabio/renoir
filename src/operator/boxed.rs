@@ -87,7 +87,7 @@ impl<O: Data> Operator for BoxedOperator<O> {
     }
 }
 
-impl<Op> Stream<Op>
+impl<Op, Ft> Stream<Op, Ft>
 where
     Op: Operator + 'static,
     Op::Out: Clone + Send + 'static,
@@ -95,7 +95,7 @@ where
     /// Erase operator type using dynamic dispatching.
     ///
     /// Use only when strictly necessary as it is decrimental for performance.
-    pub fn into_boxed(self) -> Stream<BoxedOperator<Op::Out>> {
+    pub fn into_boxed(self) -> Stream<BoxedOperator<Op::Out>, Ft> {
         self.add_operator(|prev| BoxedOperator::new(prev))
     }
 }

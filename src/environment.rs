@@ -45,17 +45,20 @@ pub(crate) struct StreamContextInner {
 /// environment and start the computation. This function will return when the computation ends.
 ///
 /// TODO: example usage
-pub struct StreamContext {
+pub struct StreamContext<Ft = ()> {
     /// Reference to the actual content of the environment.
     inner: Arc<Mutex<StreamContextInner>>,
+    /// Feature marker.
+    _feature: std::marker::PhantomData<Ft>,
 }
 
-impl StreamContext {
+impl StreamContext<()> {
     /// Construct a new environment from the config.
     pub fn new(config: impl Into<Arc<RuntimeConfig>>) -> Self {
         debug!("new environment");
         StreamContext {
             inner: Arc::new(Mutex::new(StreamContextInner::new(config.into()))),
+            _feature: std::marker::PhantomData::<()>,
         }
     }
 
@@ -66,13 +69,24 @@ impl StreamContext {
         let conf = RuntimeConfig::local(parallelism as u64).unwrap();
         Self::new(conf)
     }
+}
+
+impl<Ft> StreamContext<Ft> {
+    /// Construct a new environment from the config.
+    pub fn new_with_feature(config: impl Into<Arc<RuntimeConfig>>) -> Self {
+        debug!("new environment");
+        StreamContext {
+            inner: Arc::new(Mutex::new(StreamContextInner::new(config.into()))),
+            _feature: std::marker::PhantomData,
+        }
+    }
 
     pub fn config(&self) -> Arc<RuntimeConfig> {
         self.inner.lock().config.clone()
     }
 
     /// Construct a new stream bound to this environment starting with the specified source.
-    pub fn stream<S>(&self, source: S) -> Stream<S>
+    pub fn stream<S>(&self, source: S) -> Stream<S, Ft>
     where
         S: Source + Send + 'static,
     {

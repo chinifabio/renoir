@@ -89,11 +89,13 @@ impl crate::StreamContext {
     }
 }
 
-impl<Op> Stream<Op>
+impl<Op, Ft> Stream<Op, Ft>
 where
     Op: Operator<Out = RecordBatch> + 'static,
 {
-    pub fn to_rows<T>(self) -> Stream<impl Operator<Out = Result<T::Native, FromRecordBatchError>>>
+    pub fn to_rows<T>(
+        self,
+    ) -> Stream<impl Operator<Out = Result<T::Native, FromRecordBatchError>>, Ft>
     where
         T: FromRecordBatchRow + Send + 'static,
         T::Native: Send,

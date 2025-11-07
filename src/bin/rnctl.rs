@@ -108,7 +108,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Some(executable) => PathBuf::from(executable),
                 None => {
                     let cwd = std::env::current_dir()?;
-                    let cwd = cwd.file_name().ok_or("Failed to read the current directory name")?;
+                    let cwd = cwd
+                        .file_name()
+                        .ok_or("Failed to read the current directory name")?;
                     let exe = PathBuf::from(format!("target/release/{}", cwd.to_string_lossy()));
                     if !exe.exists() {
                         return Err(format!("Executable not found at {}", exe.display()).into());

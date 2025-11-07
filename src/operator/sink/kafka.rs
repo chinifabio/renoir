@@ -90,7 +90,7 @@ where
     }
 }
 
-impl<Op> Stream<Op>
+impl<Op, Ft> Stream<Op, Ft>
 where
     Op: Operator<Out: AsRef<[u8]>> + 'static,
 {

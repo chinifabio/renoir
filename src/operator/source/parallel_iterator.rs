@@ -230,7 +230,7 @@ impl crate::StreamContext {
     pub fn stream_par_iter<Source>(
         &self,
         generator: Source,
-    ) -> Stream<ParallelIteratorSource<Source>>
+    ) -> Stream<ParallelIteratorSource<Source>, ()>
     where
         Source: IntoParallelSource + 'static,
         Source::Iter: Send,

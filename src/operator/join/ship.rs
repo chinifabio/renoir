@@ -27,12 +27,18 @@ impl ShipStrategy for ShipBroadcastRight {}
 /// This is an intermediate type for building a join operator.
 ///
 /// The ship strategy has been selected as hash, and now the local strategy has to be selected.
-pub struct JoinStreamShipHash<Key: DataKey, Out1: ExchangeData, Out2: ExchangeData, Keyer1, Keyer2>
-where
+pub struct JoinStreamShipHash<
+    Key: DataKey,
+    Out1: ExchangeData,
+    Out2: ExchangeData,
+    Keyer1,
+    Keyer2,
+    Ft,
+> where
     Keyer1: KeyerFn<Key, Out1>,
     Keyer2: KeyerFn<Key, Out2>,
 {
-    inner: Stream<BinaryStartOperator<Out1, Out2>>,
+    inner: Stream<BinaryStartOperator<Out1, Out2>, Ft>,
     keyer1: Keyer1,
     keyer2: Keyer2,
     _key: PhantomData<Key>,
@@ -48,24 +54,25 @@ pub struct JoinStreamShipBroadcastRight<
     Out2: ExchangeData,
     Keyer1,
     Keyer2,
+    Ft,
 > where
     Keyer1: KeyerFn<Key, Out1>,
     Keyer2: KeyerFn<Key, Out2>,
 {
-    inner: Stream<BinaryStartOperator<Out1, Out2>>,
+    inner: Stream<BinaryStartOperator<Out1, Out2>, Ft>,
     keyer1: Keyer1,
     keyer2: Keyer2,
     _key: PhantomData<Key>,
 }
 
-impl<Key: DataKey, Out1: ExchangeData, Out2: ExchangeData, Keyer1, Keyer2>
-    JoinStreamShipHash<Key, Out1, Out2, Keyer1, Keyer2>
+impl<Key: DataKey, Out1: ExchangeData, Out2: ExchangeData, Keyer1, Keyer2, Ft>
+    JoinStreamShipHash<Key, Out1, Out2, Keyer1, Keyer2, Ft>
 where
     Keyer1: KeyerFn<Key, Out1>,
     Keyer2: KeyerFn<Key, Out2>,
 {
     pub(crate) fn new<OperatorChain1, OperatorChain2>(
-        prev: JoinStream<Key, Out1, Out2, OperatorChain1, OperatorChain2, Keyer1, Keyer2>,
+        prev: JoinStream<Key, Out1, Out2, OperatorChain1, OperatorChain2, Keyer1, Keyer2, Ft>,
     ) -> Self
     where
         OperatorChain1: Operator<Out = Out1> + 'static,
@@ -89,7 +96,7 @@ where
     /// Select _local hash_ as local strategy.
     ///
     /// An hash-table will be used to generate the join tuples.
-    pub fn local_hash(self) -> JoinStreamLocalHash<Key, Out1, Out2, Keyer1, Keyer2, ShipHash> {
+    pub fn local_hash(self) -> JoinStreamLocalHash<Key, Out1, Out2, Keyer1, Keyer2, ShipHash, Ft> {
         JoinStreamLocalHash::new(self.inner, self.keyer1, self.keyer2)
     }
 
@@ -98,7 +105,7 @@ where
     /// The tuples will be collected and sorted, then the tuples are generated.
     pub fn local_sort_merge(
         self,
-    ) -> JoinStreamLocalSortMerge<Key, Out1, Out2, Keyer1, Keyer2, ShipHash>
+    ) -> JoinStreamLocalSortMerge<Key, Out1, Out2, Keyer1, Keyer2, ShipHash, Ft>
     where
         Key: Ord,
     {
@@ -106,14 +113,14 @@ where
     }
 }
 
-impl<Key: Data, Out1: ExchangeData, Out2: ExchangeData, Keyer1, Keyer2>
-    JoinStreamShipBroadcastRight<Key, Out1, Out2, Keyer1, Keyer2>
+impl<Key: Data, Out1: ExchangeData, Out2: ExchangeData, Keyer1, Keyer2, Ft>
+    JoinStreamShipBroadcastRight<Key, Out1, Out2, Keyer1, Keyer2, Ft>
 where
     Keyer1: KeyerFn<Key, Out1>,
     Keyer2: KeyerFn<Key, Out2>,
 {
     pub(crate) fn new<OperatorChain1, OperatorChain2>(
-        prev: JoinStream<Key, Out1, Out2, OperatorChain1, OperatorChain2, Keyer1, Keyer2>,
+        prev: JoinStream<Key, Out1, Out2, OperatorChain1, OperatorChain2, Keyer1, Keyer2, Ft>,
     ) -> Self
     where
         OperatorChain1: Operator<Out = Out1> + 'static,
@@ -140,7 +147,7 @@ where
     /// An hash-table will be used to generate the join tuples.
     pub fn local_hash(
         self,
-    ) -> JoinStreamLocalHash<Key, Out1, Out2, Keyer1, Keyer2, ShipBroadcastRight>
+    ) -> JoinStreamLocalHash<Key, Out1, Out2, Keyer1, Keyer2, ShipBroadcastRight, Ft>
     where
         Key: DataKey,
     {
@@ -152,7 +159,7 @@ where
     /// The tuples will be collected and sorted, then the tuples are generated.
     pub fn local_sort_merge(
         self,
-    ) -> JoinStreamLocalSortMerge<Key, Out1, Out2, Keyer1, Keyer2, ShipBroadcastRight>
+    ) -> JoinStreamLocalSortMerge<Key, Out1, Out2, Keyer1, Keyer2, ShipBroadcastRight, Ft>
     where
         Key: Ord,
     {

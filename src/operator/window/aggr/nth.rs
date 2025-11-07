@@ -42,27 +42,27 @@ impl<T: Data> WindowAccumulator for Last<T> {
     }
 }
 
-impl<Key, Out, WindowDescr, OperatorChain> WindowedStream<OperatorChain, Out, WindowDescr>
+impl<Key, Out, WindowDescr, OperatorChain, Ft> WindowedStream<OperatorChain, Out, WindowDescr, Ft>
 where
     WindowDescr: WindowDescription<Out>,
     OperatorChain: Operator<Out = (Key, Out)> + 'static,
     Key: DataKey,
     Out: Data,
 {
-    pub fn first(self) -> KeyedStream<impl Operator<Out = (Key, Out)>> {
+    pub fn first(self) -> KeyedStream<impl Operator<Out = (Key, Out)>, Ft> {
         let acc = First(None);
         self.add_window_operator("WindowFirst", acc)
     }
 }
 
-impl<Key, Out, WindowDescr, OperatorChain> WindowedStream<OperatorChain, Out, WindowDescr>
+impl<Key, Out, WindowDescr, OperatorChain, Ft> WindowedStream<OperatorChain, Out, WindowDescr, Ft>
 where
     WindowDescr: WindowDescription<Out>,
     OperatorChain: Operator<Out = (Key, Out)> + 'static,
     Key: DataKey,
     Out: Data,
 {
-    pub fn last(self) -> KeyedStream<impl Operator<Out = (Key, Out)>> {
+    pub fn last(self) -> KeyedStream<impl Operator<Out = (Key, Out)>, Ft> {
         let acc = Last(None);
         self.add_window_operator("WindowLast", acc)
     }

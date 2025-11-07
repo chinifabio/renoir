@@ -87,7 +87,7 @@ where
     }
 }
 
-impl<Op: Operator> Stream<Op>
+impl<Op: Operator, Ft> Stream<Op, Ft>
 where
     Op: 'static,
     Op::Out: Serialize,
@@ -107,7 +107,7 @@ where
     }
 }
 
-impl<Op> Stream<Op>
+impl<Op, Ft> Stream<Op, Ft>
 where
     Op: Operator<Out: ExchangeData> + 'static,
 {

@@ -4,14 +4,14 @@ use super::{super::*, FoldFirst};
 use crate::operator::{Data, DataKey, Operator};
 use crate::stream::{KeyedStream, WindowedStream};
 
-impl<Key, Out, WindowDescr, OperatorChain> WindowedStream<OperatorChain, Out, WindowDescr>
+impl<Key, Out, WindowDescr, OperatorChain, Ft> WindowedStream<OperatorChain, Out, WindowDescr, Ft>
 where
     WindowDescr: WindowDescription<Out>,
     OperatorChain: Operator<Out = (Key, Out)> + 'static,
     Key: DataKey,
     Out: Data + Ord,
 {
-    pub fn max(self) -> KeyedStream<impl Operator<Out = (Key, Out)>> {
+    pub fn max(self) -> KeyedStream<impl Operator<Out = (Key, Out)>, Ft> {
         let acc = FoldFirst::<Out, _>::new(|max, x| {
             if *x > *max {
                 *max = x.clone()
@@ -21,7 +21,7 @@ where
     }
 }
 
-impl<Key, Out, WindowDescr, OperatorChain> WindowedStream<OperatorChain, Out, WindowDescr>
+impl<Key, Out, WindowDescr, OperatorChain, Ft> WindowedStream<OperatorChain, Out, WindowDescr, Ft>
 where
     WindowDescr: WindowDescription<Out>,
     OperatorChain: Operator<Out = (Key, Out)> + 'static,
@@ -31,7 +31,7 @@ where
     pub fn max_by_key<K: Ord, F: Fn(&Out) -> K + Clone + Send + 'static>(
         self,
         get_key: F,
-    ) -> KeyedStream<impl Operator<Out = (Key, Out)>> {
+    ) -> KeyedStream<impl Operator<Out = (Key, Out)>, Ft> {
         let acc = FoldFirst::<Out, _>::new(move |max, x| {
             if (get_key)(x) > (get_key)(max) {
                 *max = x.clone()
@@ -43,7 +43,7 @@ where
     pub fn max_by<F: Fn(&Out, &Out) -> Ordering + Clone + Send + 'static>(
         self,
         compare: F,
-    ) -> KeyedStream<impl Operator<Out = (Key, Out)>> {
+    ) -> KeyedStream<impl Operator<Out = (Key, Out)>, Ft> {
         let acc = FoldFirst::<Out, _>::new(move |max, x| {
             if (compare)(x, max).is_gt() {
                 *max = x.clone()

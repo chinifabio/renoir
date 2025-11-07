@@ -33,7 +33,7 @@ where
     }
 }
 
-impl<Key, Out, WindowDescr, OperatorChain> WindowedStream<OperatorChain, Out, WindowDescr>
+impl<Key, Out, WindowDescr, OperatorChain, Ft> WindowedStream<OperatorChain, Out, WindowDescr, Ft>
 where
     WindowDescr: WindowDescription<Out>,
     OperatorChain: Operator<Out = (Key, Out)> + 'static,
@@ -44,7 +44,7 @@ where
     pub fn map<NewOut: Data, F: Fn(Vec<Out>) -> NewOut + Send + Clone + 'static>(
         self,
         f: F,
-    ) -> KeyedStream<impl Operator<Out = (Key, NewOut)>> {
+    ) -> KeyedStream<impl Operator<Out = (Key, NewOut)>, Ft> {
         let acc = CollectVec::<Out, NewOut, _> {
             vec: Default::default(),
             f,
@@ -53,7 +53,7 @@ where
         self.add_window_operator("WindowMap", acc)
     }
 
-    pub fn to_vec(self) -> KeyedStream<impl Operator<Out = (Key, Vec<Out>)>> {
+    pub fn to_vec(self) -> KeyedStream<impl Operator<Out = (Key, Vec<Out>)>, Ft> {
         let acc = CollectVec::<Out, Vec<Out>, _> {
             vec: Default::default(),
             f: |v| v,

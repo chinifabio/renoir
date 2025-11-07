@@ -245,7 +245,7 @@ where
     }
 }
 
-impl<Key, Out, WindowDescr, OperatorChain> WindowedStream<OperatorChain, Out, WindowDescr>
+impl<Key, Out, WindowDescr, OperatorChain, Ft> WindowedStream<OperatorChain, Out, WindowDescr, Ft>
 where
     WindowDescr: WindowDescription<Out>,
     OperatorChain: Operator<Out = (Key, Out)> + 'static,
@@ -259,7 +259,7 @@ where
         self,
         name: &str,
         accumulator: A,
-    ) -> KeyedStream<impl Operator<Out = (Key, NewOut)>>
+    ) -> KeyedStream<impl Operator<Out = (Key, NewOut)>, Ft>
     where
         NewOut: Data,
         A: WindowAccumulator<In = Out, Out = NewOut>,
@@ -280,7 +280,7 @@ where
     }
 }
 
-impl<Key: DataKey, Out: Data, OperatorChain> KeyedStream<OperatorChain>
+impl<Key: DataKey, Out: Data, OperatorChain, Ft> KeyedStream<OperatorChain, Ft>
 where
     OperatorChain: Operator<Out = (Key, Out)> + 'static,
 {
@@ -311,16 +311,17 @@ where
     pub fn window<WinOut: Data, WinDescr: WindowDescription<Out>>(
         self,
         descr: WinDescr,
-    ) -> WindowedStream<impl Operator<Out = (Key, Out)>, WinOut, WinDescr> {
+    ) -> WindowedStream<impl Operator<Out = (Key, Out)>, WinOut, WinDescr, Ft> {
         WindowedStream {
             inner: self,
             descr,
             _win_out: PhantomData,
+            _features: PhantomData,
         }
     }
 }
 
-impl<Out: ExchangeData, OperatorChain> Stream<OperatorChain>
+impl<Out: ExchangeData, OperatorChain, Ft: 'static> Stream<OperatorChain, Ft>
 where
     OperatorChain: Operator<Out = Out> + 'static,
 {
@@ -353,7 +354,7 @@ where
     pub fn window_all<WinOut: Data, WinDescr: WindowDescription<Out>>(
         self,
         descr: WinDescr,
-    ) -> WindowedStream<impl Operator<Out = ((), Out)>, WinOut, WinDescr> {
+    ) -> WindowedStream<impl Operator<Out = ((), Out)>, WinOut, WinDescr, Ft> {
         // replication and key_by are used instead of group_by so that there is exactly one
         // replica, since window_all cannot be parallelized
         self.replication(Replication::new_one())

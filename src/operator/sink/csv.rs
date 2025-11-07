@@ -94,7 +94,7 @@ impl<T> Clone for CsvWriteOp<T> {
     }
 }
 
-impl<Op: Operator> Stream<Op>
+impl<Op: Operator, Ft> Stream<Op, Ft>
 where
     Op: 'static,
     Op::Out: Serialize,
@@ -133,7 +133,7 @@ where
     }
 }
 
-impl<Op: Operator> Stream<Op>
+impl<Op: Operator, Ft: 'static> Stream<Op, Ft>
 where
     Op: 'static,
     Op::Out: ExchangeData,

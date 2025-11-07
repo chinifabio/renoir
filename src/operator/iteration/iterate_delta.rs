@@ -96,7 +96,8 @@ impl<Key: ExchangeData, I: ExchangeData, U: ExchangeData, D: ExchangeData, O: Ex
     }
 }
 
-impl<Key: ExchangeDataKey, In: ExchangeData + Default, OperatorChain> KeyedStream<OperatorChain>
+impl<Key: ExchangeDataKey, In: ExchangeData + Default, OperatorChain, Ft: 'static>
+    KeyedStream<OperatorChain, Ft>
 where
     OperatorChain: Operator<Out = (Key, In)> + 'static,
 {
@@ -109,9 +110,9 @@ where
         make_output: impl Fn(&Key, In) -> O + Clone + Send + 'static,
         condition: impl Fn(&D) -> bool + Clone + Send + 'static,
         body: Body,
-    ) -> KeyedStream<impl Operator<Out = (Key, O)>>
+    ) -> KeyedStream<impl Operator<Out = (Key, O)>, Ft>
     where
-        Body: FnOnce(KeyedStream<DeltaIterate<Key, In, U, D, O>>) -> KeyedStream<BodyOperator>
+        Body: FnOnce(KeyedStream<DeltaIterate<Key, In, U, D, O>, Ft>) -> KeyedStream<BodyOperator, Ft>
             + 'static,
         BodyOperator: Operator<Out = (Key, D)> + 'static,
     {

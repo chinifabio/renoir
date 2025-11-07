@@ -64,6 +64,7 @@ pub struct JoinStream<
     OperatorChain2,
     Keyer1,
     Keyer2,
+    Ft,
 > where
     OperatorChain1: Operator<Out = Out1>,
     OperatorChain2: Operator<Out = Out2>,
@@ -71,9 +72,9 @@ pub struct JoinStream<
     Keyer2: KeyerFn<Key, Out2>,
 {
     /// The stream of the left side.
-    pub(crate) lhs: Stream<OperatorChain1>,
+    pub(crate) lhs: Stream<OperatorChain1, Ft>,
     /// The stream of the right side.
-    pub(crate) rhs: Stream<OperatorChain2>,
+    pub(crate) rhs: Stream<OperatorChain2, Ft>,
     /// The function for extracting the join key from the left stream.
     pub(crate) keyer1: Keyer1,
     /// The function for extracting the join key from the right stream.
@@ -82,7 +83,7 @@ pub struct JoinStream<
     _key: PhantomData<Key>,
 }
 
-impl<Out: ExchangeData, OperatorChain> Stream<OperatorChain>
+impl<Out: ExchangeData, OperatorChain, Ft: 'static> Stream<OperatorChain, Ft>
 where
     OperatorChain: Operator<Out = Out> + 'static,
 {
@@ -114,10 +115,10 @@ where
     /// ```
     pub fn join<Out2: ExchangeData, OperatorChain2, Key, Keyer1, Keyer2>(
         self,
-        rhs: Stream<OperatorChain2>,
+        rhs: Stream<OperatorChain2, Ft>,
         keyer1: Keyer1,
         keyer2: Keyer2,
-    ) -> KeyedStream<impl Operator<Out = (Key, InnerJoinTuple<Out, Out2>)>>
+    ) -> KeyedStream<impl Operator<Out = (Key, InnerJoinTuple<Out, Out2>)>, Ft>
     where
         Key: DataKey,
         OperatorChain2: Operator<Out = Out2> + 'static,
@@ -162,10 +163,10 @@ where
     /// ```
     pub fn left_join<Out2: ExchangeData, OperatorChain2, Key, Keyer1, Keyer2>(
         self,
-        rhs: Stream<OperatorChain2>,
+        rhs: Stream<OperatorChain2, Ft>,
         keyer1: Keyer1,
         keyer2: Keyer2,
-    ) -> KeyedStream<impl Operator<Out = (Key, LeftJoinTuple<Out, Out2>)>>
+    ) -> KeyedStream<impl Operator<Out = (Key, LeftJoinTuple<Out, Out2>)>, Ft>
     where
         Key: DataKey,
         OperatorChain2: Operator<Out = Out2> + 'static,
@@ -211,10 +212,10 @@ where
     /// ```
     pub fn outer_join<Out2: ExchangeData, OperatorChain2, Key, Keyer1, Keyer2>(
         self,
-        rhs: Stream<OperatorChain2>,
+        rhs: Stream<OperatorChain2, Ft>,
         keyer1: Keyer1,
         keyer2: Keyer2,
-    ) -> KeyedStream<impl Operator<Out = (Key, OuterJoinTuple<Out, Out2>)>>
+    ) -> KeyedStream<impl Operator<Out = (Key, OuterJoinTuple<Out, Out2>)>, Ft>
     where
         Key: DataKey,
         OperatorChain2: Operator<Out = Out2> + 'static,
@@ -266,10 +267,10 @@ where
     /// ```
     pub fn join_with<Out2: ExchangeData, OperatorChain2, Key, Keyer1, Keyer2>(
         self,
-        rhs: Stream<OperatorChain2>,
+        rhs: Stream<OperatorChain2, Ft>,
         keyer1: Keyer1,
         keyer2: Keyer2,
-    ) -> JoinStream<Key, Out, Out2, OperatorChain, OperatorChain2, Keyer1, Keyer2>
+    ) -> JoinStream<Key, Out, Out2, OperatorChain, OperatorChain2, Keyer1, Keyer2, Ft>
     where
         OperatorChain2: Operator<Out = Out2>,
         Keyer1: Fn(&Out) -> Key + KeyerFn<Key, Out>,
@@ -293,7 +294,8 @@ impl<
         OperatorChain2,
         Keyer1,
         Keyer2,
-    > JoinStream<Key, Out1, Out2, OperatorChain1, OperatorChain2, Keyer1, Keyer2>
+        Ft,
+    > JoinStream<Key, Out1, Out2, OperatorChain1, OperatorChain2, Keyer1, Keyer2, Ft>
 where
     OperatorChain1: Operator<Out = Out1> + 'static,
     OperatorChain2: Operator<Out = Out2> + 'static,
@@ -304,7 +306,7 @@ where
     ///
     /// With this strategy the two streams are shuffled (like a group-by), pointing the message with
     /// the same key to the same replica. The key must be hashable.
-    pub fn ship_hash(self) -> JoinStreamShipHash<Key, Out1, Out2, Keyer1, Keyer2>
+    pub fn ship_hash(self) -> JoinStreamShipHash<Key, Out1, Out2, Keyer1, Keyer2, Ft>
     where
         Key: DataKey,
     {
@@ -319,7 +321,7 @@ where
     /// This does not require the key to be hashable.
     pub fn ship_broadcast_right(
         self,
-    ) -> JoinStreamShipBroadcastRight<Key, Out1, Out2, Keyer1, Keyer2> {
+    ) -> JoinStreamShipBroadcastRight<Key, Out1, Out2, Keyer1, Keyer2, Ft> {
         JoinStreamShipBroadcastRight::new(self)
     }
 }

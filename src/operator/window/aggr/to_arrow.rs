@@ -49,7 +49,7 @@ impl<T: Clone + Serialize + Send + 'static> WindowAccumulator for ToArrow<T> {
     }
 }
 
-impl<Key, Out, WindowDescr, OperatorChain> WindowedStream<OperatorChain, Out, WindowDescr>
+impl<Key, Out, WindowDescr, OperatorChain, Ft> WindowedStream<OperatorChain, Out, WindowDescr, Ft>
 where
     WindowDescr: WindowDescription<Out>,
     OperatorChain: Operator<Out = (Key, Out)> + 'static,
@@ -60,7 +60,7 @@ where
     pub fn to_arrow(
         self,
         schema: Arc<Schema>,
-    ) -> KeyedStream<impl Operator<Out = (Key, RecordBatch)>> {
+    ) -> KeyedStream<impl Operator<Out = (Key, RecordBatch)>, Ft> {
         let acc = ToArrow {
             vec: Default::default(),
             schema,

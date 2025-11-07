@@ -11,7 +11,7 @@ pub enum MergeElement<A, B> {
     Right(B),
 }
 
-impl<Op> Stream<Op>
+impl<Op, Ft: 'static> Stream<Op, Ft>
 where
     Op: Operator + 'static,
     Op::Out: ExchangeData,
@@ -38,7 +38,7 @@ where
     /// res.sort_unstable();
     /// assert_eq!(res, (0..20).collect::<Vec<_>>());
     /// ```
-    pub fn merge<Op2>(self, oth: Stream<Op2>) -> Stream<impl Operator<Out = Op::Out>>
+    pub fn merge<Op2>(self, oth: Stream<Op2, Ft>) -> Stream<impl Operator<Out = Op::Out>, Ft>
     where
         Op: 'static,
         Op2: Operator<Out = Op::Out> + 'static,
@@ -58,8 +58,8 @@ where
 
     pub(crate) fn merge_distinct<Op2>(
         self,
-        right: Stream<Op2>,
-    ) -> Stream<impl Operator<Out = MergeElement<Op::Out, Op2::Out>>>
+        right: Stream<Op2, Ft>,
+    ) -> Stream<impl Operator<Out = MergeElement<Op::Out, Op2::Out>>, Ft>
     where
         Op: 'static,
         Op2: Operator + 'static,

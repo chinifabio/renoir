@@ -86,7 +86,7 @@ fn nexmark_caching(c: &mut Criterion) {
     let mut group = c.benchmark_group("nexmark_caching");
     group.throughput(criterion::Throughput::Elements(N_NEXMARK as u64));
 
-    fn events(ctx: &StreamContext) -> Stream<impl Operator<Out = nexmark::event::Event>> {
+    fn events(ctx: &StreamContext) -> Stream<impl Operator<Out = nexmark::event::Event>, ()> {
         ctx.stream_par_iter(move |i, n| {
             let conf = nexmark::config::NexmarkConfig {
                 num_event_generators: n as usize,

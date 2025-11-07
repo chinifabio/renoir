@@ -70,7 +70,7 @@ impl<L: Clone, R: Clone> Iterator for ProductIterator<L, R> {
     }
 }
 
-impl<Key, Out, OperatorChain> KeyedStream<OperatorChain>
+impl<Key, Out, OperatorChain, Ft: 'static> KeyedStream<OperatorChain, Ft>
 where
     OperatorChain: Operator<Out = (Key, Out)> + 'static,
     Key: ExchangeData + DataKey,
@@ -79,8 +79,8 @@ where
     pub fn window_join<Out2, OperatorChain2, WindowDescr>(
         self,
         descr: WindowDescr,
-        right: KeyedStream<OperatorChain2>,
-    ) -> KeyedStream<impl Operator<Out = (Key, (Out, Out2))>>
+        right: KeyedStream<OperatorChain2, Ft>,
+    ) -> KeyedStream<impl Operator<Out = (Key, (Out, Out2))>, Ft>
     where
         OperatorChain2: Operator<Out = (Key, Out2)> + 'static,
         Out2: ExchangeData,

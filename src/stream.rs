@@ -24,7 +24,7 @@ use crate::scheduler::BlockId;
 /// The type of the chain inside the block is `OperatorChain` and it's required as type argument of
 /// the stream. This type only represents the chain inside the last block of the stream, not all the
 /// blocks inside of it.
-pub struct Stream<Op>
+pub struct Stream<Op, Features>
 where
     Op: Operator,
 {
@@ -32,6 +32,8 @@ where
     pub(crate) block: Block<Op>,
     /// A reference to the environment this stream lives in.
     pub(crate) ctx: Arc<Mutex<StreamContextInner>>,
+    /// Features marker
+    pub(crate) _features: PhantomData<Features>,
 }
 
 pub trait KeyedItem {
@@ -61,7 +63,7 @@ impl<K: DataKey, V> KeyedItem for (K, V) {
 /// [`KeyedStream`] semantics.
 ///
 /// The type of the `Key` must be a valid key inside an hashmap.
-pub struct KeyedStream<OperatorChain>(pub Stream<OperatorChain>)
+pub struct KeyedStream<OperatorChain, Ft>(pub Stream<OperatorChain, Ft>)
 where
     OperatorChain: Operator,
     OperatorChain::Out: KeyedItem;
@@ -89,23 +91,28 @@ where
 ///  - [`SessionWindow`][crate::operator::window::SessionWindow]
 ///  - [`TransactionWindow`][crate::operator::window::TransactionWindow]
 ///
-pub struct WindowedStream<Op, O: Data, WinDescr>
+pub struct WindowedStream<Op, O: Data, WinDescr, Ft>
 where
     Op: Operator,
     Op::Out: KeyedItem,
     WinDescr: WindowDescription<<Op::Out as KeyedItem>::Value>,
 {
-    pub(crate) inner: KeyedStream<Op>,
+    pub(crate) inner: KeyedStream<Op, Ft>,
     pub(crate) descr: WinDescr,
     pub(crate) _win_out: PhantomData<O>,
+    pub(crate) _features: PhantomData<Ft>,
 }
 
-impl<Op> Stream<Op>
+impl<Op, Ft> Stream<Op, Ft>
 where
     Op: Operator,
 {
     pub(crate) fn new(ctx: Arc<Mutex<StreamContextInner>>, block: Block<Op>) -> Self {
-        Self { block, ctx }
+        Self {
+            block,
+            ctx,
+            _features: PhantomData,
+        }
     }
 
     /// Add a new operator to the current chain inside the stream. This consumes the stream and
@@ -117,7 +124,7 @@ where
     ///
     /// **Note**: this is an advanced function that manipulates the block structure. Probably it is
     /// not what you are looking for.
-    pub fn add_operator<Op2, GetOp>(self, get_operator: GetOp) -> Stream<Op2>
+    pub fn add_operator<Op2, GetOp>(self, get_operator: GetOp) -> Stream<Op2, Ft>
     where
         Op2: Operator,
         GetOp: FnOnce(Op) -> Op2,
@@ -137,14 +144,18 @@ where
         self,
         get_end_operator: GetEndOp,
         next_strategy: NextStrategy<Op::Out, IndexFn>,
-    ) -> Stream<impl Operator<Out = Op::Out>>
+    ) -> Stream<impl Operator<Out = Op::Out>, Ft>
     where
         IndexFn: KeyerFn<u64, Op::Out>,
         Op::Out: ExchangeData,
         OpEnd: Operator<Out = ()> + 'static,
         GetEndOp: FnOnce(Op, NextStrategy<Op::Out, IndexFn>, BatchMode) -> OpEnd,
     {
-        let Stream { block, ctx } = self;
+        let Stream {
+            block,
+            ctx,
+            _features: PhantomData,
+        } = self;
         // Clone parameters for new block
         let batch_mode = block.batch_mode;
         let iteration_ctx = block.iteration_ctx.clone();
@@ -179,11 +190,11 @@ where
     /// of the new block.
     pub(crate) fn binary_connection<Op2, S, Fs, F1, F2>(
         self,
-        oth: Stream<Op2>,
+        oth: Stream<Op2, Ft>,
         get_start_operator: Fs,
         next_strategy1: NextStrategy<Op::Out, F1>,
         next_strategy2: NextStrategy<Op2::Out, F2>,
-    ) -> Stream<S>
+    ) -> Stream<S, Ft>
     where
         Op: 'static,
         Op2: Operator + 'static,
@@ -194,7 +205,11 @@ where
         S: Operator + Source,
         Fs: FnOnce(BlockId, BlockId, bool, bool, Option<Arc<IterationStateLock>>) -> S,
     {
-        let Stream { block: b1, ctx } = self;
+        let Stream {
+            block: b1,
+            ctx,
+            _features: PhantomData,
+        } = self;
         let Stream { block: b2, .. } = oth;
 
         let batch_mode = b1.batch_mode;
@@ -287,12 +302,12 @@ where
     }
 }
 
-impl<OperatorChain> KeyedStream<OperatorChain>
+impl<OperatorChain, Ft> KeyedStream<OperatorChain, Ft>
 where
     OperatorChain: Operator + 'static,
     OperatorChain::Out: KeyedItem,
 {
-    pub(crate) fn add_operator<Op2, GetOp>(self, get_operator: GetOp) -> KeyedStream<Op2>
+    pub(crate) fn add_operator<Op2, GetOp>(self, get_operator: GetOp) -> KeyedStream<Op2, Ft>
     where
         Op2: Operator,
         GetOp: FnOnce(OperatorChain) -> Op2,
@@ -302,13 +317,13 @@ where
     }
 }
 
-impl<OperatorChain> Stream<OperatorChain>
+impl<OperatorChain, Ft> Stream<OperatorChain, Ft>
 where
     OperatorChain: Operator,
     OperatorChain::Out: KeyedItem,
 {
     /// TODO DOCS
-    pub fn to_keyed(self) -> KeyedStream<OperatorChain> {
+    pub fn to_keyed(self) -> KeyedStream<OperatorChain, Ft> {
         KeyedStream(self)
     }
 }
