@@ -2356,7 +2356,7 @@ where
     }
 }
 
-impl<Op, Ft> Stream<Op, Ft>
+impl<Op, Ft: 'static> Stream<Op, Ft>
 where
     Op: Operator + 'static,
     Op::Out: Clone + Hash + Eq + Sync,
