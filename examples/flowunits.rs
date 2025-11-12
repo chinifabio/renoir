@@ -20,7 +20,8 @@ fn collatz_seq(n: u64) -> u64 {
     steps
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     env_logger::init();
 
     let (config, args) = RuntimeConfig::from_args();
@@ -54,7 +55,7 @@ fn main() {
             .collect_all::<Vec<_>>()
         });
 
-    ctx.execute_blocking();
+    ctx.execute().await;
 
     log::info!("Result: {:?}", result.get());
 }

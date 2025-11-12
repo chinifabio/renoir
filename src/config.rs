@@ -128,6 +128,11 @@ pub struct RemoteConfig {
     /// Holds the connections between groups
     #[serde(default)]
     pub group_connections: Vec<GroupConnection>,
+    /// Whether to use actors for inter-block communication.
+    #[serde(default)]
+    pub use_actors: bool,
+    // Period of gossip messages between workers, in milliseconds.
+    // pub gossip_period_ms: Option<u64>,
 }
 
 impl RemoteConfig {
@@ -307,6 +312,12 @@ impl RuntimeConfig {
             RuntimeConfig::Local(_) => {}
             #[cfg(feature = "ssh")]
             RuntimeConfig::Remote(remote) => {
+                #[cfg(feature = "actors")]
+                {
+                    if remote.use_actors {
+                        kameo::remote::bootstrap().expect("Failed to bootstrap actor system");
+                    }
+                }
                 crate::runner::spawn_remote_workers(remote.clone());
             }
             #[cfg(not(feature = "ssh"))]
@@ -327,6 +338,13 @@ impl RuntimeConfig {
         match self {
             RuntimeConfig::Local(_) => &[],
             RuntimeConfig::Remote(remote) => &remote.hosts,
+        }
+    }
+
+    pub fn use_actors(&self) -> bool {
+        match self {
+            RuntimeConfig::Local(_) => false,
+            RuntimeConfig::Remote(config) => config.use_actors,
         }
     }
 }
@@ -353,6 +371,7 @@ pub struct ConfigBuilder {
     tracing_dir: Option<PathBuf>,
     cleanup_executable: bool,
     group_connections: Vec<GroupConnection>,
+    use_actors: bool,
 }
 
 impl ConfigBuilder {
@@ -373,6 +392,7 @@ impl ConfigBuilder {
             tracing_dir: None,
             cleanup_executable: false,
             group_connections: Vec::new(),
+            use_actors: false,
         }
     }
     /// Parse toml and integrate it in the builder.
@@ -385,6 +405,7 @@ impl ConfigBuilder {
             tracing_dir,
             cleanup_executable,
             group_connections,
+            use_actors,
         } = toml::from_str(config_str)?;
         log::debug!("{group_connections:?}");
 
@@ -401,6 +422,7 @@ impl ConfigBuilder {
         self.tracing_dir = self.tracing_dir.take().or(tracing_dir);
         self.cleanup_executable |= cleanup_executable;
         self.group_connections.extend(group_connections);
+        self.use_actors = use_actors;
 
         Ok(self)
     }
@@ -503,6 +525,7 @@ impl ConfigBuilder {
             tracing_dir: self.tracing_dir.clone(),
             cleanup_executable: self.cleanup_executable,
             group_connections: self.group_connections.drain(..).collect(),
+            use_actors: self.use_actors,
         });
         Ok(conf)
     }

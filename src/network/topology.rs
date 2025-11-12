@@ -64,7 +64,7 @@ struct SenderMetadata {
 /// connections.
 pub(crate) struct NetworkTopology {
     /// Configuration of the environment.
-    config: Arc<RuntimeConfig>,
+    pub(crate) config: Arc<RuntimeConfig>,
     /// All the registered receivers.
     ///
     /// Since the `NetworkReceiver` is generic over the element type we cannot simply store them

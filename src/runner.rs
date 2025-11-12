@@ -64,6 +64,27 @@ pub fn spawn_remote_workers(config: RemoteConfig) {
     if is_spawned_process() {
         return;
     }
+    else {
+        #[cfg(feature = "actors")]
+        {
+            if config.use_actors {
+                use kameo::actor::Spawn;
+
+                use crate::flowunits::actors::SupervisorActor;
+
+                let supervisor_ref = SupervisorActor::spawn(SupervisorActor{});
+
+                tokio::spawn(async move {
+                    loop {
+                        if !supervisor_ref.ask(crate::flowunits::actors::Tick {}).await.expect("Failed to tick supervisor") {
+                            break;
+                        }
+                        tokio::time::sleep(Duration::from_secs(5)).await;
+                    }
+                });
+            }
+        }
+    }
 
     // from now we are sure this is the process that should spawn the remote workers
     info!("starting {} remote workers", config.hosts.len());

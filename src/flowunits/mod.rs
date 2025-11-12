@@ -6,6 +6,7 @@ use crate::{
 
 pub struct FlowUnits;
 
+pub(crate) mod actors;
 pub mod capabilities;
 pub(crate) mod channels;
 
