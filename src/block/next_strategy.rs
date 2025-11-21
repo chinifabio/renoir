@@ -11,7 +11,7 @@ use super::group_by_hash;
 ///
 /// A block in the job graph may have many next blocks. Each of them will receive the message, which
 /// of their replica will receive it depends on the value of the next strategy.
-pub(crate) enum NextStrategy<Out, IndexFn = fn(&Out) -> u64>
+pub enum NextStrategy<Out, IndexFn = fn(&Out) -> u64>
 where
     IndexFn: KeyerFn<u64, Out>,
 {
