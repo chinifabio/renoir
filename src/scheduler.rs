@@ -421,6 +421,9 @@ impl Scheduler {
                     add_replicas!(host_id.try_into().unwrap(), host_info, 1);
                 }
             }
+            Replication::OneParallel => {
+                add_replicas!(0, remote.hosts[0], remote.hosts[0].num_cores);
+            }
             Replication::One => {
                 add_replicas!(0, remote.hosts[0], 1);
             }

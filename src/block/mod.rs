@@ -104,6 +104,8 @@ pub enum Replication {
     Host,
     /// The number of replicas is limited to one across all the hosts.
     One,
+    /// The number of replicas is limited to the the parallelism of a single host.
+    OneParallel,
 }
 
 impl Replication {
@@ -130,6 +132,11 @@ impl Replication {
     pub fn intersect(&self, rhs: Self) -> Self {
         match (*self, rhs) {
             (Replication::One, _) | (_, Replication::One) => Replication::One,
+            (Replication::OneParallel, Replication::Host)
+            | (Replication::Host, Replication::OneParallel) => Replication::One,
+            (Replication::OneParallel, _) | (_, Replication::OneParallel) => {
+                Replication::OneParallel
+            }
             (Replication::Host, _) | (_, Replication::Host) => Replication::Host,
             (Replication::Limited(n), Replication::Limited(m)) => Replication::Limited(n.min(m)),
             (Replication::Limited(n), _) | (_, Replication::Limited(n)) => Replication::Limited(n),
@@ -142,6 +149,7 @@ impl Replication {
             Replication::Unlimited => n,
             Replication::Limited(q) => n.min(*q),
             Replication::Host => 1,
+            Replication::OneParallel => n,
             Replication::One => 1,
         }
     }
