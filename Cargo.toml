@@ -1,7 +1,8 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/renoir-core"
+    "crates/renoir",
+    "crates/renoir-core",
 ]
 
 [profile.release]
