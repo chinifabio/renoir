@@ -5,8 +5,8 @@ use std::hash::BuildHasherDefault;
 use std::str::FromStr;
 
 use kstring::KString;
-use renoir::prelude::*;
 use renoir::kafka::*;
+use renoir::prelude::*;
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;

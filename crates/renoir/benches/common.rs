@@ -1,10 +1,11 @@
 #![allow(unused)]
 
-use criterion::{black_box, Bencher};
+use criterion::Bencher;
 use renoir_core::config::{ConfigBuilder, HostConfig, RemoteConfig, RuntimeConfig};
+use std::hint::black_box;
 use std::marker::PhantomData;
-use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU16, Ordering};
 use std::time::{Duration, Instant};
 
 use renoir_core::*;

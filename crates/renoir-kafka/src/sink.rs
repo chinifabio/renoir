@@ -3,14 +3,14 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use derivative::Derivative;
+use rdkafka::ClientConfig;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
-use rdkafka::ClientConfig;
 
+use renoir_core::Stream;
 use renoir_core::block::structure::{BlockStructure, OperatorKind, OperatorStructure};
 use renoir_core::operator::{Operator, StreamElement};
 use renoir_core::scheduler::ExecutionMetadata;
-use renoir_core::Stream;
 
 #[derive(Clone, Derivative)]
 #[derivative(Debug)]

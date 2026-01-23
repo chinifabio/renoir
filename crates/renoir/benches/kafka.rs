@@ -1,12 +1,12 @@
 use std::time::Duration;
 
 use criterion::BenchmarkId;
-use criterion::{criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{Criterion, Throughput, criterion_group, criterion_main};
 use once_cell::sync::Lazy;
 use rand::{prelude::*, rng};
 
-use renoir::prelude::*;
 use renoir::kafka::*;
+use renoir::prelude::*;
 
 mod common;
 use common::*;

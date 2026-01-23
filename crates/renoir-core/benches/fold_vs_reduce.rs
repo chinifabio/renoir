@@ -1,6 +1,8 @@
-use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
+use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
+
+use std::hint::black_box;
 
 use renoir_core::operator::source::IteratorSource;
 use renoir_core::BatchMode;

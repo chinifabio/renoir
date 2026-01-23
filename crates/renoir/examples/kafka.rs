@@ -1,8 +1,8 @@
 // WARNING: KAFKA API IS EXPERIMENTAL
 
 use clap::Parser;
-use renoir::prelude::*;
 use renoir::kafka::*;
+use renoir::prelude::*;
 
 #[derive(Parser)]
 struct Options {

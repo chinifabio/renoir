@@ -6,7 +6,6 @@ pub use batcher::BatchMode;
 pub(crate) use batcher::Batcher;
 pub(crate) use graph_generator::*;
 pub use next_strategy::NextStrategy;
-pub(crate) use next_strategy::*;
 pub(crate) use structure::*;
 
 use crate::operator::iteration::IterationStateLock;
