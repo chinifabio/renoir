@@ -2,15 +2,15 @@ use std::fmt::Display;
 use std::sync::Arc;
 use std::time::Duration;
 
+use derivative::Derivative;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
 
-use crate::block::{BlockStructure, OperatorKind, OperatorStructure};
-
-use crate::operator::{Operator, StreamElement};
-use crate::scheduler::ExecutionMetadata;
-use crate::Stream;
+use renoir_core::block::structure::{BlockStructure, OperatorKind, OperatorStructure};
+use renoir_core::operator::{Operator, StreamElement};
+use renoir_core::scheduler::ExecutionMetadata;
+use renoir_core::Stream;
 
 #[derive(Clone, Derivative)]
 #[derivative(Debug)]
@@ -90,12 +90,20 @@ where
     }
 }
 
-impl<Op> Stream<Op>
+pub trait KafkaSinkExt<Op>
+where
+    Op: Operator,
+{
+    /// # WARNING: KAFKA API IS EXPERIMENTAL
+    fn write_kafka(self, producer_config: ClientConfig, topic: &str);
+}
+
+impl<Op> KafkaSinkExt<Op> for Stream<Op>
 where
     Op: Operator<Out: AsRef<[u8]>> + 'static,
 {
     /// # WARNING: KAFKA API IS EXPERIMENTAL
-    pub fn write_kafka(self, producer_config: ClientConfig, topic: &str) {
+    fn write_kafka(self, producer_config: ClientConfig, topic: &str) {
         let producer = producer_config
             .create::<FutureProducer>()
             .expect("failed to create kafka producer");

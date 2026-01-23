@@ -5,9 +5,8 @@ use std::hash::BuildHasherDefault;
 use std::str::FromStr;
 
 use kstring::KString;
-use rdkafka::config::RDKafkaLogLevel;
-use rdkafka::{ClientConfig, Message};
-use renoir_core::prelude::*;
+use renoir::prelude::*;
+use renoir::kafka::*;
 
 #[global_allocator]
 static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
@@ -34,7 +33,7 @@ fn main() {
         .set("enable.partition.eof", "false")
         .set("session.timeout.ms", "6000")
         .set("enable.auto.commit", "true")
-        .set_log_level(RDKafkaLogLevel::Info);
+        .set_log_level(KafkaLogLevel::Info);
 
     ctx.stream_kafka(
         consumer_config,

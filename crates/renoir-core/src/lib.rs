@@ -125,19 +125,19 @@ pub use scheduler::ExecutionMetadata;
 pub use stream::{KeyedStream, Stream, WindowedStream};
 
 pub mod block;
-pub(crate) mod channel;
+pub mod channel;
 pub mod config;
-pub(crate) mod environment;
-pub(crate) mod network;
+pub mod environment;
+pub mod network;
 pub mod operator;
 mod profiler;
 #[cfg(feature = "ssh")]
-pub(crate) mod runner;
-pub(crate) mod scheduler;
-pub(crate) mod stream;
+pub mod runner;
+pub mod scheduler;
+pub mod stream;
 #[cfg(test)]
-pub(crate) mod test;
-pub(crate) mod worker;
+pub mod test;
+pub mod worker;
 
 pub type CoordUInt = u64;
 

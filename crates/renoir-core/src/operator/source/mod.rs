@@ -8,8 +8,6 @@ pub use avro::*;
 pub use channel::*;
 pub use file::*;
 pub use iterator::*;
-#[cfg(feature = "rdkafka")]
-pub use kafka::*;
 pub use parallel_iterator::*;
 #[cfg(feature = "parquet")]
 pub use parquet::*;
@@ -24,8 +22,6 @@ mod channel;
 mod csv;
 mod file;
 mod iterator;
-#[cfg(feature = "rdkafka")]
-mod kafka;
 mod parallel_iterator;
 #[cfg(feature = "parquet")]
 mod parquet;

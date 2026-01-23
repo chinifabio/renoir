@@ -1,18 +1,19 @@
 use std::fmt::Display;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
+use derivative::Derivative;
 use flume::Receiver;
 use futures::StreamExt;
+use rdkafka::ClientConfig;
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::message::OwnedMessage;
-use rdkafka::ClientConfig;
 
-use crate::block::{BlockStructure, OperatorKind, OperatorStructure, Replication};
-use crate::operator::source::Source;
-use crate::operator::{Operator, StreamElement};
-use crate::scheduler::ExecutionMetadata;
-use crate::Stream;
+use renoir_core::block::structure::{BlockStructure, OperatorKind, OperatorStructure};
+use renoir_core::operator::source::Source;
+use renoir_core::operator::{Operator, StreamElement};
+use renoir_core::scheduler::ExecutionMetadata;
+use renoir_core::{Replication, Stream};
 
 enum KafkaSourceInner {
     Init {
@@ -186,7 +187,7 @@ impl Drop for KafkaSource {
     }
 }
 
-impl crate::StreamContext {
+pub trait KafkaSourceExt {
     /// Convenience method, creates a `KafkaSource` and makes a stream using `StreamContext::stream`
     ///
     /// See Examples
@@ -199,7 +200,28 @@ impl crate::StreamContext {
     /// stalling the computation. To solve this, reduce the replication.
     ///
     /// TODO: address this
-    pub fn stream_kafka(
+    fn stream_kafka(
+        &self,
+        client_config: ClientConfig,
+        topics: &[&str],
+        replication: Replication,
+    ) -> Stream<KafkaSource>;
+}
+
+impl KafkaSourceExt for renoir_core::StreamContext {
+    /// Convenience method, creates a `KafkaSource` and makes a stream using `StreamContext::stream`
+    ///
+    /// See Examples
+    ///
+    /// # WARNING: KAFKA API IS EXPERIMENTAL
+    ///
+    /// If replication is greater than `Replication::One` and timestamping logic
+    /// is being used, ensure that the number of kafka partitions receiving events
+    /// is greater than the number of replicas. Otherwise, watermarks may not be generated
+    /// stalling the computation. To solve this, reduce the replication.
+    ///
+    /// TODO: address this
+    fn stream_kafka(
         &self,
         client_config: ClientConfig,
         topics: &[&str],

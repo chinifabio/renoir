@@ -270,14 +270,14 @@ where
 
     /// Clone the given block, taking care of connecting the new block to the same previous blocks
     /// of the original one.
-    pub(crate) fn clone(&mut self) -> Self {
+    pub fn clone(&mut self) -> Self {
         let new_block = self.ctx.lock().clone_block(&self.block);
         Stream::new(self.ctx.clone(), new_block)
     }
 
     /// Like `add_block` but without creating a new block. Therefore this closes the current stream
     /// and just add the last block to the scheduler.
-    pub(crate) fn finalize_block(self)
+    pub fn finalize_block(self)
     where
         Op: 'static,
         Op::Out: Send,

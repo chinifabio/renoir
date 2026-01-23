@@ -1,8 +1,8 @@
 // WARNING: KAFKA API IS EXPERIMENTAL
 
 use clap::Parser;
-use rdkafka::{config::RDKafkaLogLevel, ClientConfig, Message};
-use renoir_core::prelude::*;
+use renoir::prelude::*;
+use renoir::kafka::*;
 
 #[derive(Parser)]
 struct Options {
@@ -28,7 +28,7 @@ async fn main() {
         .set("enable.partition.eof", "false")
         .set("session.timeout.ms", "6000")
         .set("enable.auto.commit", "true")
-        .set_log_level(RDKafkaLogLevel::Info);
+        .set_log_level(KafkaLogLevel::Info);
 
     ctx.stream_kafka(consumer_config, &["test1"], Replication::Unlimited)
         .map(|m| {

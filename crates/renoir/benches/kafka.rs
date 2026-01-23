@@ -1,10 +1,12 @@
+use std::time::Duration;
+
 use criterion::BenchmarkId;
 use criterion::{criterion_group, criterion_main, Criterion, Throughput};
 use once_cell::sync::Lazy;
 use rand::{prelude::*, rng};
-use rdkafka::ClientConfig;
-use renoir_core::prelude::*;
-use std::time::Duration;
+
+use renoir::prelude::*;
+use renoir::kafka::*;
 
 mod common;
 use common::*;
@@ -36,7 +38,7 @@ fn kafka_consume(ctx: &StreamContext, size: u64, topic: &str) {
         .set("auto.offset.reset", "earliest");
 
     ctx.stream_kafka(consumer_config, &[topic], Replication::One)
-        .limit(size as usize)
+        .limit(size as usize, None)
         .batch_mode(BatchMode::timed(1024, Duration::from_millis(100)))
         // .inspect(|x| eprintln!("dbg: {x:?}"))
         .map(|msg| {
