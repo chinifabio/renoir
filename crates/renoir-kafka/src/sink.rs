@@ -22,7 +22,7 @@ where
     #[derivative(Debug = "ignore")]
     producer: FutureProducer,
     topic: Arc<String>,
-    rt: tokio::runtime::Handle,
+    rt: Option<tokio::runtime::Handle>,
 }
 
 impl<Op> KafkaSink<Op>
@@ -34,7 +34,7 @@ where
             prev,
             producer,
             topic: Arc::new(topic),
-            rt: tokio::runtime::Handle::current(),
+            rt: None, // tokio::runtime::Handle::current(),
         }
     }
 }
@@ -57,6 +57,10 @@ where
 
     fn setup(&mut self, metadata: &mut ExecutionMetadata) {
         self.prev.setup(metadata);
+
+        if self.rt.is_none() {
+            self.rt = Some(tokio::runtime::Handle::current());
+        }
     }
 
     fn next(&mut self) -> StreamElement<()> {
@@ -66,7 +70,7 @@ where
                     let producer = self.producer.clone();
                     let topic = self.topic.clone();
 
-                    self.rt.spawn(async move {
+                    self.rt.as_ref().unwrap().spawn(async move {
                         let record = FutureRecord::to(&topic).key(&[]).payload(t.as_ref());
 
                         producer
