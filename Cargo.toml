@@ -2,7 +2,8 @@
 resolver = "2"
 members = [
     "crates/renoir",
-    "crates/renoir-core", "crates/renoir-kafka",
+    "crates/renoir-core",
+    "crates/renoir-kafka",
 ]
 
 [profile.release]

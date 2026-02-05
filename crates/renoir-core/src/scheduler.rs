@@ -9,7 +9,7 @@ use crate::config::{LocalConfig, RemoteConfig, RuntimeConfig};
 use crate::network::{Coord, NetworkTopology};
 use crate::operator::Operator;
 use crate::profiler::{log_trace, wait_profiler};
-use crate::worker::spawn_worker;
+use crate::worker::{spawn_worker, LocalSupervisor, WorkerResult, WorkerStatus};
 use crate::CoordUInt;
 
 /// Identifier of a block in the job graph.
@@ -19,8 +19,13 @@ pub type HostId = CoordUInt;
 /// The identifier of a replica of a block in the execution graph.
 pub type ReplicaId = CoordUInt;
 
-type BlockInitFn =
-    Box<dyn FnOnce(&mut ExecutionMetadata) -> (JoinHandle<()>, BlockStructure) + Send>;
+type BlockInitFn = Box<
+    dyn FnOnce(
+            &mut ExecutionMetadata,
+            flume::Sender<WorkerStatus>,
+        ) -> (JoinHandle<WorkerResult>, BlockStructure)
+        + Send,
+>;
 
 /// Metadata used to initialize a block at the start of an execution
 #[derive(Debug)]
@@ -120,10 +125,9 @@ impl Scheduler {
         self.block_info.insert(block_id, info);
 
         for (coord, block) in blocks {
-            // spawn the actual worker
             self.block_init.push((
                 coord,
-                Box::new(move |metadata| spawn_worker(block, metadata)),
+                Box::new(move |metadata, status_tx| spawn_worker(block, metadata, status_tx)),
             ));
         }
     }
@@ -148,7 +152,13 @@ impl Scheduler {
         self.prev_blocks.entry(to).or_default().push((from, typ));
     }
 
-    fn build_all(&mut self) -> (Vec<JoinHandle<()>>, Vec<(Coord, BlockStructure)>) {
+    fn build_all(
+        &mut self,
+    ) -> (
+        Vec<JoinHandle<WorkerResult>>,
+        Vec<(Coord, BlockStructure)>,
+        LocalSupervisor,
+    ) {
         self.build_execution_graph();
         self.network.build();
         self.network.log();
@@ -156,6 +166,9 @@ impl Scheduler {
         let mut join = vec![];
         let mut block_structures = vec![];
         let mut job_graph_generator = JobGraphGenerator::new();
+
+        let (status_tx, status_rx) = flume::bounded(self.block_init.len());
+        let worker_count = self.block_init.len();
 
         for (coord, init_fn) in self.block_init.drain(..) {
             let block_info = &self.block_info[&coord.block_id];
@@ -169,18 +182,23 @@ impl Scheduler {
                 network: &mut self.network,
                 batch_mode: block_info.batch_mode,
             };
-            let (handle, structure) = init_fn(&mut metadata);
+            let (handle, structure) = init_fn(&mut metadata, status_tx.clone());
             join.push(handle);
             block_structures.push((coord, structure.clone()));
             job_graph_generator.add_block(coord.block_id, structure);
         }
+
+        drop(status_tx);
 
         let job_graph = job_graph_generator.finalize();
         log::debug!("job graph:\n{}", job_graph);
 
         self.network.finalize();
 
-        (join, block_structures)
+        let check_interval = std::time::Duration::from_secs(30);
+        let supervisor = LocalSupervisor::new(status_rx, worker_count, check_interval);
+
+        (join, block_structures, supervisor)
     }
 
     #[cfg(feature = "tokio")]
@@ -198,17 +216,39 @@ impl Scheduler {
             self.block_info.len(),
         );
 
-        let (join, block_structures) = self.build_all();
+        let (join, block_structures, supervisor) = self.build_all();
 
-        let (_, join_result) = tokio::join!(
+        let (_, supervisor_result, join_result) = tokio::join!(
             self.network.stop_and_wait(),
+            tokio::spawn(async move {
+                match supervisor.monitor() {
+                    Ok(()) => {
+                        info!("All workers completed successfully");
+                    }
+                    Err(error_msg) => {
+                        error!("Worker failed: {}", error_msg);
+                        panic!("Execution failed: worker crashed: {}", error_msg);
+                    }
+                }
+            }),
             tokio::task::spawn_blocking(move || {
                 for handle in join {
-                    handle.join().expect("renoir worker thread failed");
+                    match handle.join() {
+                        Ok(Ok(())) => {
+                            debug!("Worker joined successfully");
+                        }
+                        Ok(Err(error)) => {
+                            error!("Worker returned error: {}", error);
+                        }
+                        Err(_) => {
+                            error!("Worker thread panicked");
+                        }
+                    }
                 }
             })
         );
 
+        supervisor_result.expect("Supervisor task panicked");
         join_result.expect("Could not join worker threads");
 
         log_trace(block_structures, wait_profiler());
@@ -258,10 +298,39 @@ impl Scheduler {
         #[cfg(not(feature = "tokio"))]
         {
             info!("starting execution ({} blocks)", block_count);
-            let (join, block_structures) = self.build_all();
+            let (join_handles, block_structures, supervisor) = self.build_all();
 
-            for handle in join {
-                handle.join().unwrap();
+            let supervisor_handle = std::thread::Builder::new()
+                .name("local-supervisor".to_string())
+                .spawn(move || supervisor.monitor())
+                .expect("Failed to spawn supervisor thread");
+
+            for (i, handle) in join_handles.into_iter().enumerate() {
+                match handle.join() {
+                    Ok(Ok(())) => {
+                        debug!("Worker {} joined successfully", i);
+                    }
+                    Ok(Err(error)) => {
+                        error!("Worker {} returned error: {}", i, error);
+                    }
+                    Err(_) => {
+                        error!("Worker {} thread panicked", i);
+                    }
+                }
+            }
+
+            match supervisor_handle.join() {
+                Ok(Ok(())) => {
+                    info!("All workers completed successfully");
+                }
+                Ok(Err(error_msg)) => {
+                    error!("Worker failed: {}", error_msg);
+                    panic!("Execution failed: worker crashed: {}", error_msg);
+                }
+                Err(_) => {
+                    error!("Supervisor thread panicked");
+                    panic!("Supervisor thread panicked");
+                }
             }
 
             self.network.stop_and_wait();

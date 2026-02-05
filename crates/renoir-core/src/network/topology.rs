@@ -60,7 +60,7 @@ struct SenderMetadata {
 
 /// This struct keeps track of the network topology, all the registered replicas and their
 /// connections.
-pub(crate) struct NetworkTopology {
+pub struct NetworkTopology {
     /// Configuration of the environment.
     config: Arc<RuntimeConfig>,
     /// All the registered receivers.

@@ -26,7 +26,7 @@ pub mod structure;
 /// `OperatorChain` is the type of the chain of operators inside the block. It must be an operator
 /// that yields values of type `Out`.
 #[derive(Debug)]
-pub(crate) struct Block<OperatorChain>
+pub struct Block<OperatorChain>
 where
     OperatorChain: Operator,
 {
