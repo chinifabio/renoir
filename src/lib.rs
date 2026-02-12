@@ -126,6 +126,7 @@ pub use stream::{KeyedStream, Stream, WindowedStream};
 
 pub mod block;
 pub(crate) mod channel;
+pub(crate) mod checkpointing;
 pub mod config;
 pub(crate) mod environment;
 pub(crate) mod network;
@@ -151,4 +152,5 @@ pub mod prelude {
     #[cfg(feature = "timestamp")]
     pub use crate::operator::window::{EventTimeWindow, TransactionWindow};
     pub use crate::StreamContext;
+    pub use crate::checkpointing::{CheckpointManager, StorageBackend};
 }

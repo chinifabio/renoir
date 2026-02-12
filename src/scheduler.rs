@@ -4,7 +4,10 @@ use std::fmt::Write;
 use std::sync::Arc;
 use std::thread::JoinHandle;
 
+use parking_lot::Mutex;
+
 use crate::block::{BatchMode, Block, BlockStructure, JobGraphGenerator, Replication};
+use crate::checkpointing::{CheckpointManager, CheckpointManagerRef};
 use crate::config::{LocalConfig, RemoteConfig, RuntimeConfig};
 use crate::network::{Coord, NetworkTopology};
 use crate::operator::Operator;
@@ -37,6 +40,8 @@ pub struct ExecutionMetadata<'a> {
     pub(crate) network: &'a mut NetworkTopology,
     /// The batching mode to use inside this block.
     pub batch_mode: BatchMode,
+    /// Global reference to the `CheckpointManager` of the execution.
+    pub checkpoint_manager: Option<CheckpointManagerRef>,
 }
 
 /// Information about a block in the job graph.
@@ -69,6 +74,8 @@ pub(crate) struct Scheduler {
     block_init: Vec<(Coord, BlockInitFn)>,
     /// The network topology that keeps track of all the connections inside the execution graph.
     network: NetworkTopology,
+    /// The checkpoint manager of the execution.
+    pub(crate) checkpoint_manager: Option<CheckpointManagerRef>,
 }
 
 impl Scheduler {
@@ -79,6 +86,7 @@ impl Scheduler {
             block_info: Default::default(),
             block_init: Default::default(),
             network: NetworkTopology::new(config.clone()),
+            checkpoint_manager: None,
             config,
         }
     }
@@ -168,6 +176,7 @@ impl Scheduler {
                 prev: self.network.prev(coord),
                 network: &mut self.network,
                 batch_mode: block_info.batch_mode,
+                checkpoint_manager: self.checkpoint_manager.clone(),
             };
             let (handle, structure) = init_fn(&mut metadata);
             join.push(handle);
@@ -436,6 +445,10 @@ impl Scheduler {
             batch_mode: block.batch_mode,
             is_only_one_strategy: block.is_only_one_strategy,
         }
+    }
+
+    pub fn with_checkpoint_manager(&mut self, checkpoint_manager: CheckpointManager) {
+        self.checkpoint_manager = Some(Arc::new(Mutex::new(checkpoint_manager)));
     }
 }
 
