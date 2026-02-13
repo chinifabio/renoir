@@ -153,4 +153,6 @@ pub mod prelude {
     pub use crate::operator::window::{EventTimeWindow, TransactionWindow};
     pub use crate::StreamContext;
     pub use crate::checkpointing::{CheckpointManager, StorageBackend};
+
+    pub use crate::operator::rich_map_resilient::CheckpointedFn;
 }

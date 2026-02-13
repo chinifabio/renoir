@@ -117,6 +117,7 @@ impl<T: ExchangeData> FakeNetworkTopology<T> {
             prev: self.prev.clone(),
             network: &mut self.topology,
             batch_mode: BatchMode::adaptive(100, Duration::from_millis(100)),
+            checkpoint_manager: None,
         }
     }
 

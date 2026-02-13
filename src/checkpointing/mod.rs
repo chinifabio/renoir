@@ -4,15 +4,10 @@ use parking_lot::Mutex;
 
 use crate::network::Coord;
 
-pub trait Checkpointable {
-    fn checkpoint(&self) -> bytes::Bytes;
-    fn restore(&mut self, data: &[u8]);
-}
-
 pub trait StorageBackend {
     fn name(&self) -> &str;
-    fn save(&self, key: &str, data: bytes::Bytes);
-    fn load(&self, key: &str) -> bytes::Bytes;
+    fn save(&self, key: &str, data: Vec<u8>);
+    fn load(&self, key: &str) -> Vec<u8>;
     fn delete(&self, key: &str);
 }
 
@@ -35,13 +30,11 @@ impl CheckpointManager {
         Self { storage }
     }
 
-    pub fn checkpoint(&mut self, coord: Coord, state: impl Checkpointable) {
-        let data = state.checkpoint();
-        self.storage.save(&coord.to_string(), data);
+    pub fn checkpoint(&mut self, coord: Coord, state: Vec<u8>) {
+        self.storage.save(&coord.to_string(), state);
     }
 
-    pub fn restore(&mut self, coord: Coord, state: &mut impl Checkpointable) {
-        let data = self.storage.load(&coord.to_string());
-        state.restore(&data);
+    pub fn restore(&mut self, coord: Coord) -> Vec<u8> {
+        self.storage.load(&coord.to_string())
     }
 }
