@@ -1,20 +1,24 @@
 use std::sync::Arc;
 
 use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
 
-use crate::network::Coord;
+use crate::{RuntimeConfig, network::Coord};
 
 pub trait StorageBackend {
+    fn from_config(config: Arc<RuntimeConfig>) -> Self;
     fn name(&self) -> &str;
-    fn save(&self, key: &str, data: Vec<u8>);
-    fn load(&self, key: &str) -> Vec<u8>;
+    fn save<I: Serialize>(&self, key: &str, data: &I);
+    fn load<O: for<'de> Deserialize<'de>>(&self, key: &str) -> Option<O>;
     fn delete(&self, key: &str);
 }
+
+pub type ActiveStorage = InMemoryStorage;
 
 pub type CheckpointManagerRef = Arc<Mutex<CheckpointManager>>;
 
 pub struct CheckpointManager {
-    storage: Box<dyn StorageBackend + Send + Sync>,
+    storage: ActiveStorage,
 }
 
 impl std::fmt::Debug for CheckpointManager {
@@ -26,15 +30,43 @@ impl std::fmt::Debug for CheckpointManager {
 }
 
 impl CheckpointManager {
-    pub fn new(storage: Box<dyn StorageBackend + Send + Sync>) -> Self {
-        Self { storage }
+    pub fn from(config: Arc<RuntimeConfig>) -> Self {
+        CheckpointManager {
+            storage: ActiveStorage::from_config(config),
+        }
     }
 
-    pub fn checkpoint(&mut self, coord: Coord, state: Vec<u8>) {
+    pub fn checkpoint<I: Serialize>(&mut self, coord: Coord, state: &I) {
         self.storage.save(&coord.to_string(), state);
     }
 
-    pub fn restore(&mut self, coord: Coord) -> Vec<u8> {
+    pub fn restore<O: for<'de> Deserialize<'de>>(&mut self, coord: Coord) -> Option<O> {
         self.storage.load(&coord.to_string())
+    }
+}
+
+pub struct InMemoryStorage;
+
+impl StorageBackend for InMemoryStorage {
+    fn from_config(_config: Arc<RuntimeConfig>) -> Self {
+        Self
+    }
+
+    fn name(&self) -> &str {
+        "InMemoryStorage"
+    }
+
+    fn save<I: Serialize>(&self, key: &str, data: &I) {
+        let serialized = serde_json::to_string(data).expect("Failed to serialize checkpoint");
+        println!("Saving checkpoint for {}: {}", key, serialized);
+    }
+
+    fn load<O: for<'de> Deserialize<'de>>(&self, key: &str) -> Option<O> {
+        println!("Loading checkpoint for {}", key);
+        None // No checkpoint available
+    }
+
+    fn delete(&self, key: &str) {
+        println!("Deleting checkpoint for {}", key);
     }
 }

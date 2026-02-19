@@ -4,7 +4,6 @@ use std::sync::Arc;
 
 use crate::block::BatchMode;
 use crate::block::{Block, Scheduling};
-use crate::checkpointing::CheckpointManager;
 use crate::config::RuntimeConfig;
 use crate::operator::iteration::IterationStateLock;
 use crate::operator::source::Source;
@@ -113,8 +112,8 @@ impl StreamContext {
         }
     }
 
-    pub fn with_checkpoint_manager(self, checkpoint_manager: CheckpointManager) -> Self {
-        self.inner.lock().scheduler_mut().with_checkpoint_manager(checkpoint_manager);
+    pub fn with_checkpoint_manager(self) -> Self {
+        self.inner.lock().scheduler_mut().with_checkpoint_manager();
         self
     }
 }

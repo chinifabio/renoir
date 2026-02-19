@@ -5,25 +5,30 @@ use std::marker::PhantomData;
 
 use serde::Serialize;
 
+use crate::{KeyedStream, Stream};
 use crate::block::{BlockStructure, OperatorStructure};
 use crate::checkpointing::CheckpointManagerRef;
 use crate::network::Coord;
-use crate::operator::{DataKey, Operator, StreamElement, Timestamp};
+use crate::operator::{Data, DataKey, ExchangeData, ExchangeDataKey, Operator, StreamElement, Timestamp};
 use crate::scheduler::ExecutionMetadata;
 
 pub trait CheckpointedFn<K, I, O>: Clone + Send {
+    type State: Serialize + for<'de> serde::Deserialize<'de> + Send;
+
     fn process(&mut self, input: I) -> O;
     fn process_keyed(&mut self, input: (&K, I)) -> O {
         self.process(input.1)
     }
-    fn snapshot(&self) -> Vec<u8>;
-    fn restore(&mut self, snapshot: Vec<u8>);
+    fn snapshot(&self) -> Self::State;
+    fn restore(&mut self, snapshot: Self::State);
 }
 
 /// Blanket implementation: Treat all keyed FnMut closures as "stateless" operators
 impl<K, I, O, F> CheckpointedFn<K, I, O> for F 
 where F: FnMut((&K, I)) -> O + Clone + Send
 {
+    type State = ();
+
     fn process(&mut self, _input: I) -> O {
         panic!("This is a keyless operation");
     }
@@ -32,11 +37,11 @@ where F: FnMut((&K, I)) -> O + Clone + Send
         (self)(input)
     }
 
-    fn snapshot(&self) -> Vec<u8> {
-        Vec::new()
+    fn snapshot(&self) -> Self::State {
+        // No state to snapshot
     }
 
-    fn restore(&mut self, _snapshot: Vec<u8>) {
+    fn restore(&mut self, _snapshot: Self::State) {
         // No state to restore
     }
 }
@@ -44,6 +49,8 @@ where F: FnMut((&K, I)) -> O + Clone + Send
 #[derive(Debug)]
 pub struct RichMapResilient<K, I, O, F, OperatorChain>
 where
+    K: ExchangeDataKey,
+    I: ExchangeData,
     F: CheckpointedFn<K, I, O>,
     OperatorChain: Operator<Out = (K, I)>,
 {
@@ -57,8 +64,10 @@ where
     _o: PhantomData<O>,
 }
 
-impl<K: DataKey, I, O, F: Clone, OperatorChain: Clone> Clone for RichMapResilient<K, I, O, F, OperatorChain>
+impl<K, I, O, F: Clone, OperatorChain: Clone> Clone for RichMapResilient<K, I, O, F, OperatorChain>
 where
+    K: ExchangeDataKey,
+    I: ExchangeData,
     F: CheckpointedFn<K, I, O>,
     OperatorChain: Operator<Out = (K, I)>,
 {
@@ -76,8 +85,10 @@ where
     }
 }
 
-impl<K: DataKey, I: Send, O: Send, F, OperatorChain> Display for RichMapResilient<K, I, O, F, OperatorChain>
+impl<K, I: Send, O: Send, F, OperatorChain> Display for RichMapResilient<K, I, O, F, OperatorChain>
 where
+    K: ExchangeDataKey,
+    I: ExchangeData,
     F: CheckpointedFn<K, I, O>,
     OperatorChain: Operator<Out = (K, I)>,
 {
@@ -92,8 +103,10 @@ where
     }
 }
 
-impl<K: DataKey, I: Send, O: Send, F, OperatorChain> RichMapResilient<K, I, O, F, OperatorChain>
+impl<K, I: Send, O: Send, F, OperatorChain> RichMapResilient<K, I, O, F, OperatorChain>
 where
+    K: ExchangeDataKey,
+    I: ExchangeData,
     F: CheckpointedFn<K, I, O>,
     OperatorChain: Operator<Out = (K, I)>,
 {
@@ -111,10 +124,10 @@ where
     }
 }
 
-impl<K: DataKey + Serialize, I: Send, O: Send, F, OperatorChain> Operator for RichMapResilient<K, I, O, F, OperatorChain>
+impl<K, I, O: Send, F, OperatorChain> Operator for RichMapResilient<K, I, O, F, OperatorChain>
 where
-    K: DataKey,
-    I: Send,
+    K: ExchangeDataKey,
+    I: ExchangeData,
     O: Send,
     F: CheckpointedFn<K, I, O>,
     OperatorChain: Operator<Out = (K, I)>,
@@ -128,6 +141,20 @@ where
         }
         self.checkpoint_manager = metadata.checkpoint_manager.clone();
         self.coord = Some(metadata.coord);
+
+        // Attempt to restore state from the checkpoint manager
+        if let Some(checkpoint_manager) = &self.checkpoint_manager {
+            if let Some(coord) = self.coord {
+                if let Some(state) = checkpoint_manager.lock().restore::<Vec<(K, F::State)>> (coord) {
+                    log::info!("Restoring state for RichMapResilient operator at coord {}", coord);
+                    for (key, snapshot) in state {
+                        let mut map_fn = self.init_map.clone();
+                        map_fn.restore(snapshot);
+                        self.maps_fn.insert(key, map_fn);
+                    }
+                }
+            }
+        }
     }
 
     #[inline]
@@ -147,14 +174,8 @@ where
                         (key, snapshot)
                     })
                     .collect::<Vec<_>>();
-                
-                // Serialize the collection of states
-                let serialized = bincode::serde::encode_to_vec(&state, bincode::config::standard())
-                    .expect("Failed to serialize checkpoint state");
-                
-                // Store via checkpoint manager
                 self.checkpoint_manager.as_ref().unwrap().lock()
-                    .checkpoint(self.coord.unwrap(), serialized);
+                    .checkpoint(self.coord.unwrap(), &state);
                 
                 self.last_checkpoint_ts = Some(t);
             }
@@ -281,5 +302,36 @@ where
         self.prev
             .structure()
             .add_operator(OperatorStructure::new::<O, _>("RichMapTransient"))
+    }
+}
+
+impl<Op> Stream<Op>
+where 
+    Op: Operator + 'static,
+    Op::Out: ExchangeData,
+{
+    pub fn rich_map_resilient<O, F>(self, f: F) -> Stream<impl Operator<Out = O>>
+    where
+        F: CheckpointedFn<(), Op::Out, O> + 'static,
+        O: Send + 'static,
+    {
+        self.key_by(|_| ())
+            .add_operator(|prev| RichMapResilient::new(prev, f))
+            .drop_key()
+    }
+}
+
+impl<K, I, Op> KeyedStream<Op>
+where
+    Op: Operator<Out = (K, I)> + 'static,
+    K: ExchangeDataKey,
+    I: ExchangeData,
+{
+    pub fn rich_map_resilient<O, F>(self, f: F) -> KeyedStream<impl Operator<Out = (K, O)>>
+    where
+        F: FnMut((&K, I)) -> O + Clone + Send + 'static,
+        O: Data,
+    {
+        self.add_operator(|prev| RichMapResilient::new(prev, f))
     }
 }

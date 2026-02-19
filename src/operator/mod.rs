@@ -22,7 +22,6 @@ pub use rich_map_custom::ElementGenerator;
 
 use crate::block::{group_by_hash, BlockStructure, GroupHasherBuilder, NextStrategy, Replication};
 use crate::operator::rich_map::RichMapTransient;
-use crate::operator::rich_map_resilient::{CheckpointedFn, RichMapResilient};
 use crate::scheduler::ExecutionMetadata;
 
 use crate::block::BatchMode;
@@ -531,16 +530,6 @@ where
     {
         self.key_by(|_| ())
             .add_operator(|prev| RichMap::new(prev, move |(_, value)| f(value)))
-            .drop_key()
-    }
-
-    pub fn rich_map_resilient<O, F>(self, f: F) -> Stream<impl Operator<Out = O>>
-    where
-        F: CheckpointedFn<(), Op::Out, O> + 'static,
-        O: Send + 'static,
-    {
-        self.key_by(|_| ())
-            .add_operator(|prev| RichMapResilient::new(prev, f))
             .drop_key()
     }
 

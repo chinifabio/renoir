@@ -447,7 +447,8 @@ impl Scheduler {
         }
     }
 
-    pub fn with_checkpoint_manager(&mut self, checkpoint_manager: CheckpointManager) {
+    pub fn with_checkpoint_manager(&mut self) {
+        let checkpoint_manager = CheckpointManager::from(self.config.clone());
         self.checkpoint_manager = Some(Arc::new(Mutex::new(checkpoint_manager)));
     }
 }
