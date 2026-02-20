@@ -23,19 +23,18 @@ impl CheckpointedFn<(), i32, i32> for StatefulMapper {
 }
 
 fn main() {
+    env_logger::init();
+
     let ctx = StreamContext::new_local();
 
     ctx.stream_par_iter(0..100)
-        .add_timestamps(|&n| n as Timestamp, |&n, &ts| if n % 2 == 0 { Some(ts) } else { None })
-        // .rich_map_resilient({
-        //     let mut state = 0;
-        //     move |(_key, o): (&(), i32)| {
-        //         state += 1;
-        //         o + state
-        //     }
-        // })
+        .add_timestamps(
+            |&n| n as Timestamp,
+            |&n, &ts| if n % 2 == 0 { Some(ts) } else { None },
+        )
         .rich_map_resilient(StatefulMapper { state: 0 })
-        .for_each(|i| println!("Received: {i}"));
+        .filter(|i| i % 10 == 0)
+        .for_each(|i| log::info!("Received: {i}"));
 
     ctx.with_checkpoint_manager().execute_blocking();
 }

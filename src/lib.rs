@@ -134,6 +134,7 @@ pub mod operator;
 mod profiler;
 #[cfg(feature = "ssh")]
 pub(crate) mod runner;
+pub(crate) mod runtime;
 pub(crate) mod scheduler;
 pub(crate) mod stream;
 #[cfg(test)]
@@ -145,6 +146,7 @@ pub type CoordUInt = u64;
 /// Re-export of commonly used structs and traits
 pub mod prelude {
     pub use crate::block::{BatchMode, Replication};
+    pub use crate::checkpointing::{CheckpointManager, StorageBackend};
     pub use crate::config::RuntimeConfig;
     pub use crate::operator::sink::StreamOutput;
     pub use crate::operator::source::*;
@@ -152,7 +154,6 @@ pub mod prelude {
     #[cfg(feature = "timestamp")]
     pub use crate::operator::window::{EventTimeWindow, TransactionWindow};
     pub use crate::StreamContext;
-    pub use crate::checkpointing::{CheckpointManager, StorageBackend};
 
     pub use crate::operator::rich_map_resilient::CheckpointedFn;
 }

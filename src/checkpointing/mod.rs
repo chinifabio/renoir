@@ -3,7 +3,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
-use crate::{RuntimeConfig, network::Coord};
+use crate::{network::Coord, RuntimeConfig};
 
 pub trait StorageBackend {
     fn from_config(config: Arc<RuntimeConfig>) -> Self;
@@ -58,15 +58,15 @@ impl StorageBackend for InMemoryStorage {
 
     fn save<I: Serialize>(&self, key: &str, data: &I) {
         let serialized = serde_json::to_string(data).expect("Failed to serialize checkpoint");
-        println!("Saving checkpoint for {}: {}", key, serialized);
+        log::debug!("Saving checkpoint for {}: {}", key, serialized);
     }
 
     fn load<O: for<'de> Deserialize<'de>>(&self, key: &str) -> Option<O> {
-        println!("Loading checkpoint for {}", key);
+        log::debug!("Loading checkpoint for {}", key);
         None // No checkpoint available
     }
 
     fn delete(&self, key: &str) {
-        println!("Deleting checkpoint for {}", key);
+        log::debug!("Deleting checkpoint for {}", key);
     }
 }

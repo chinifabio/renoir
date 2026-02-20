@@ -5,12 +5,14 @@ use std::marker::PhantomData;
 
 use serde::Serialize;
 
-use crate::{KeyedStream, Stream};
 use crate::block::{BlockStructure, OperatorStructure};
 use crate::checkpointing::CheckpointManagerRef;
 use crate::network::Coord;
-use crate::operator::{Data, DataKey, ExchangeData, ExchangeDataKey, Operator, StreamElement, Timestamp};
+use crate::operator::{
+    Data, DataKey, ExchangeData, ExchangeDataKey, Operator, StreamElement, Timestamp,
+};
 use crate::scheduler::ExecutionMetadata;
+use crate::{KeyedStream, Stream};
 
 pub trait CheckpointedFn<K, I, O>: Clone + Send {
     type State: Serialize + for<'de> serde::Deserialize<'de> + Send;
@@ -24,8 +26,9 @@ pub trait CheckpointedFn<K, I, O>: Clone + Send {
 }
 
 /// Blanket implementation: Treat all keyed FnMut closures as "stateless" operators
-impl<K, I, O, F> CheckpointedFn<K, I, O> for F 
-where F: FnMut((&K, I)) -> O + Clone + Send
+impl<K, I, O, F> CheckpointedFn<K, I, O> for F
+where
+    F: FnMut((&K, I)) -> O + Clone + Send,
 {
     type State = ();
 
@@ -145,8 +148,14 @@ where
         // Attempt to restore state from the checkpoint manager
         if let Some(checkpoint_manager) = &self.checkpoint_manager {
             if let Some(coord) = self.coord {
-                if let Some(state) = checkpoint_manager.lock().restore::<Vec<(K, F::State)>> (coord) {
-                    log::info!("Restoring state for RichMapResilient operator at coord {}", coord);
+                if let Some(state) = checkpoint_manager
+                    .lock()
+                    .restore::<Vec<(K, F::State)>>(coord)
+                {
+                    log::info!(
+                        "Restoring state for RichMapResilient operator at coord {}",
+                        coord
+                    );
                     for (key, snapshot) in state {
                         let mut map_fn = self.init_map.clone();
                         map_fn.restore(snapshot);
@@ -168,15 +177,20 @@ where
             if do_checkpoint {
                 log::info!("Checkpointing at timestamp {}", t);
                 // Collect state snapshots from all map functions
-                let state = self.maps_fn.iter()
+                let state = self
+                    .maps_fn
+                    .iter()
                     .map(|(key, map_fn)| {
                         let snapshot = map_fn.snapshot();
                         (key, snapshot)
                     })
                     .collect::<Vec<_>>();
-                self.checkpoint_manager.as_ref().unwrap().lock()
+                self.checkpoint_manager
+                    .as_ref()
+                    .unwrap()
+                    .lock()
                     .checkpoint(self.coord.unwrap(), &state);
-                
+
                 self.last_checkpoint_ts = Some(t);
             }
         }
@@ -306,7 +320,7 @@ where
 }
 
 impl<Op> Stream<Op>
-where 
+where
     Op: Operator + 'static,
     Op::Out: ExchangeData,
 {
