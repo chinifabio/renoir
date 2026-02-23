@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, atomic::AtomicBool};
 
 use futures::SinkExt;
 use tokio_util::{bytes::Bytes, codec::{Framed, LengthDelimitedCodec}};
@@ -6,20 +6,23 @@ use tokio_util::{bytes::Bytes, codec::{Framed, LengthDelimitedCodec}};
 use crate::{RuntimeConfig, config::MonitoringConfig, runtime::{BINCODE_CONFIG, WorkerExecutionMessage}, worker::{WorkerResult, WorkerStatus}};
 
 /// Local supervisor that monitors workers on this host
-pub struct ExecutionMonitor {
+pub struct LocalSupervisor {
     /// Receiver for worker status updates
     status_rx: flume::Receiver<WorkerStatus>,
     /// Number of active workers
     active_workers: usize,
     /// Configuration for monitoring intervals
     config: Option<MonitoringConfig>,
+    /// Flag to signal termination of execution
+    terminate_flag: Arc<AtomicBool>,
 }
 
-impl ExecutionMonitor {
+impl LocalSupervisor {
     pub fn new(
         status_rx: flume::Receiver<WorkerStatus>,
         worker_count: usize,
         config: Arc<RuntimeConfig>,
+        terminate_flag: Arc<AtomicBool>,
     ) -> Self {
         let config = match &*config {
             RuntimeConfig::Local(_) => None,
@@ -29,6 +32,7 @@ impl ExecutionMonitor {
             status_rx,
             active_workers: worker_count,
             config,
+            terminate_flag,
         }
     }
 

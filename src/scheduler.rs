@@ -2,6 +2,7 @@ use std::any::TypeId;
 use std::collections::HashMap;
 use std::fmt::Write;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::thread::JoinHandle;
 
 use parking_lot::Mutex;
@@ -12,7 +13,7 @@ use crate::config::{LocalConfig, RemoteConfig, RuntimeConfig};
 use crate::network::{Coord, NetworkTopology};
 use crate::operator::Operator;
 use crate::profiler::{log_trace, wait_profiler};
-use crate::runtime::execution_monitor::ExecutionMonitor;
+use crate::runtime::execution_monitor::LocalSupervisor;
 use crate::worker::{spawn_worker, WorkerResult, WorkerStatus};
 use crate::CoordUInt;
 
@@ -27,6 +28,7 @@ type BlockInitFn = Box<
     dyn FnOnce(
             &mut ExecutionMetadata,
             flume::Sender<WorkerStatus>,
+            Arc<AtomicBool>,
         ) -> (JoinHandle<WorkerResult>, BlockStructure)
         + Send,
 >;
@@ -137,7 +139,7 @@ impl Scheduler {
             // spawn the actual worker
             self.block_init.push((
                 coord,
-                Box::new(move |metadata, status_tx| spawn_worker(block, metadata, status_tx)),
+                Box::new(move |metadata, status_tx, terminate_flag| spawn_worker(block, metadata, status_tx, terminate_flag)),
             ));
         }
     }
@@ -167,7 +169,7 @@ impl Scheduler {
     ) -> (
         Vec<JoinHandle<WorkerResult>>,
         Vec<(Coord, BlockStructure)>,
-        ExecutionMonitor,
+        LocalSupervisor,
     ) {
         self.build_execution_graph();
         self.network.build();
@@ -179,6 +181,7 @@ impl Scheduler {
 
         let (status_tx, status_rx) = flume::bounded(self.block_init.len());
         let worker_count = self.block_init.len();
+        let terminate_flag = Arc::new(AtomicBool::new(false));
 
         for (coord, init_fn) in self.block_init.drain(..) {
             let block_info = &self.block_info[&coord.block_id];
@@ -193,7 +196,7 @@ impl Scheduler {
                 batch_mode: block_info.batch_mode,
                 checkpoint_manager: self.checkpoint_manager.clone(),
             };
-            let (handle, structure) = init_fn(&mut metadata, status_tx.clone());
+            let (handle, structure) = init_fn(&mut metadata, status_tx.clone(), terminate_flag.clone());
             join.push(handle);
             block_structures.push((coord, structure.clone()));
             job_graph_generator.add_block(coord.block_id, structure);
@@ -206,7 +209,7 @@ impl Scheduler {
 
         self.network.finalize();
 
-        let supervisor = ExecutionMonitor::new(status_rx, worker_count, self.config.clone());
+        let supervisor = LocalSupervisor::new(status_rx, worker_count, self.config.clone(), terminate_flag);
 
         (join, block_structures, supervisor)
     }

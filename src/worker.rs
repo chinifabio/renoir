@@ -1,4 +1,6 @@
 use std::cell::RefCell;
+use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::thread::JoinHandle;
 
 use crate::block::{Block, BlockStructure};
@@ -37,6 +39,7 @@ pub(crate) fn spawn_worker<OperatorChain>(
     mut block: Block<OperatorChain>,
     metadata: &mut ExecutionMetadata,
     status_tx: flume::Sender<WorkerStatus>,
+    terminate_flag: Arc<AtomicBool>,
 ) -> (JoinHandle<WorkerResult>, BlockStructure)
 where
     OperatorChain: Operator + 'static,
@@ -54,7 +57,7 @@ where
         .spawn(move || {
             // remember in the thread-local the coordinate of this block
             COORD.with(|x| *x.borrow_mut() = Some(coord));
-            do_work(block, coord, status_tx)
+            do_work(block, coord, status_tx, terminate_flag)
         })
         .unwrap();
 
@@ -65,10 +68,13 @@ fn do_work<Op: Operator>(
     mut block: Block<Op>,
     coord: Coord,
     status_tx: flume::Sender<WorkerStatus>,
+    terminate_flag: Arc<AtomicBool>,
 ) -> WorkerResult {
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         while !matches!(block.operators.next(), StreamElement::Terminate) {
-            // nothing to do
+            if terminate_flag.load(std::sync::atomic::Ordering::Relaxed) {
+                break;
+            }
         }
     }));
 
