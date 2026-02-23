@@ -123,6 +123,8 @@ pub struct RemoteConfig {
     /// Remove remote binaries after execution
     #[serde(default)]
     pub cleanup_executable: bool,
+    /// Configuration for the monitoring
+    pub monitoring: Option<MonitoringConfig>,
 }
 
 /// The configuration of a single remote host.
@@ -188,6 +190,30 @@ impl std::fmt::Debug for SSHConfig {
         }
 
         d.finish()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct MonitoringConfig {
+    /// The interval at which the monitoring data is collected, in seconds.
+    pub collection_interval: u64,
+    /// Binding address for the monitoring server
+    #[serde(default = "monitoring_default_bind_address")]
+    pub bind_address: String,
+    /// Port for the monitoring server
+    pub port: u16,
+    /// The address of the coordinator to send the workers monitoring data to.
+    pub coordinator_address: String,
+}
+
+impl Default for MonitoringConfig {
+    fn default() -> Self {
+        Self {
+            collection_interval: 30,
+            bind_address: monitoring_default_bind_address(),
+            port: 0,
+            coordinator_address: "127.0.0.1".into(),
+        }
     }
 }
 
@@ -304,6 +330,7 @@ pub struct ConfigBuilder {
     hosts: Vec<HostConfig>,
     tracing_dir: Option<PathBuf>,
     cleanup_executable: bool,
+    monitoring: Option<MonitoringConfig>,
 }
 
 impl ConfigBuilder {
@@ -323,6 +350,7 @@ impl ConfigBuilder {
             hosts: Vec::new(),
             tracing_dir: None,
             cleanup_executable: false,
+            monitoring: None,
         }
     }
     /// Parse toml and integrate it in the builder.
@@ -334,6 +362,7 @@ impl ConfigBuilder {
             hosts,
             tracing_dir,
             cleanup_executable,
+            monitoring,
         } = toml::from_str(config_str)?;
 
         // validate the configuration
@@ -348,6 +377,7 @@ impl ConfigBuilder {
         }
         self.tracing_dir = self.tracing_dir.take().or(tracing_dir);
         self.cleanup_executable |= cleanup_executable;
+        self.monitoring = self.monitoring.take().or(monitoring);
 
         Ok(self)
     }
@@ -402,6 +432,7 @@ impl ConfigBuilder {
             hosts: self.hosts.clone(),
             tracing_dir: self.tracing_dir.clone(),
             cleanup_executable: self.cleanup_executable,
+            monitoring: self.monitoring.clone(),
         });
         Ok(conf)
     }
@@ -410,6 +441,11 @@ impl ConfigBuilder {
 /// Default port for ssh, used by the serde default value.
 fn ssh_default_port() -> u16 {
     22
+}
+
+/// Default bind address for monitoring, used by the serde default value.
+fn monitoring_default_bind_address() -> String {
+    "0.0.0.0".to_string()
 }
 
 #[derive(Debug, thiserror::Error)]

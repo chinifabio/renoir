@@ -139,6 +139,7 @@ pub(crate) mod scheduler;
 pub(crate) mod stream;
 #[cfg(test)]
 pub(crate) mod test;
+pub(crate) mod utils;
 pub(crate) mod worker;
 
 pub type CoordUInt = u64;

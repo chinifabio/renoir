@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use renoir::{operator::Timestamp, prelude::*};
 
 #[derive(Clone)]
@@ -25,9 +27,15 @@ impl CheckpointedFn<(), i32, i32> for StatefulMapper {
 fn main() {
     env_logger::init();
 
-    let ctx = StreamContext::new_local();
+    let (config, _) = RuntimeConfig::from_args();
+    config.spawn_remote_workers();
+    let ctx = StreamContext::new(config);
 
     ctx.stream_par_iter(0..100)
+        .map(|e| {
+            std::thread::sleep(Duration::from_secs(10));
+            e
+        })
         .add_timestamps(
             |&n| n as Timestamp,
             |&n, &ts| if n % 2 == 0 { Some(ts) } else { None },

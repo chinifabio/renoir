@@ -21,7 +21,8 @@ mod ssh2;
 use ssh2::remote_worker;
 
 /// Execution results returned by a remote worker.
-struct HostExecutionResult {
+#[derive(Default)]
+pub(crate) struct HostExecutionResult {
     /// Tracing data if renoir is compiled with tracing enabled.
     tracing: Option<TracingData>,
     /// Time spent for sending the binary file to the remote worker.
@@ -61,12 +62,30 @@ pub(crate) fn spawn_remote_workers(config: RemoteConfig) {
         return;
     }
 
+    #[cfg(feature = "tokio")]
+    let maybe_monitor = config.monitoring.as_ref().map(|monitoring| {
+        log::info!(
+            "Monitoring enabled: bind address {}, port {}, collection interval {}s",
+            monitoring.bind_address, monitoring.port, monitoring.collection_interval
+        );
+
+        crate::runtime::job_manager::start_monitoring_server(monitoring, config.hosts.len())
+    });
+    #[cfg(not(feature = "tokio"))]
+    let maybe_monitor = config.monitoring.as_ref().and_then(|_| {
+        log::error!("Monitoring is not enabled because the `tokio` feature is not enabled");
+        None
+    });
+
     // from now we are sure this is the process that should spawn the remote workers
     info!("starting {} remote workers", config.hosts.len());
 
     let start = Instant::now();
     let exe_hash = executable_hash();
     let mut join_handles = Vec::new();
+    if let Some(handle) = maybe_monitor {
+        join_handles.push(handle);
+    }
     let mut host_dup: HashMap<String, usize> = HashMap::new(); // Used to detect deployments with replicated host
     for (host_id, host) in config.hosts.iter().enumerate() {
         let mut exe_uid = exe_hash.clone();

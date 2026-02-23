@@ -206,8 +206,7 @@ impl Scheduler {
 
         self.network.finalize();
 
-        let check_interval = std::time::Duration::from_secs(30);
-        let supervisor = ExecutionMonitor::new(status_rx, worker_count, check_interval);
+        let supervisor = ExecutionMonitor::new(status_rx, worker_count, self.config.clone());
 
         (join, block_structures, supervisor)
     }
@@ -232,7 +231,7 @@ impl Scheduler {
         let (_, supervisor_result, join_result) = tokio::join!(
             self.network.stop_and_wait(),
             tokio::spawn(async move {
-                match supervisor.monitor() {
+                match supervisor.monitor().await {
                     Ok(()) => {
                         info!("All workers completed successfully");
                     }
@@ -313,7 +312,7 @@ impl Scheduler {
 
             let supervisor_handle = std::thread::Builder::new()
                 .name("local-supervisor".to_string())
-                .spawn(move || supervisor.monitor())
+                .spawn(move || supervisor.monitor_sync())
                 .expect("Failed to spawn supervisor thread");
 
             for (i, handle) in join_handles.into_iter().enumerate() {

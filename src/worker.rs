@@ -14,7 +14,7 @@ thread_local! {
 }
 
 /// Status updates that workers send to the local supervisor
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum WorkerStatus {
     /// Worker completed successfully
     Completed(Coord),
