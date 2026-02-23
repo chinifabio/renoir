@@ -129,17 +129,16 @@ pub(crate) mod channel;
 pub(crate) mod checkpointing;
 pub mod config;
 pub(crate) mod environment;
+pub(crate) mod monitoring;
 pub(crate) mod network;
 pub mod operator;
 mod profiler;
 #[cfg(feature = "ssh")]
 pub(crate) mod runner;
-pub(crate) mod runtime;
 pub(crate) mod scheduler;
 pub(crate) mod stream;
 #[cfg(test)]
 pub(crate) mod test;
-pub(crate) mod utils;
 pub(crate) mod worker;
 
 pub type CoordUInt = u64;

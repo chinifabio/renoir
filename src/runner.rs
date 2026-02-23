@@ -69,7 +69,7 @@ pub(crate) fn spawn_remote_workers(config: RemoteConfig) {
             monitoring.bind_address, monitoring.port, monitoring.collection_interval
         );
 
-        crate::runtime::job_manager::start_monitoring_server(monitoring, config.hosts.len())
+        crate::monitoring::remote::start_coordinator_service(monitoring, config.hosts.len())
     });
     #[cfg(not(feature = "tokio"))]
     let maybe_monitor = config.monitoring.as_ref().and_then(|_| {

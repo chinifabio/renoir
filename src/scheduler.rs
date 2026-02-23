@@ -13,7 +13,7 @@ use crate::config::{LocalConfig, RemoteConfig, RuntimeConfig};
 use crate::network::{Coord, NetworkTopology};
 use crate::operator::Operator;
 use crate::profiler::{log_trace, wait_profiler};
-use crate::runtime::execution_monitor::LocalSupervisor;
+use crate::monitoring::local::LocalSupervisor;
 use crate::worker::{spawn_worker, WorkerResult, WorkerStatus};
 use crate::CoordUInt;
 
@@ -209,7 +209,7 @@ impl Scheduler {
 
         self.network.finalize();
 
-        let supervisor = LocalSupervisor::new(status_rx, worker_count, self.config.clone(), terminate_flag);
+        let supervisor = LocalSupervisor::new(status_rx, worker_count, terminate_flag);
 
         (join, block_structures, supervisor)
     }
@@ -231,13 +231,20 @@ impl Scheduler {
 
         let (join, block_structures, supervisor) = self.build_all();
 
+        let config = self.config.clone();
         let (_, supervisor_result, join_result) = tokio::join!(
             self.network.stop_and_wait(),
             tokio::spawn(async move {
-                match supervisor.monitor().await {
-                    Ok(()) => {
-                        info!("All workers completed successfully");
+                let out = match &*config {
+                    RuntimeConfig::Local(_) | RuntimeConfig::Remote(RemoteConfig { monitoring: None, .. }) => {
+                        supervisor.run_local()
                     }
+                    RuntimeConfig::Remote(RemoteConfig { monitoring: Some(monitoring_config), .. }) => {
+                        supervisor.run_remote(monitoring_config).await
+                    }
+                };
+                match out {
+                    Ok(()) => info!("All workers completed successfully"),
                     Err(error_msg) => {
                         error!("Worker failed: {}", error_msg);
                         panic!("Execution failed: worker crashed: {}", error_msg);
@@ -315,7 +322,7 @@ impl Scheduler {
 
             let supervisor_handle = std::thread::Builder::new()
                 .name("local-supervisor".to_string())
-                .spawn(move || supervisor.monitor_sync())
+                .spawn(move || supervisor.run_local())
                 .expect("Failed to spawn supervisor thread");
 
             for (i, handle) in join_handles.into_iter().enumerate() {
