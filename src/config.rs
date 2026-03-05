@@ -114,7 +114,7 @@ pub struct LocalConfig {
 pub struct RemoteConfig {
     /// The identifier for this host.
     #[serde(skip)]
-    host_id: Option<HostId>, // TODO: remove option
+    pub host_id: Option<HostId>, // TODO: remove option
     /// The set of remote hosts to use.
     #[serde(rename = "host")]
     pub hosts: Vec<HostConfig>,

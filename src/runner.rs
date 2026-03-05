@@ -62,20 +62,7 @@ pub(crate) fn spawn_remote_workers(config: RemoteConfig) {
         return;
     }
 
-    #[cfg(feature = "tokio")]
-    let maybe_monitor = config.monitoring.as_ref().map(|monitoring| {
-        log::info!(
-            "Monitoring enabled: bind address {}, port {}, collection interval {}s",
-            monitoring.bind_address, monitoring.port, monitoring.collection_interval
-        );
-
-        crate::monitoring::remote::start_coordinator_service(monitoring, config.hosts.len())
-    });
-    #[cfg(not(feature = "tokio"))]
-    let maybe_monitor = config.monitoring.as_ref().and_then(|_| {
-        log::error!("Monitoring is not enabled because the `tokio` feature is not enabled");
-        None
-    });
+    let coordinator = crate::monitoring::get_coordinator_handle(&config);
 
     // from now we are sure this is the process that should spawn the remote workers
     info!("starting {} remote workers", config.hosts.len());
@@ -83,7 +70,7 @@ pub(crate) fn spawn_remote_workers(config: RemoteConfig) {
     let start = Instant::now();
     let exe_hash = executable_hash();
     let mut join_handles = Vec::new();
-    if let Some(handle) = maybe_monitor {
+    if let Some(handle) = coordinator {
         join_handles.push(handle);
     }
     let mut host_dup: HashMap<String, usize> = HashMap::new(); // Used to detect deployments with replicated host

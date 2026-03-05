@@ -23,6 +23,7 @@ profiler = []
 parquet = ["dep:parquet", "dep:arrow"]
 rdkafka = ["dep:rdkafka", "tokio"]
 # parquet = ["dep:parquet", "dep:arrow"]
+monitoring = ["tokio", "dep:kameo", "dep:libp2p"]
 
 [dependencies]
 # for logging to the console
@@ -92,6 +93,8 @@ arrow = { version = "57.0.0", optional = true }
 rdkafka = { version = "0.38.0", optional = true }
 serde_bytes = "0.11.19"
 tokio-util = { version = "0.7.18", features = ["codec"] }
+kameo = { version = "0.19.2", features = ["remote"], optional = true }
+libp2p = { version = "0.56.0", optional = true }
 
 [dev-dependencies]
 # for the tests
@@ -101,7 +104,7 @@ tempfile = "3.23.0"
 criterion = { version = "0.7.0", features = ["html_reports"] }
 fake = "4.4.0"
 mimalloc = { version = "0.1.48", default-features = false }
-tracing-subscriber = "0.3.20"
+tracing-subscriber = { version = "0.3.20", features = ["env-filter"] }
 itertools = "0.14.0"
 
 micrometer = { version = "0.2.7", features = ["enable"]}

@@ -1,8 +1,8 @@
 use std::any::TypeId;
 use std::collections::HashMap;
 use std::fmt::Write;
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
 use std::thread::JoinHandle;
 
 use parking_lot::Mutex;
@@ -10,10 +10,10 @@ use parking_lot::Mutex;
 use crate::block::{BatchMode, Block, BlockStructure, JobGraphGenerator, Replication};
 use crate::checkpointing::{CheckpointManager, CheckpointManagerRef};
 use crate::config::{LocalConfig, RemoteConfig, RuntimeConfig};
+use crate::monitoring::{LocalSupervisor, Supervisor};
 use crate::network::{Coord, NetworkTopology};
 use crate::operator::Operator;
 use crate::profiler::{log_trace, wait_profiler};
-use crate::monitoring::local::LocalSupervisor;
 use crate::worker::{spawn_worker, WorkerResult, WorkerStatus};
 use crate::CoordUInt;
 
@@ -139,7 +139,9 @@ impl Scheduler {
             // spawn the actual worker
             self.block_init.push((
                 coord,
-                Box::new(move |metadata, status_tx, terminate_flag| spawn_worker(block, metadata, status_tx, terminate_flag)),
+                Box::new(move |metadata, status_tx, terminate_flag| {
+                    spawn_worker(block, metadata, status_tx, terminate_flag)
+                }),
             ));
         }
     }
@@ -196,7 +198,8 @@ impl Scheduler {
                 batch_mode: block_info.batch_mode,
                 checkpoint_manager: self.checkpoint_manager.clone(),
             };
-            let (handle, structure) = init_fn(&mut metadata, status_tx.clone(), terminate_flag.clone());
+            let (handle, structure) =
+                init_fn(&mut metadata, status_tx.clone(), terminate_flag.clone());
             join.push(handle);
             block_structures.push((coord, structure.clone()));
             job_graph_generator.add_block(coord.block_id, structure);
@@ -234,15 +237,8 @@ impl Scheduler {
         let config = self.config.clone();
         let (_, supervisor_result, join_result) = tokio::join!(
             self.network.stop_and_wait(),
-            tokio::spawn(async move {
-                let out = match &*config {
-                    RuntimeConfig::Local(_) | RuntimeConfig::Remote(RemoteConfig { monitoring: None, .. }) => {
-                        supervisor.run_local()
-                    }
-                    RuntimeConfig::Remote(RemoteConfig { monitoring: Some(monitoring_config), .. }) => {
-                        supervisor.run_remote(monitoring_config).await
-                    }
-                };
+            tokio::task::spawn_blocking(move || {
+                let out = supervisor.run(&*config);
                 match out {
                     Ok(()) => info!("All workers completed successfully"),
                     Err(error_msg) => {
@@ -322,7 +318,7 @@ impl Scheduler {
 
             let supervisor_handle = std::thread::Builder::new()
                 .name("local-supervisor".to_string())
-                .spawn(move || supervisor.run_local())
+                .spawn(move || supervisor.run(&self.config))
                 .expect("Failed to spawn supervisor thread");
 
             for (i, handle) in join_handles.into_iter().enumerate() {
