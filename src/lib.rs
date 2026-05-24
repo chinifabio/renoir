@@ -127,6 +127,8 @@ pub use stream::{KeyedStream, Stream, WindowedStream};
 pub mod block;
 pub(crate) mod channel;
 pub mod config;
+#[path = "../dsl/mod.rs"]
+pub mod dsl;
 pub(crate) mod environment;
 pub(crate) mod network;
 pub mod operator;

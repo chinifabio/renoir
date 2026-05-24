@@ -1,0 +1,159 @@
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+
+select = { "SELECT" }
+distinct_keyword = { "DISTINCT" }
+from = { "FROM" }
+where_keyword = { "WHERE" }
+as_keyword = { "AS" }
+join = { "JOIN" }
+on = { "ON" }
+asterisk = { "*" }
+group_by_keyword = { "GROUP BY" }
+having_keyword = { "HAVING" }
+order_by_keyword = { "ORDER BY" }
+limit_keyword = { "LIMIT" }
+offset_keyword = { "OFFSET" }
+
+in_keyword = @{ ^"NOT IN" | ^"IN" }
+exists_keyword = @{ ^"NOT EXISTS" | ^"EXISTS" }
+
+l_paren = @{ "(" }
+r_paren = @{ ")" }
+
+boolean = { "true" | "false"}
+
+variable = @{ ('a'..'z' | 'A'..'Z'| "_") ~ (('a'..'z' | 'A'..'Z'| '0'..'9' | "_"))* }
+number = @{ ("-")? ~
+    ('0'..'9')+ // Integer part
+    ~ ("." ~ ('0'..'9')+)? // Optional decimal part
+}
+symbol = @{ ("^"| "+" | "-" | "*" | "/")}
+
+// Aggregate function definition
+agg_function = { ("MAX" | "MIN" | "AVG" | "SUM" | "COUNT") }
+aggregate_expr = { agg_function ~ "(" ~ (asterisk | table_column | variable) ~ ")" }
+
+operator = @{ ">=" | "<=" | "!=" | "<>" | ">" | "<" | "=" }
+null_operator = @ { "IS NOT NULL" | "IS NULL" }
+
+binary_op = { 
+    ^"AND" | 
+    ^"OR"
+}
+
+table_column = {
+    variable ~ "." ~ variable
+}
+
+spaced_string = @{ ('a'..'z' | 'A'..'Z' | '0'..'9' | " " | "-" | "_" | "#" | "*" | "%" | "&" | "/" | "\")* }
+string_literal = @{ "'" ~ spaced_string ~ "'" }
+
+// Arithmetic expression components
+arithmetic_expr = {
+    (arithmetic_term ~ (symbol ~ arithmetic_term)*) | subquery_expr
+}
+
+arithmetic_term = {
+    l_paren ~ arithmetic_expr ~ r_paren |
+    arithmetic_factor
+}
+
+arithmetic_factor = {
+    aggregate_expr |
+    table_column |
+    variable |
+    number |
+    string_literal |
+    boolean |
+    subquery_expr
+}
+
+exists_expr = { exists_keyword ~ subquery_expr }
+in_expr = { (arithmetic_expr | subquery_expr) ~ in_keyword ~ subquery_expr }
+
+
+condition = {
+    exists_expr |
+    in_expr |
+    arithmetic_expr ~ operator ~ arithmetic_expr | 
+    arithmetic_expr ~ null_operator |
+    boolean
+}
+
+where_conditions = { where_term ~ (binary_op ~ where_term)* }
+where_term = { 
+    l_paren ~ where_conditions ~ r_paren |
+    condition
+}
+where_expr = { where_keyword ~ where_conditions }
+
+column_item = {
+    select_expr |
+    aggregate_expr |
+    table_column | 
+    variable | 
+    string_literal |
+    subquery_expr 
+}
+
+column_with_alias = { column_item ~ (as_keyword ~ variable)? }
+column_list = { (column_with_alias ) ~ ("," ~ (column_with_alias ))* }
+select_expr = { 
+    (parenthesized_expr | column_operand) ~ 
+    (symbol ~ (parenthesized_expr | column_operand))*
+}
+
+column_operand = {aggregate_expr | table_column | variable | number | subquery_expr}
+parenthesized_expr = { l_paren ~ select_expr ~ r_paren }
+
+// Having clause
+having_term = { 
+    l_paren ~ having_expr ~ r_paren |
+    condition
+}
+having_expr = { having_term ~ (binary_op ~ having_term)* }
+
+// Group by 
+group_by_list = { (table_column | variable) ~ ("," ~ (table_column | variable))* }
+group_by_expr = { group_by_keyword ~ group_by_list ~ ( having_keyword ~ having_expr )? }
+
+
+join_condition = { table_column ~ "=" ~ table_column ~ ("AND" ~ table_column ~ "=" ~ table_column)* }
+
+from_expr = { from ~ scan_expr ~ join_expr* }
+scan_expr = { (variable | subquery_expr) ~ (as_keyword ~ variable)? }
+join_expr = { join_kind? ~ join ~ (scan_expr | subquery_expr) ~ on ~ join_condition }
+join_kind = { ( ^"INNER" | (^"LEFT" ~ (^"OUTER")?) | ^"OUTER") }
+
+order_direction = { ^"ASC" | ^"DESC" }
+nulls_handling = { ^"NULLS FIRST" | ^"NULLS LAST"}
+order_item = { (table_column | variable) ~ order_direction? ~ nulls_handling?}
+order_by_list = { order_item ~ ("," ~ order_item)* }
+order_by_expr = { order_by_keyword ~ order_by_list }
+            
+limit_expr = { 
+    limit_clause ~ offset_clause? 
+}
+
+limit_clause = { limit_keyword ~ number }
+offset_clause = { offset_keyword ~ number }
+
+subquery_expr = { l_paren ~ 
+    select ~ distinct_keyword? ~ (asterisk | column_list ) ~
+    from_expr ~
+    where_expr? ~
+    group_by_expr? ~
+    order_by_expr? ~
+    limit_expr? ~
+    r_paren }
+
+query = {
+    SOI ~
+    select ~ distinct_keyword? ~ (asterisk | column_list ) ~
+    from_expr ~
+    where_expr? ~
+    group_by_expr? ~
+    order_by_expr? ~
+    limit_expr? ~
+    EOI
+}

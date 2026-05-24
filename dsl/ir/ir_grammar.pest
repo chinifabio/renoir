@@ -1,0 +1,162 @@
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+COMMENT = _{ "//" ~ (!"\n" ~ ANY)* }
+
+// Basic building blocks
+identifier = @{ ('a'..'z' | 'A'..'Z'| "_") ~ (('a'..'z' | 'A'..'Z'| '0'..'9' | "_"))* }
+number = @{ ("-")? ~
+    ('0'..'9')+ // Integer part
+    ~ ("." ~ ('0'..'9')+)? // Optional decimal part
+}
+boolean_keyword = @{ ^"true" | ^"false" }
+symbol = @{ ("^"| "+" | "-" | "*" | "/")}
+string = @{ "'" ~ ('a'..'z' | 'A'..'Z' | '0'..'9' | " " | "-" | "_" | "#" | "*" | "%" | "&" | "/" | "\")* ~ "'" }
+value = { boolean_keyword | number | string }
+
+as_keyword = @{ "as" }
+in_keyword = @{ ^"not in" | ^"in" }
+exists_keyword = @{ ^"not exists" | ^"exists" }
+join = { "join" }
+join_type = {"inner" | "left" | "outer"}
+on = { "on" }
+asterisk = { "*" }
+group_keyword = { "group" }
+order_keyword = { "order" }
+limit_keyword = { "limit" }
+offset_keyword = { "offset" }
+distinct_keyword = { "_distinct" }
+
+left_parenthesis = { "(" }
+right_parenthesis = { ")" }
+
+binary_op = { ^"&&" | ^"||"}
+
+null_op = @{ "is null" | "is not null" }
+
+query = {
+    SOI ~
+    scan_clause  ~
+    filter_clause?  ~
+    group_clause?  ~
+    projection_clause  ~
+    order_clause? ~
+    limit_expr? ~
+    EOI
+}
+
+subquery = {
+    left_parenthesis ~
+    scan_clause  ~
+    filter_clause?  ~
+    group_clause?  ~
+    projection_clause  ~
+    order_clause? ~
+    limit_expr? ~
+    right_parenthesis
+}
+
+// Basic clauses
+scan_clause = { 
+    "from" ~ 
+    scan_expr ~
+    (join_type? ~ join ~ scan_expr ~ on ~ join_condition)*
+}
+
+stream_input = @{ ('a'..'z' | 'A'..'Z'| "_") ~ ('a'..'z' | 'A'..'Z'| '0'..'9' | "_")* }
+
+scan_expr = { 
+    (subquery | identifier )~ 
+    (as_keyword ~ identifier)? ~ 
+    in_keyword ~ 
+    stream_input 
+}
+
+join_condition = {
+    qualified_column ~ "==" ~ qualified_column ~ ("&&" ~ qualified_column ~ "==" ~ qualified_column)*
+}
+
+qualified_column = {
+    identifier ~ "." ~ identifier
+}
+
+// Arithmetic expressions for conditions
+arithmetic_expr = {
+    (arithmetic_par | arithmetic_factor) ~ (symbol ~ (arithmetic_par | arithmetic_factor))*
+}
+
+arithmetic_par = { left_parenthesis ~ arithmetic_expr ~ right_parenthesis }
+
+arithmetic_factor = {
+    aggregate_expr|
+    value |
+    qualified_column |
+    identifier |
+    subquery
+}
+
+in_expr = { (arithmetic_expr | subquery) ~ "not"? ~ in_keyword ~ subquery }
+
+condition = {
+    exists_keyword ~ subquery |
+    in_expr |
+    arithmetic_expr ~ comparison_op ~ arithmetic_expr | 
+    arithmetic_expr ~ null_op |
+    boolean_keyword
+}
+
+comparison_op = @{ ">=" | "<=" | "!=" | ">" | "<" | "==" | "="}
+filter_term = {
+    left_parenthesis ~ filter_condition ~ right_parenthesis |
+    condition
+}
+filter_condition = { filter_term ~ (binary_op ~ filter_term)* }
+filter_clause = { "where" ~ filter_condition }
+
+// Projection clause expressions
+projection_expr = { complex_op | aggregate_expr | qualified_column | identifier }
+column_operand = { aggregate_expr | qualified_column | subquery | identifier | number }
+parenthesized_expr = { left_parenthesis ~ projection_expr ~ right_parenthesis }
+
+complex_op = { 
+    (parenthesized_expr | column_operand) ~ 
+    (symbol ~ (parenthesized_expr | column_operand))*
+}
+
+// Aggregate expressions
+aggregate_expr = { aggregate_func ~ "(" ~ (asterisk | qualified_column | identifier) ~ ")" }
+aggregate_func = { "max" | "min" | "avg" | "count" | "sum" }
+
+column_list = {
+    column_item ~ ("," ~ column_item)*
+}
+
+column_item = {
+    (aggregate_expr | qualified_column | identifier | string | complex_op | subquery ) ~
+    (as_keyword ~ identifier)?
+}
+
+projection_clause = { "select" ~ distinct_keyword? ~ (asterisk | column_list) }
+
+// Group by clause
+having_term = {
+    left_parenthesis ~ having_expr ~ right_parenthesis |
+    condition
+}
+having_expr = { having_term ~ (binary_op ~ having_term)* }
+having_condition = {"{"  ~ having_expr ~ "}"}
+
+group_columns = { (qualified_column | identifier)  ~ ("," ~ (qualified_column | identifier))* }
+group_clause = { group_keyword  ~  group_columns ~ ( having_condition )? }
+
+
+order_direction = { "asc" | "desc" }
+nulls_handling = { ^"nulls first" | ^"nulls last"}
+order_item = { (qualified_column | identifier) ~ order_direction?  ~ nulls_handling? }
+order_list = { order_item ~ ("," ~ order_item)* }
+order_clause = { order_keyword ~ order_list }
+
+limit_expr = { 
+    limit_clause ~ offset_clause? 
+}
+
+limit_clause = { limit_keyword ~ number }
+offset_clause = { offset_keyword ~ number }
