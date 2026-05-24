@@ -2,6 +2,8 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 
+use crate::dsl::query::RenoirDependency;
+
 pub struct RustProject {
     pub project_path: PathBuf,
 }
@@ -9,20 +11,12 @@ pub struct RustProject {
 impl RustProject {
     /// Creates a new Rust project with the specified path.
     /// If the project already exists, it does nothing.
-    pub(crate) fn create_empty_project(path: &String, renoir_path: &Option<String>) -> io::Result<RustProject> {
+    pub(crate) fn create_empty_project(path: &str, renoir: Option<RenoirDependency>) -> io::Result<RustProject> {
 
         // Check if the provided renoir_path is valid. If not, use the default path from the parent directory.
-        let renoir = if let Some(ref renoir_path_str) = renoir_path {
-            renoir_path_str.clone()
-        } else {
-            std::env::current_dir()?
-                .parent()
-                .ok_or_else(|| {
-                    std::io::Error::new(std::io::ErrorKind::NotFound, "Parent directory not found")
-                })?
-                .join("renoir")
-                .to_string_lossy()
-                .replace('\\', "/")
+        let renoir = match renoir.unwrap_or_default() {
+            RenoirDependency::Path(p) => format!("renoir = {{ path = \"{}\" }}", p),
+            RenoirDependency::Git(r) => format!("renoir = {{ git = \"{}\" }}", r),
         };
 
         // Create project directory in current directory
@@ -39,7 +33,7 @@ impl RustProject {
                 edition = "2024"
                 
                 [dependencies]
-                renoir = {{ path = "{}" }}
+                {}
                 serde_json = "1.0.133"
                 serde = "1.0.217"
                 csv = "1.2.2"

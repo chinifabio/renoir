@@ -23,6 +23,8 @@ profiler = []
 parquet = ["dep:parquet", "dep:arrow"]
 rdkafka = ["dep:rdkafka", "tokio"]
 # parquet = ["dep:parquet", "dep:arrow"]
+dsl = []
+sql = ["dsl", "dep:pest", "dep:pest_derive", "dep:tempfile", "dep:ordered-float"]
 
 [dependencies]
 # for logging to the console
@@ -90,10 +92,10 @@ apache-avro = { version = "0.21.0", features = ["derive"], optional = true }
 parquet = { version = "57.0.0", optional = true }
 arrow = { version = "57.0.0", optional = true }
 rdkafka = { version = "0.39.0", optional = true }
-pest = "2.7"
-pest_derive = "2.7"
-tempfile = "3.13.0"
-ordered-float = {version = "5.0.0", features = ["serde"]}
+pest = { version = "2.7", optional = true}
+pest_derive = { version = "2.7", optional = true}
+tempfile = { version = "3.13.0", optional = true}
+ordered-float = { version = "5.0.0", features = ["serde"], optional = true}
 regex = "1.11.0"
 serde_bytes = "0.11.19"
 
@@ -144,6 +146,10 @@ required-features = ["rdkafka"]
 [[example]]
 name = "kafka_wordcount"
 required-features = ["rdkafka"]
+
+[[example]]
+name = "sql"
+required-features = ["sql"]
 
 # The list of benchmarks, all of them require "harness = false" in order to
 # work with criterion.rs. Cannot set `[lib] harness = false` because the tests

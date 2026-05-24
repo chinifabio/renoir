@@ -1,0 +1,13 @@
+[package]
+                name = "renoir_binary"
+                version = "0.1.0"
+                edition = "2024"
+                
+                [dependencies]
+                renoir = { git = "https://github.com/deib-polimi/renoir" }
+                serde_json = "1.0.133"
+                serde = "1.0.217"
+                csv = "1.2.2"
+                indexmap = "2.6.0"
+                ordered-float = {version = "5.0.0", features = ["serde"]}
+                

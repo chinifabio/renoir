@@ -127,7 +127,7 @@ pub use stream::{KeyedStream, Stream, WindowedStream};
 pub mod block;
 pub(crate) mod channel;
 pub mod config;
-#[path = "../dsl/mod.rs"]
+#[cfg(feature = "dsl")]
 pub mod dsl;
 pub(crate) mod environment;
 pub(crate) mod network;
@@ -153,4 +153,9 @@ pub mod prelude {
     #[cfg(feature = "timestamp")]
     pub use crate::operator::window::{EventTimeWindow, TransactionWindow};
     pub use crate::StreamContext;
+}
+
+#[cfg(feature = "sql")]
+pub mod sql {
+    pub use crate::dsl::query::renoir_sql;
 }
