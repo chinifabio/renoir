@@ -2,6 +2,7 @@
 //!
 //! See the documentation of [`RuntimeConfig`] for more details.
 
+use std::collections::HashMap;
 use std::env;
 use std::fmt::{Display, Formatter};
 use std::path::Path;
@@ -126,7 +127,7 @@ pub struct RemoteConfig {
 }
 
 /// The configuration of a single remote host.
-#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq, Default)]
 pub struct HostConfig {
     /// The IP address or domain name to use for connecting to this remote host.
     ///
@@ -145,11 +146,23 @@ pub struct HostConfig {
     #[serde(default)]
     pub ssh: SSHConfig,
     /// If specified, command to prefix to the worker execution. Used for profiling.
-    /// 
+    ///
     /// Examples:
     /// perf record --call-graph dwarf -o /tmp/data-1.perf --
     /// samply record --reuse-threads --per-cpu-threads -s -o /tmp/profile-1.json.gz
     pub perf_cmd: Option<String>,
+    /// Environment variables to set for the worker processes.
+    /// 
+    /// Examples:
+    /// ```
+    /// [host]
+    /// address = "host1"
+    /// env = {
+    ///    "FOO" = "bar",
+    /// }
+    /// ```
+    #[serde(default)]
+    pub env: HashMap<String, String>,
 }
 
 /// The information used to connect to a remote host via SSH.

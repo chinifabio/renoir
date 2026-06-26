@@ -146,12 +146,14 @@ fn build_remote_command(
     } else {
         "".into()
     };
+    let env_vars = config.hosts[host_id as usize].env.iter().map(|(k, v)| format!("export {k}={v}")).collect::<Vec<_>>().join(";");
     format!(
         "export {host_id_env}={host_id};
 export {config_env}={config};
 export RUST_LOG={rust_log};
 export RUST_BACKTRACE={rust_backtrace};
 export RUST_LOG_STYLE=always;
+{env_vars};
 {perf_cmd} {binary_path} {args}",
         host_id_env = HOST_ID_ENV_VAR,
         host_id = host_id,

@@ -30,8 +30,7 @@ pub fn remote_loopback_deploy(
             address,
             base_port: PORT_BASE,
             num_cores: cores_per_host,
-            ssh: Default::default(),
-            perf_cmd: None,
+            ..Default::default()
         });
     }
 

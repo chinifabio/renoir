@@ -415,7 +415,10 @@ mod with_metrics {
 
         #[inline]
         fn iteration_boundary(&mut self, leader_block_id: BlockId) {
-            *self.iteration_boundaries.entry(leader_block_id).or_default() += 1;
+            *self
+                .iteration_boundaries
+                .entry(leader_block_id)
+                .or_default() += 1;
             self.check_flush();
         }
     }

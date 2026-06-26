@@ -159,8 +159,7 @@ impl TestHelper {
                 address,
                 base_port: TEST_BASE_PORT,
                 num_cores: cores_per_host,
-                ssh: Default::default(),
-                perf_cmd: None,
+                ..Default::default()
             });
         }
 
