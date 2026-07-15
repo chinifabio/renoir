@@ -200,7 +200,9 @@ fn serde_benchmark(c: &mut Criterion) {
             BenchmarkId::new("bincode_deserialize", batch_size),
             move |b| {
                 b.iter(|| {
-                    black_box(bincode_deserialize::<SampleStringy>(black_box(&bincode_output[HEADER_SIZE..])));
+                    black_box(bincode_deserialize::<SampleStringy>(black_box(
+                        &bincode_output[HEADER_SIZE..],
+                    )));
                 })
             },
         );

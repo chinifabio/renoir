@@ -18,6 +18,8 @@ enum KafkaSourceInner {
     Init {
         config: ClientConfig,
         topics: Vec<String>,
+        autocommit: bool,
+        autostore: bool,
     },
     Running {
         rx: Receiver<OwnedMessage>,
@@ -29,9 +31,16 @@ enum KafkaSourceInner {
 impl Clone for KafkaSourceInner {
     fn clone(&self) -> Self {
         match self {
-            Self::Init { config, topics } => Self::Init {
+            Self::Init {
+                config,
+                topics,
+                autocommit,
+                autostore,
+            } => Self::Init {
                 config: config.clone(),
                 topics: topics.clone(),
+                autocommit: *autocommit,
+                autostore: *autostore,
             },
             _ => panic!("can only clone KafkaSource in itialization state"),
         }
@@ -71,7 +80,13 @@ impl Operator for KafkaSource {
     type Out = rdkafka::message::OwnedMessage;
 
     fn setup(&mut self, _metadata: &mut ExecutionMetadata) {
-        let KafkaSourceInner::Init { config, topics } = &self.inner else {
+        let KafkaSourceInner::Init {
+            config,
+            topics,
+            autocommit,
+            autostore,
+        } = &self.inner
+        else {
             panic!("KafkaSource in invalid state")
         };
 
@@ -82,6 +97,8 @@ impl Operator for KafkaSource {
         consumer
             .subscribe(t.as_slice())
             .expect("failed to subscribe to kafka topics");
+        let autocommit = *autocommit;
+        let autostore = *autostore;
         tracing::debug!("kafka source subscribed to {topics:?}");
 
         let (tx, rx) = flume::bounded(8);
@@ -103,9 +120,16 @@ impl Operator for KafkaSource {
                         panic!("channel send failed for kafka source {e}");
                     }
                 }
-                consumer
-                    .commit_message(&msg, CommitMode::Async)
-                    .expect("kafka fail to commit");
+                if !autostore {
+                    consumer
+                        .store_offset_from_message(&msg)
+                        .expect("kafka fail to commit");
+                }
+                if !autocommit {
+                    consumer
+                        .commit_message(&msg, CommitMode::Async)
+                        .expect("kafka fail to commit");
+                }
             }
         });
         self.inner = KafkaSourceInner::Running {
@@ -205,10 +229,20 @@ impl crate::StreamContext {
         topics: &[&str],
         replication: Replication,
     ) -> Stream<KafkaSource> {
+        let autocommit = client_config
+            .get("enable.auto.commit")
+            .map(|s| s == "true")
+            .unwrap_or(false);
+        let autostore = client_config
+            .get("enable.auto.offset.store")
+            .map(|s| s == "true")
+            .unwrap_or(false);
         let source = KafkaSource {
             inner: KafkaSourceInner::Init {
                 config: client_config,
                 topics: topics.iter().map(|s| s.to_string()).collect(),
+                autocommit,
+                autostore,
             },
             replication,
             terminated: false,

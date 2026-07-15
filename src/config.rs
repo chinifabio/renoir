@@ -145,7 +145,7 @@ pub struct HostConfig {
     #[serde(default)]
     pub ssh: SSHConfig,
     /// If specified, command to prefix to the worker execution. Used for profiling.
-    /// 
+    ///
     /// Examples:
     /// perf record --call-graph dwarf -o /tmp/data-1.perf --
     /// samply record --reuse-threads --per-cpu-threads -s -o /tmp/profile-1.json.gz
