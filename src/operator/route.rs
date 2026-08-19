@@ -74,10 +74,10 @@ impl<Out: ExchangeData, OperatorChain: Operator<Out = Out> + 'static>
             .collect::<Vec<_>>();
 
         let routes = new_blocks.iter().map(|b| b.id).zip(self.routes).collect();
-        let stream = self.stream.add_operator(move |prev| {
+        let mut stream = self.stream.add_operator(move |prev| {
             RoutingEnd::new(prev, routes, NextStrategy::only_one(), batch_mode)
         });
-
+        stream.block.is_only_one_strategy = true;
         ctx_lock.close_block(stream.block);
 
         for new_block in &mut new_blocks {
