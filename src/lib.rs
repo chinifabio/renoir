@@ -146,6 +146,8 @@ pub mod prelude {
     pub use crate::block::{BatchMode, Replication};
     pub use crate::config::RuntimeConfig;
     pub use crate::operator::sink::StreamOutput;
+    #[cfg(feature = "rdkafka")]
+    pub use crate::operator::source::KafkaCommitRouter;
     pub use crate::operator::source::*;
     pub use crate::operator::window::{CountWindow, ProcessingTimeWindow, SessionWindow};
     #[cfg(feature = "timestamp")]
