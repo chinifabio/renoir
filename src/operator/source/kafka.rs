@@ -7,7 +7,7 @@ use flume::Receiver;
 use futures::StreamExt;
 use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::message::OwnedMessage;
-use rdkafka::ClientConfig;
+use rdkafka::{ClientConfig, Message, Offset, TopicPartitionList};
 
 use crate::block::{BlockStructure, OperatorKind, OperatorStructure, Replication};
 use crate::operator::source::Source;
@@ -34,7 +34,9 @@ impl KafkaCommitRouter {
     }
 
     pub fn register(&self, partition: i32, consumer: Arc<StreamConsumer>) {
-        self.routes.insert(partition, consumer);
+        if !self.routes.contains_key(&partition) {
+            self.routes.insert(partition, consumer);
+        }
     }
 
     pub fn unregister(&self, partition: i32) {
@@ -43,8 +45,14 @@ impl KafkaCommitRouter {
 
     pub fn commit(&self, topic: &str, partition: i32, offset: i64) {
         if let Some(consumer) = self.routes.get(&partition) {
-            if let Err(e) = consumer.store_offset(topic, partition, offset) {
-                tracing::warn!("failed to store offset for partition {partition}: {e}");
+            let mut tpl = TopicPartitionList::new();
+            // Offset::Offset(offset + 1) because we want to commit the next offset to be read
+            if let Err(e) = tpl.add_partition_offset(topic, partition, Offset::Offset(offset + 1)) {
+                tracing::warn!("failed to create TopicPartitionList for partition {partition}: {e}");
+                return;
+            }
+            if let Err(e) = consumer.commit(&tpl, CommitMode::Async) {
+                tracing::warn!("failed to commit offset for partition {partition}: {e}");
             }
         } else {
             tracing::warn!("no registered consumer for partition {partition}, dropping commit");
@@ -97,6 +105,7 @@ pub struct KafkaSource {
     inner: KafkaSourceInner,
     replication: Replication,
     terminated: bool,
+    enable_cooldown: bool,
 }
 
 impl Display for KafkaSource {
@@ -134,19 +143,11 @@ impl Operator for KafkaSource {
             .expect("failed to subscribe to kafka topics");
         tracing::debug!("kafka source subscribed to {topics:?}");
 
-        if let Some(router) = router.clone() {
-            consumer
-                .assignment()
-                .expect("failed to get assigned partitions")
-                .elements()
-                .iter()
-                .for_each(|p| router.register(p.partition(), consumer.clone()));
-        }
-
         let (tx, rx) = flume::bounded(8);
         let cancel_token = Arc::new(AtomicBool::new(false));
         let cancel = cancel_token.clone();
         let commit_flg = router.is_none();
+        let router = router.clone();
         tracing::debug!("started kafka source with topics {:?}", topics);
         tokio::spawn(async move {
             let mut stream = consumer.stream();
@@ -155,6 +156,11 @@ impl Operator for KafkaSource {
                 if cancel.load(Ordering::SeqCst) {
                     break;
                 }
+
+                if let Some(router) = &router {
+                    router.register(msg.partition(), consumer.clone());
+                }
+
                 let owned = msg.detach();
                 if let Err(e) = tx.send(owned) {
                     if cancel.load(Ordering::SeqCst) {
@@ -184,7 +190,7 @@ impl Operator for KafkaSource {
             }
             // KafkaSourceInner::Terminated => return StreamElement::Terminate,
             KafkaSourceInner::Running { rx, cooldown, .. } => {
-                if *cooldown {
+                if self.enable_cooldown && *cooldown {
                     match rx.recv() {
                         Ok(msg) => {
                             *cooldown = false;
@@ -200,7 +206,9 @@ impl Operator for KafkaSource {
                 match rx.recv_timeout(std::time::Duration::from_millis(100)) {
                     Ok(msg) => StreamElement::Item(msg),
                     Err(flume::RecvTimeoutError::Timeout) => {
-                        *cooldown = true;
+                        if self.enable_cooldown {
+                            *cooldown = true;
+                        }
                         StreamElement::FlushBatch
                     }
                     Err(flume::RecvTimeoutError::Disconnected) => {
@@ -233,6 +241,7 @@ impl Clone for KafkaSource {
             inner: self.inner.clone(),
             replication: self.replication,
             terminated: false,
+            enable_cooldown: self.enable_cooldown,
         }
     }
 }
@@ -245,6 +254,13 @@ impl Drop for KafkaSource {
                 cancel_token.store(true, Ordering::SeqCst);
             }
         }
+    }
+}
+
+impl Stream<KafkaSource> {
+    pub fn enable_cooldown(mut self, enable: bool) -> Self {
+        self.block.operators.enable_cooldown = enable;
+        self
     }
 }
 
@@ -275,6 +291,7 @@ impl crate::StreamContext {
             },
             replication,
             terminated: false,
+            enable_cooldown: true,
         };
         self.stream(source)
     }
@@ -307,6 +324,7 @@ impl crate::StreamContext {
             },
             replication,
             terminated: false,
+            enable_cooldown: true,
         };
         (self.stream(source), router)
     }
@@ -500,6 +518,27 @@ mod test {
             format!("{router:?}"),
             "KafkaCommitRouter { routes: \"some routes\" }"
         );
+    }
+
+    #[tokio::test]
+    async fn test_kafka_source_enable_cooldown_flag() {
+        let (producer, _) = mock_kafka().await;
+        let b = bootstrap_servers(&producer);
+
+        let ctx = StreamContext::new_local();
+        let mut config = ClientConfig::new();
+        config.set("bootstrap.servers", &b);
+        config.set("group.id", "test-cooldown-grp");
+
+        let (stream, _router) = ctx.stream_kafka_with_commit_router(
+            config,
+            &["test_topic"],
+            Replication::One,
+        );
+        assert!(stream.block.operators.enable_cooldown);
+
+        let stream = stream.enable_cooldown(false);
+        assert!(!stream.block.operators.enable_cooldown);
     }
 }
 

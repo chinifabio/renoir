@@ -58,6 +58,7 @@ impl StreamContext {
             .map(|q| q.get())
             .unwrap_or(4);
         let conf = RuntimeConfig::local(parallelism as u64).unwrap();
+        tracing::info!("new local environment with parallelism {parallelism}");
         Self::new(conf)
     }
 
