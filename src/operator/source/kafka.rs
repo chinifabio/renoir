@@ -151,8 +151,29 @@ impl Operator for KafkaSource {
         tracing::debug!("started kafka source with topics {:?}", topics);
         tokio::spawn(async move {
             let mut stream = consumer.stream();
+            let mut error_count = 0;
             while let Some(msg) = stream.next().await {
-                let msg = msg.expect("failed receiving from kafka");
+                let msg = match msg {
+                    Ok(msg) => msg,
+                    Err(e) => {
+                        error_count += 1;
+                        tracing::error!("kafka source error: {e}");
+                        if error_count > 10 {
+                            tracing::error!("kafka source error count exceeded 10, terminating");
+                            break;
+                        }
+                        if cancel.load(Ordering::SeqCst) {
+                            break;
+                        }
+                        tokio::time::sleep(std::time::Duration::from_millis(
+                            // exponential backoff with a max of 10 seconds
+                            (100u64 * 2u64.pow((error_count as u32 - 1).min(10))).min(10_000),
+                        ))
+                        .await;
+                        continue;
+                    }
+                };
+                error_count = 0;
                 if cancel.load(Ordering::SeqCst) {
                     break;
                 }
